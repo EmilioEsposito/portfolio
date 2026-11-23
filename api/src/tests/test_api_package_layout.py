@@ -24,7 +24,6 @@ SERNIA_OPERATIONS = frozenset(
         "clickup",
         "contact",
         "google",
-        "hitl_agents",
         "open_phone",
         "prefect",
         "rental_listings",

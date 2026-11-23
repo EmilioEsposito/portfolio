@@ -56,8 +56,6 @@ export const TEAM_API_PATHS = [
   "/api/open_phone/send_message",
   // The scheduler page: list, run and delete jobs.
   "/api/schedulers/",
-  // The HITL demo chat and its approval queue.
-  "/api/ai-demos/hitl-agent/",
 ] as const;
 
 /** Where the team's pages are for someone on a host that does not serve them. */

@@ -46,7 +46,7 @@ test("/team signed out on the Sernia host is the team's sign-in page", async ({ 
 });
 
 test("every team page is behind the same sign-in, and an unknown team page is the team's 404", async ({ page }) => {
-  for (const path of ["/team/chat?id=conversation-1", "/team/leads", "/team/leads/bookings", "/team/tenants", "/team/hitl-queue"]) {
+  for (const path of ["/team/chat?id=conversation-1", "/team/leads", "/team/leads/bookings", "/team/tenants", "/team/scheduler"]) {
     const response = await page.goto(path);
     expect(response?.status(), path).toBe(200);
     await expect(page.getByRole("heading", { level: 1 }), path).toHaveText("This area is for the Sernia Capital team.");
@@ -92,7 +92,7 @@ test("the portfolio's /systems/leasing-leads shows the diagram, with no staff ta
   // No tabs, and no link to a staff page other than the team site itself.
   await expect(page.getByRole("navigation", { name: /Lead agent pages|Zillow Leads Agent pages/ })).toHaveCount(0);
   const hrefs = await page.locator("a[href]").evaluateAll((links) => links.map((link) => link.getAttribute("href") ?? ""));
-  expect(hrefs.filter((href) => /^\/(team|sernia-chat|sernia-settings|sernia-admin|message-tenants|scheduler|hitl-agent)/.test(href))).toEqual([]);
+  expect(hrefs.filter((href) => /^\/(team|sernia-chat|sernia-settings|sernia-admin|message-tenants|scheduler)/.test(href))).toEqual([]);
   expect(hrefs).toContain("https://serniacapital.com/team");
   // No install manifest or home-screen app tags outside the team's pages.
   await expect(page.locator('link[rel="manifest"]')).toHaveCount(0);
@@ -100,7 +100,7 @@ test("the portfolio's /systems/leasing-leads shows the diagram, with no staff ta
 });
 
 test("the old staff addresses are gone, and the Sernia host forwards only the team's and the public API", async ({ page }) => {
-  for (const path of ["/sernia-chat", "/sernia-settings", "/sernia-admin", "/message-tenants", "/scheduler", "/hitl-agent-chat", "/systems/leasing-leads/bookings"]) {
+  for (const path of ["/sernia-chat", "/sernia-settings", "/sernia-admin", "/message-tenants", "/scheduler", "/systems/leasing-leads/bookings"]) {
     const response = await page.request.get(`${PORTFOLIO}${path}`);
     expect(response.status(), path).toBe(404);
   }

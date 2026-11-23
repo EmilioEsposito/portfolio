@@ -156,7 +156,6 @@ const TEAM_CALLS: Record<(typeof TEAM_API_PATHS)[number], string[]> = {
   "/api/open_phone/tenants": ["/api/open_phone/tenants"],
   "/api/open_phone/send_message": ["/api/open_phone/send_message"],
   "/api/schedulers/": ["/api/schedulers/get_jobs", "/api/schedulers/run_job_now/apscheduler/job-1"],
-  "/api/ai-demos/hitl-agent/": ["/api/ai-demos/hitl-agent/chat", "/api/ai-demos/hitl-agent/workflow/pending"],
 };
 
 test("on a Sernia host the /api proxy forwards the public booking API and each path the team's pages call", () => {
@@ -226,7 +225,7 @@ const routes = routeTable();
 
 test("every team route is under /team, inside the team layout", () => {
   const team = routes.filter((route) => route.file.startsWith("sites/team/") && route.file !== TEAM_LAYOUT);
-  assert.ok(team.length >= 13, `expected the team's pages, found ${team.length}`);
+  assert.ok(team.length >= 11, `expected the team's pages, found ${team.length}`);
   for (const route of team) {
     assert.equal(isTeamPath(sampleUrl(route.path)), true, `${route.file} is served at ${route.path}`);
     assert.ok(route.parents.includes(TEAM_LAYOUT), `${route.file} must be inside the team layout`);
@@ -256,8 +255,6 @@ test("the team's pages are at the addresses the backend links to", () => {
     "/team/leads/listings",
     "/team/leads/settings",
     "/team/leads/bookings",
-    "/team/hitl-chat",
-    "/team/hitl-queue",
   ]) {
     assert.ok(paths.includes(path), path);
   }
@@ -268,8 +265,6 @@ test("the team's pages are at the addresses the backend links to", () => {
     "/sernia-admin",
     "/message-tenants",
     "/scheduler",
-    "/hitl-agent-chat",
-    "/hitl-agent-workflow",
     "/systems/leasing-leads/listings",
     "/systems/leasing-leads/settings",
     "/systems/leasing-leads/bookings",

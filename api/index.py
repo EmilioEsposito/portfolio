@@ -51,7 +51,6 @@ logfire.info("STARTUP1")
 
 # Import from api.src
 with logfire.span("Creating AI Agent Routes"):
-    from api.src.hitl_agents.routes import router as hitl_agents_router
     from api.src.portfolio.routes import router as portfolio_router
     from api.src.sernia_ai.routes import router as sernia_ai_router
 from api.src.agent_conversations.routes import router as agent_conversations_router
@@ -355,8 +354,6 @@ app.add_middleware(
 
 # Include all routers
 app.include_router(portfolio_router, prefix="/api")
-# The Sernia staff HITL demo keeps its /api/ai-demos/hitl-agent URLs.
-app.include_router(hitl_agents_router, prefix="/api/ai-demos", tags=["ai-demos"])
 app.include_router(sernia_ai_router, prefix="/api")
 app.include_router(agent_conversations_router, prefix="/api/agent-conversations")
 # Existing clients retain their conversation URLs; both mounts share auth and handlers.
