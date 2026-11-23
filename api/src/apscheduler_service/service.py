@@ -27,6 +27,7 @@ from api.src.database.database import sync_engine
 from api.src.google.gmail.service import send_email
 from api.src.open_phone.service import send_message
 from api.src.push.service import send_push_to_user
+from api.src.schedulers.job_info import JobInfo, remember
 from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
 
 # --- Monkey-patch APScheduler Job.__str__ to include job_id --- START
@@ -126,8 +127,12 @@ def _new_trace(func):
     return wrapper
 
 
-def upsert_job(scheduler: AsyncIOScheduler, **kwargs) -> None:
+def upsert_job(scheduler: AsyncIOScheduler, *, info: JobInfo | None = None, **kwargs) -> None:
     """Add a job, cleanly replacing any existing job with the same ID.
+
+    ``info`` describes the job for the Scheduler page (``schedulers/job_info.py``):
+    it is recorded under the job's id, and ``info.name`` becomes the job's name.
+    Every job registered at startup passes one; a test fails if one does not.
 
     Automatically wraps async job functions with _new_trace so each execution
     gets its own trace in Logfire instead of inheriting the lifespan trace.
@@ -143,6 +148,10 @@ def upsert_job(scheduler: AsyncIOScheduler, **kwargs) -> None:
     pending jobs.
     """
     kwargs.pop("replace_existing", None)
+    if info is not None:
+        kwargs["name"] = info.name
+        if kwargs.get("id"):
+            remember(kwargs["id"], info)
     # Wrap async functions so each run gets its own trace
     func = kwargs.get("func")
     if func and asyncio.iscoroutinefunction(func):
@@ -328,6 +337,20 @@ async def schedule_email(
     return is_scheduled
 
 
+HELLO_WORLD_JOB_INFO = JobInfo(
+    name="Test job: hello world (local only)",
+    summary="Writes one log line 30 seconds after the API starts on a developer's machine.",
+    description=(
+        "A demonstration job. It is registered only in local development, and only "
+        "when background automation is switched on there; hosted environments, "
+        "production included, never register it. It runs once, 30 seconds after the "
+        "API starts, writes a hello message to the log and is then removed by the "
+        "scheduler. It sends nothing and changes no data, so removing it changes "
+        "nothing."
+    ),
+)
+
+
 def register_hello_apscheduler_jobs():
     """Register hello world test job.
 
@@ -346,6 +369,7 @@ def register_hello_apscheduler_jobs():
     scheduler = get_scheduler()
     upsert_job(
         scheduler,
+        info=HELLO_WORLD_JOB_INFO,
         func=run_hello_world,
         trigger="date",
         kwargs={"name": "Emilio"},

@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from api.src.database.database import AsyncSessionFactory
+from api.src.schedulers.job_info import JobInfo
 from api.src.showing_bookings import delivery_checks, outbox, resident_notices
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.providers import (
@@ -343,6 +344,38 @@ async def scheduled_run() -> None:
     await send_pending(now=now)
 
 
+# Shown on the team's Scheduler page (api/src/schedulers/job_info.py).
+JOB_INFO = JobInfo(
+    name="Showings: send due texts, invites and alerts",
+    summary=(
+        "Sends the showing texts, calendar invites and reminders that are due, and alerts "
+        "the team about any that failed."
+    ),
+    description=(
+        "Runs the showing booking service's delivery steps in order. It releases a "
+        "booking's held host event and prospect invite once the prospect's confirmation "
+        "text is reported delivered (or five minutes after it went, without a report), and "
+        "stops them and marks the booking for the team when the text was not delivered. It "
+        "queues the reminders due the evening before a showing, the host's morning text, "
+        "and the text with the link to apply that goes two hours after a showing starts. "
+        "It delivers every notice that is due: texts through Quo from the team line, "
+        "calendar events and invites through Google Calendar, and a Zillow lead's reminder "
+        "by email through Gmail. Last, in production, it sends the team one web push for "
+        "each notice that failed or is stuck."
+        "\n\n"
+        "Who can receive anything follows the send mode on the Booking settings tab: in "
+        "capture mode notices are only recorded for the team to see, and outside "
+        "production only the test list can be reached. With nothing held, due, recently "
+        "failed, coming up in the next two days or owed an apply text, a run ends after "
+        "one database query."
+        "\n\n"
+        "Paused or removed, held invites stay held, reminders, morning texts and apply "
+        "texts are not sent, what a request left unfinished stays unfinished, and the team "
+        "is not alerted about failures."
+    ),
+)
+
+
 def register_job() -> None:
     """Schedule ``scheduled_run`` every minute. Called at startup when background
     automation is on (``api/index.py``)."""
@@ -350,8 +383,8 @@ def register_job() -> None:
 
     upsert_job(
         get_scheduler(),
+        info=JOB_INFO,
         id=JOB_ID,
-        name="Showing bookings: release and send notices",
         func=scheduled_run,
         trigger="interval",
         seconds=60,

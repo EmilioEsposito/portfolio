@@ -10,6 +10,7 @@ from api.src.apscheduler_service.routes import delete_job as apscheduler_delete_
 # from api.src.dbos_service.routes import run_job_now as dbos_run_job_now
 from api.src.apscheduler_service.routes import get_jobs as apscheduler_get_jobs
 from api.src.apscheduler_service.routes import run_job_now as apscheduler_run_job_now
+from api.src.schedulers.job_info import info_for
 from api.src.utils.clerk import verify_serniacapital_user
 
 SchedulerService = Literal["dbos", "apscheduler"]
@@ -22,11 +23,18 @@ router = APIRouter(
 
 
 def _with_service(job: dict, service: SchedulerService) -> dict:
+    """Normalize a job for the Scheduler page, with its name, summary and description.
+
+    The description registered with the job (``job_info.py``) wins. A job added
+    without one keeps its scheduler name (or its id) and has no summary or
+    description.
+    """
     j = dict(job)
     j["service"] = service
-    # Normalize shape for the frontend Scheduler component
-    if j.get("name") is None:
-        j["name"] = j.get("id")
+    info = info_for(j.get("id", ""))
+    j["name"] = info.name if info else (j.get("name") or j.get("id"))
+    j["summary"] = info.summary if info else None
+    j["description"] = info.description if info else None
     return j
 
 
