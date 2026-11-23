@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/react-router";
 import {
   ensureCurrentPushSubscription,
+  PUSH_USER_STORAGE_KEY,
   TEAM_SERVICE_WORKER_SCOPE,
   TEAM_SERVICE_WORKER_URL,
   whenActive,
 } from "~/sites/team/lib/push-subscription";
 
 const API_BASE = "/api/sernia-ai";
-const PUSH_USER_STORAGE_KEY = "sernia-push-user-id";
 
 async function fetchPublicKey(token: string): Promise<string> {
   const response = await fetch(`${API_BASE}/push/vapid-public-key`, {

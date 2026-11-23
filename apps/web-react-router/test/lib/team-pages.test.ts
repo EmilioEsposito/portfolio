@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { retireRootServiceWorker } from "~/lib/retire-root-service-worker";
 import { TeamChecking, TeamSignIn, TeamWrongAccount } from "~/sites/team/components/team-gate";
 import { TEAM_SERVICE_WORKER_SCOPE, TEAM_SERVICE_WORKER_URL } from "~/sites/team/lib/push-subscription";
-import { isTeamAdmin, teamAccess, teamEmails } from "~/sites/team/lib/team-access";
+import { endsPush, isTeamAdmin, teamAccess, teamEmails } from "~/sites/team/lib/team-access";
 import { conversationHref, waitingForPerson } from "~/sites/team/lib/team-home";
 import { isCurrentSection, TEAM_HOME, TEAM_SECTIONS, visibleSections } from "~/sites/team/lib/team-sections";
 import type { ConversationSummary } from "~/sites/team/lib/sernia-conversations";
@@ -195,4 +195,11 @@ test("retiring does nothing where no such worker is, or where there are no servi
   const unsubscribed = { getRegistrations: async () => [registration("https://example.test/", events, false)] };
   assert.equal(await retireRootServiceWorker(unsubscribed as unknown as ServiceWorkerContainer, "https://example.test"), 1);
   assert.deepEqual(events, ["unregister https://example.test/"]);
+});
+
+test("a browser's notifications end once no team member is signed in, and never while loading", () => {
+  assert.equal(endsPush("signed-out"), true);
+  assert.equal(endsPush("wrong-account"), true);
+  assert.equal(endsPush("loading"), false);
+  assert.equal(endsPush("allowed"), false);
 });

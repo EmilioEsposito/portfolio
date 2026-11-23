@@ -7,6 +7,30 @@
 export const TEAM_SERVICE_WORKER_URL = "/team/sw.js";
 export const TEAM_SERVICE_WORKER_SCOPE = "/team/";
 
+/** Where the browser remembers which signed-in user its push subscription belongs to. */
+export const PUSH_USER_STORAGE_KEY = "sernia-push-user-id";
+
+type SubscriptionHolder = {
+  pushManager: { getSubscription(): Promise<{ unsubscribe(): Promise<boolean> } | null> };
+};
+
+/**
+ * Ends this browser's team push subscription and forgets whose it was, for a
+ * browser no team member is signed in on. The push service then refuses the
+ * endpoint, and the API drops it the next time it sends. Answers whether there
+ * was a subscription to end.
+ */
+export async function revokeTeamPush(
+  serviceWorker: { getRegistration(scope: string): Promise<SubscriptionHolder | undefined> },
+  storage: Pick<Storage, "removeItem">,
+): Promise<boolean> {
+  const registration = await serviceWorker.getRegistration(TEAM_SERVICE_WORKER_SCOPE);
+  const subscription = (await registration?.pushManager.getSubscription()) ?? null;
+  if (subscription) await subscription.unsubscribe();
+  storage.removeItem(PUSH_USER_STORAGE_KEY);
+  return subscription !== null;
+}
+
 type ActivatingRegistration = Pick<ServiceWorkerRegistration, "active" | "installing" | "waiting">;
 
 /**

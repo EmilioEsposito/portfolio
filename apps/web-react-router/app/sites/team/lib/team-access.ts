@@ -31,6 +31,15 @@ export function teamAccess(state: {
   return state.emails.some((email) => email.verified && isTeamAddress(email.address)) ? "allowed" : "wrong-account";
 }
 
+/**
+ * Whether this browser's push subscription must be ended: once Clerk knows
+ * that no team member is signed in here. Notifications carry reply previews
+ * and approval details, so they stop with the sign-in. Never while loading.
+ */
+export function endsPush(access: TeamAccess): boolean {
+  return access === "signed-out" || access === "wrong-account";
+}
+
 export function isTeamAddress(address: string): boolean {
   return address.trim().toLowerCase().endsWith(`@${TEAM_EMAIL_DOMAIN}`);
 }

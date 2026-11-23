@@ -3,7 +3,8 @@ import { useAuth, useClerk, useUser } from "@clerk/react-router";
 import { useLocation } from "react-router";
 
 import { TeamChecking, TeamSignIn, TeamWrongAccount } from "~/sites/team/components/team-gate";
-import { teamAccess, teamEmails } from "~/sites/team/lib/team-access";
+import { revokeTeamPush } from "~/sites/team/lib/push-subscription";
+import { endsPush, teamAccess, teamEmails } from "~/sites/team/lib/team-access";
 
 /** How long sign-in may take to load after it is pressed before the page says so. */
 const SIGN_IN_LOAD_LIMIT_MS = 15_000;
@@ -20,6 +21,16 @@ export function TeamGuard({ banner, children }: { banner?: React.ReactNode; chil
   const { isLoaded, isSignedIn } = useAuth();
   const { user } = useUser();
   const access = teamAccess({ authLoaded: isLoaded, signedIn: isSignedIn, emails: teamEmails(user) });
+  // Signing out unmounts every team page, and with them the notification hook
+  // that would have ended this browser's push subscription. The guard is what
+  // stays, so it ends the subscription.
+  const endPush = endsPush(access);
+  useEffect(() => {
+    if (!endPush || !("serviceWorker" in navigator)) return;
+    void revokeTeamPush(navigator.serviceWorker, localStorage).catch((error) => {
+      console.error("Could not end this browser's notifications:", error);
+    });
+  }, [endPush]);
   if (access === "allowed") return <>{children}</>;
   return (
     <>

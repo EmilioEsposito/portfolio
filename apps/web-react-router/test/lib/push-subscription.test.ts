@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ensureCurrentPushSubscription, whenActive } from "../../app/sites/team/lib/push-subscription.ts";
+import {
+  ensureCurrentPushSubscription,
+  PUSH_USER_STORAGE_KEY,
+  revokeTeamPush,
+  TEAM_SERVICE_WORKER_SCOPE,
+  whenActive,
+} from "../../app/sites/team/lib/push-subscription.ts";
 
 const key = new Uint8Array([4, 251, 255, 19]);
 const encoded = Buffer.from(key).toString("base64url");
@@ -111,3 +117,36 @@ test("a worker that fails to install is reported, not waited for forever", async
   await assert.rejects(whenActive({ active: null, installing: null, waiting: null }), /did not install/);
 });
 
+
+// A browser with (or without) the team's registration and a push subscription on it.
+function browser(registered: boolean, subscribed: boolean) {
+  const events: string[] = [];
+  const subscription = { unsubscribe: async () => (events.push("unsubscribe"), true) };
+  return {
+    events,
+    serviceWorker: {
+      getRegistration: async (scope: string) => {
+        events.push(`registration ${scope}`);
+        return registered ? { pushManager: { getSubscription: async () => (subscribed ? subscription : null) } } : undefined;
+      },
+    },
+    storage: { removeItem: (key: string) => void events.push(`forget ${key}`) },
+  };
+}
+
+test("ending notifications unsubscribes the team's registration and forgets its owner", async () => {
+  const b = browser(true, true);
+  assert.equal(await revokeTeamPush(b.serviceWorker, b.storage), true);
+  assert.deepEqual(b.events, [
+    `registration ${TEAM_SERVICE_WORKER_SCOPE}`,
+    "unsubscribe",
+    `forget ${PUSH_USER_STORAGE_KEY}`,
+  ]);
+});
+
+test("ending notifications on a browser without them only forgets the owner", async () => {
+  for (const b of [browser(true, false), browser(false, false)]) {
+    assert.equal(await revokeTeamPush(b.serviceWorker, b.storage), false);
+    assert.deepEqual(b.events.slice(1), [`forget ${PUSH_USER_STORAGE_KEY}`]);
+  }
+});
