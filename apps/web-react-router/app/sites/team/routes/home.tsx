@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/react-router";
-import { Bell, ChevronRight, Download, Loader2, Share } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { Link } from "react-router";
 
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { useTeamAdmin } from "~/sites/team/components/team-nav";
-import { usePushNotifications } from "~/sites/team/hooks/use-push-notifications";
 import type { ConversationSummary } from "~/sites/team/lib/sernia-conversations";
 import {
   conversationHref,
@@ -120,73 +119,6 @@ function WaitingSection() {
   );
 }
 
-/** The prompt to turn on notifications on this device, as the chat offers it. */
-function NotificationsSection() {
-  const push = usePushNotifications();
-  // The hook also checks the subscription when the page opens; the button
-  // says "Turning on" only once it has been pressed.
-  const [requested, setRequested] = useState(false);
-  if (!push.isSupported) return null;
-  if (push.needsInstall) {
-    return (
-      <Notice>
-        <Share className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-        <span>
-          To get notifications on this phone, add these pages to the Home Screen: tap Share (
-          {push.iosBrowser === "chrome" ? "top right" : "bottom center"}), then Add to Home Screen, and open it from
-          there.
-        </span>
-      </Notice>
-    );
-  }
-  if (push.isSubscribed) {
-    return (
-      <Notice>
-        <Bell className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-        <span>Notifications are on for this device.</span>
-      </Notice>
-    );
-  }
-  if (push.permission === "denied") {
-    return (
-      <Notice>
-        <Bell className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-        <span>Notifications are blocked for this site. Allow them in the browser's settings to be told when something waits for you.</span>
-      </Notice>
-    );
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border p-4">
-      <Bell className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <p className="min-w-0 flex-1 text-sm">Turn on notifications to be told when a conversation needs you.</p>
-      <div className="flex gap-2">
-        {push.canInstall && (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void push.promptInstall()}>
-            <Download className="size-4" aria-hidden="true" />
-            Install app
-          </Button>
-        )}
-        <Button
-          size="sm"
-          className="gap-1.5"
-          disabled={push.isLoading}
-          onClick={() => {
-            setRequested(true);
-            void push.subscribe();
-          }}
-        >
-          {requested && push.isLoading && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-          {requested && push.isLoading ? "Turning on…" : "Turn on notifications"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function Notice({ children }: { children: React.ReactNode }) {
-  return <p className="flex gap-2 rounded-lg border p-4 text-sm text-muted-foreground">{children}</p>;
-}
-
 export default function TeamHome() {
   const admin = useTeamAdmin();
   return (
@@ -194,7 +126,6 @@ export default function TeamHome() {
     <div className="mx-auto w-full max-w-3xl space-y-9 px-4 py-8 sm:px-6 sm:py-10">
       <h1 className="text-2xl font-semibold tracking-tight">Sernia Capital team</h1>
       <WaitingSection />
-      <NotificationsSection />
       <section aria-labelledby="pages-title" className="space-y-3">
         <h2 id="pages-title" className="text-lg font-semibold">
           Team pages

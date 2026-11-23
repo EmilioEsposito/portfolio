@@ -62,6 +62,26 @@ class TestSmoke:
 
 
 @pytest.mark.asyncio
+async def test_test_notification_goes_only_to_the_person_who_asked(monkeypatch):
+    from api.src.agent_conversations.push import routes
+
+    notify_user = AsyncMock()
+    monkeypatch.setattr(routes, "notify_user_push", notify_user)
+    # The team-wide send is not reachable from the route at all.
+    assert not hasattr(routes, "notify_all_sernia_users")
+
+    user = MagicMock()
+    user.id = "user-456"
+    assert await routes.send_test_push(user=user) == {"status": "sent"}
+
+    notify_user.assert_awaited_once()
+    sent = notify_user.await_args.kwargs
+    assert sent["clerk_user_id"] == "user-456"
+    assert sent["data"] == {"url": "/team/chat"}
+    assert "Test notification" in sent["body"]
+
+
+@pytest.mark.asyncio
 async def test_chat_response_notification_has_preview_and_is_user_targeted(monkeypatch):
     from api.src.agent_conversations.push import service
 
