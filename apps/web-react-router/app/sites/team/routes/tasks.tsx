@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/react-router";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 
@@ -37,9 +37,16 @@ function useTasks() {
   const [working, setWorking] = useState<Record<string, boolean>>({});
   const [problems, setProblems] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
+  // A reload and a status change never overlap. A reload that began before a
+  // change finished would bring back the task as it was, show it open again
+  // and drop its Undo. The buttons are disabled to match (see `changing`).
+  const changes = useRef(0);
+  const reloading = useRef(false);
 
   const load = useCallback(
     async (quiet: boolean) => {
+      if (changes.current > 0 || reloading.current) return;
+      reloading.current = true;
       if (quiet) setRefreshing(true);
       else setLoaded({ state: "loading" });
       try {
@@ -52,6 +59,7 @@ function useTasks() {
       } catch {
         setLoaded({ state: "failed" });
       } finally {
+        reloading.current = false;
         setRefreshing(false);
       }
     },
@@ -63,7 +71,9 @@ function useTasks() {
 
   const setCompleted = useCallback(
     async (task: TeamTask, completed: boolean) => {
+      if (reloading.current) return;
       const key = taskKey(task);
+      changes.current += 1;
       setWorking((current) => ({ ...current, [key]: true }));
       setProblems(({ [key]: _, ...rest }) => rest);
       try {
@@ -96,13 +106,16 @@ function useTasks() {
           [key]: error instanceof Error && error.message ? error.message : "That did not work. Try again.",
         }));
       } finally {
+        changes.current -= 1;
         setWorking(({ [key]: _, ...rest }) => rest);
       }
     },
     [done, getToken],
   );
 
-  return { loaded, refreshing, working, problems, reload: load, setCompleted };
+  /** A status change is on its way: no reload until it has answered. */
+  const changing = Object.keys(working).length > 0;
+  return { loaded, refreshing, changing, working, problems, reload: load, setCompleted };
 }
 
 const DUE_TONE = {
@@ -121,6 +134,8 @@ function SourceTag({ source }: { source: TaskSource }) {
 function TaskRow(props: {
   task: TeamTask;
   working: boolean;
+  /** The list is being reloaded: no change can start until it is back. */
+  paused: boolean;
   problem: string | undefined;
   onComplete: () => void;
   onUndo: () => void;
@@ -181,13 +196,13 @@ function TaskRow(props: {
         {task.completed ? (
           <>
             <span className="text-sm text-muted-foreground">Completed</span>
-            <Button variant="ghost" size="sm" className="gap-1.5" disabled={props.working} onClick={props.onUndo}>
+            <Button variant="ghost" size="sm" className="gap-1.5" disabled={props.working || props.paused} onClick={props.onUndo}>
               {props.working && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
               {props.working ? "Reopening…" : "Undo"}
             </Button>
           </>
         ) : (
-          <Button variant="outline" size="sm" className="gap-1.5" disabled={props.working} onClick={props.onComplete}>
+          <Button variant="outline" size="sm" className="gap-1.5" disabled={props.working || props.paused} onClick={props.onComplete}>
             {props.working && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
             {props.working ? "Completing…" : "Mark complete"}
           </Button>
@@ -200,7 +215,7 @@ function TaskRow(props: {
 type Filter = "all" | TaskSource;
 
 export default function TeamTasks() {
-  const { loaded, refreshing, working, problems, reload, setCompleted } = useTasks();
+  const { loaded, refreshing, changing, working, problems, reload, setCompleted } = useTasks();
   const [filter, setFilter] = useState<Filter>("all");
   const tasks = loaded.state === "loaded" ? loaded.view.tasks : [];
   const counts = countBySource(tasks);
@@ -224,7 +239,7 @@ export default function TeamTasks() {
           variant="outline"
           size="sm"
           className="gap-1.5"
-          disabled={refreshing || loaded.state === "loading"}
+          disabled={refreshing || changing || loaded.state === "loading"}
           onClick={() => void reload(true)}
         >
           <RefreshCw className={cn("size-4", refreshing && "animate-spin")} aria-hidden="true" />
@@ -292,6 +307,7 @@ export default function TeamTasks() {
                     key={key}
                     task={task}
                     working={working[key] === true}
+                    paused={refreshing}
                     problem={problems[key]}
                     onComplete={() => void setCompleted(task, true)}
                     onUndo={() => void setCompleted(task, false)}
