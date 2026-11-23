@@ -9,7 +9,8 @@ import { routeTable } from "./route-table";
 // The web app is laid out by site (README, "Layout"). Code under one site's
 // folder never imports another site's folder; code more than one site uses
 // lives in app/components, app/lib or app/hooks. The glue directly under
-// app/sites/ may import any site. Sernia's public pages load no Clerk.
+// app/sites/ may import any site. Only the team's pages use Clerk: nothing the
+// portfolio or the Sernia public pages import loads it.
 
 const APP = fileURLToPath(new URL("../../app/", import.meta.url));
 
@@ -83,10 +84,10 @@ test("the import check sees a crossing", () => {
   assert.deepEqual(found, ["team", "portfolio"]);
 });
 
-test("nothing the Sernia public pages import loads Clerk", () => {
-  // Followed through shared code and the glue, not only the site's own files.
+/** Every `@clerk/*` import reachable from a site's files, through shared code and the glue. */
+function clerkImportsReachedFrom(files: string[]): { reached: number; clerk: string[] } {
   const via = new Map<string, string>();
-  const queue = sourceFiles("sites/sernia-public");
+  const queue = [...files];
   for (const file of queue) via.set(file, file);
   const clerk: string[] = [];
   while (queue.length > 0) {
@@ -104,8 +105,24 @@ test("nothing the Sernia public pages import loads Clerk", () => {
       }
     }
   }
-  assert.ok(via.size > sourceFiles("sites/sernia-public").length, "expected shared code to be followed");
-  assert.deepEqual(clerk, []);
+  return { reached: via.size, clerk };
+}
+
+for (const site of ["portfolio", "sernia-public"]) {
+  test(`nothing the ${site} site imports loads Clerk`, () => {
+    // Followed through shared code and the glue, not only the site's own files.
+    const files = sourceFiles(`sites/${site}`);
+    const { reached, clerk } = clerkImportsReachedFrom(files);
+    assert.ok(reached > files.length, "expected shared code to be followed");
+    assert.deepEqual(clerk, []);
+  });
+}
+
+test("the Clerk check sees an import of @clerk/*, also through shared code", () => {
+  assert.deepEqual(importsOf(`import { useAuth } from "@clerk/react-router";`), ["@clerk/react-router"]);
+  // The team's pages do use Clerk, so the check is not blind to it.
+  const { clerk } = clerkImportsReachedFrom(sourceFiles("sites/team/routes"));
+  assert.ok(clerk.length > 0);
 });
 
 test("every route module in a site's routes folder is in app/routes.ts", () => {

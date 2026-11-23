@@ -67,10 +67,25 @@ export function apiEnvironment(): Record<string, string> {
   };
 }
 
-/** The web server's environment: where the API is, and the pages switched on. */
+/**
+ * Made-up Clerk keys for the team's pages, which run Clerk's middleware and
+ * need keys to answer at all. The publishable key names a Clerk host that does
+ * not exist (clerk.example.test), so the browser's request for Clerk's script
+ * is blocked like any other outside request, and with no session cookie the
+ * server never calls Clerk: every team page is signed out.
+ */
+export const CLERK_HOST = "clerk.example.test";
+const MADE_UP_CLERK_KEYS = {
+  CLERK_PUBLISHABLE_KEY: `pk_live_${Buffer.from(`${CLERK_HOST}$`).toString("base64")}`,
+  CLERK_SECRET_KEY: "sk_live_made-up-for-the-browser-test",
+  CLERK_TELEMETRY_DISABLED: "1",
+};
+
+/** The web server's environment: where the API is, the pages switched on, and made-up Clerk keys. */
 export function webEnvironment(): Record<string, string> {
   return {
     ...base(),
+    ...MADE_UP_CLERK_KEYS,
     NODE_ENV: "production",
     PORT: String(WEB_PORT),
     BACKEND_PORT: String(API_PORT),

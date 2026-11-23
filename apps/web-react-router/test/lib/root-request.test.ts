@@ -7,11 +7,13 @@ import * as catchAllRoute from "~/sites/not-found";
 import * as indexRoute from "~/sites/home";
 import * as serniaLayoutRoute from "~/sites/sernia-public/routes/layout";
 import * as privacyRoute from "~/sites/sernia-public/routes/privacy";
+import * as teamLayoutRoute from "~/sites/team/routes/layout";
 
 // Runs the root's real middleware and loader, the Sernia layout, the privacy
-// page and the catch-all route through React Router's request handler: the
-// server path of a page load, and of the .data request a client navigation
-// makes. Clerk is a stand-in that marks the response; the tests have no keys.
+// page, the team layout and the catch-all route through React Router's request
+// handler: the server path of a page load, and of the .data request a client
+// navigation makes. Clerk is a stand-in that marks the response; the tests
+// have no keys. Clerk must run for the team's pages and nothing else.
 
 const ENVIRONMENT = ["SERNIA_PUBLIC_HOSTS", "SERNIA_PUBLIC_PAGES_ENABLED", "RAILWAY_ENVIRONMENT_NAME"] as const;
 for (const name of ENVIRONMENT) delete process.env[name];
@@ -30,6 +32,9 @@ const clerkStandIn: MiddlewareFunction<Response> = async (_args, next) => {
   response.headers.set("x-test-clerk", "ran");
   return response;
 };
+
+/** Stands in for the team's pages: the real layout's middleware and loader, a page with no code. */
+const teamPage = { default: () => null };
 
 const build = {
   entry: {
@@ -52,7 +57,7 @@ const build = {
       path: "",
       module: {
         middleware: [createRootMiddleware(clerkStandIn)],
-        loader: (args: { url: URL }) => loadRoot(args, () => ({ clerkState: "stand-in" })),
+        loader: (args: { url: URL }) => loadRoot(args, (team) => ({ ...team, clerkState: "stand-in" })),
         default: () => null,
         ErrorBoundary: () => null,
       },
@@ -65,6 +70,24 @@ const build = {
       module: privacyRoute,
     },
     "sites/home": { id: "sites/home", parentId: "root", index: true, module: indexRoute },
+    "sites/team/routes/layout": {
+      id: "sites/team/routes/layout",
+      parentId: "root",
+      module: { middleware: teamLayoutRoute.middleware, loader: teamLayoutRoute.loader, default: () => null },
+    },
+    "sites/team/routes/home": {
+      id: "sites/team/routes/home",
+      parentId: "sites/team/routes/layout",
+      path: "team",
+      index: true,
+      module: teamPage,
+    },
+    "sites/team/routes/chat": {
+      id: "sites/team/routes/chat",
+      parentId: "sites/team/routes/layout",
+      path: "team/chat",
+      module: teamPage,
+    },
     "sites/not-found": { id: "sites/not-found", parentId: "root", path: "*", module: catchAllRoute },
   },
   assets: {},
@@ -85,6 +108,7 @@ async function request(url: string, init?: RequestInit) {
   return {
     status: response.status,
     clerk: response.headers.get("x-test-clerk") === "ran",
+    location: response.headers.get("location"),
     body: await response.text(),
   };
 }
@@ -99,19 +123,19 @@ test("outside production the pages render without Clerk, on any host", async () 
     assert.deepEqual([page.status, page.clerk], [200, false], origin);
     const data = await request(`${origin}${PRIVACY_DATA}`);
     assert.deepEqual([data.status, data.clerk], [200, false], origin);
-    assert.match(data.body, /serniaPublic/, origin);
+    assert.match(data.body, /"sernia-public"/, origin);
   }
   const unknown = await request("http://localhost:5293/unknown");
-  assert.deepEqual([unknown.status, unknown.clerk], [404, true]);
+  assert.deepEqual([unknown.status, unknown.clerk], [404, false]);
 });
 
 test("in production the pages stay off, and their paths answer like an unknown URL", async () => {
   await withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production" }, async () => {
     const unknown = await request("https://eesposito.com/unknown");
-    assert.deepEqual([unknown.status, unknown.clerk], [404, true]);
+    assert.deepEqual([unknown.status, unknown.clerk], [404, false]);
 
     const page = await request("https://eesposito.com/privacy");
-    assert.deepEqual([page.status, page.clerk], [404, true]);
+    assert.deepEqual([page.status, page.clerk], [404, false]);
     const post = await request("https://eesposito.com/privacy", { method: "POST" });
     const unknownPost = await request("https://eesposito.com/unknown", { method: "POST" });
     assert.equal(post.status, unknownPost.status);
@@ -120,9 +144,9 @@ test("in production the pages stay off, and their paths answer like an unknown U
     // A client navigation's data request gets the same 404 and no Sernia data.
     const data = await request(`https://eesposito.com${PRIVACY_DATA}`);
     const unknownData = await request("https://eesposito.com/unknown.data?_routes=root,sites/not-found");
-    assert.deepEqual([data.status, data.clerk], [404, true]);
-    assert.deepEqual([unknownData.status, unknownData.clerk], [404, true]);
-    assert.doesNotMatch(data.body, /serniaPublic|sernia-public-not-found/);
+    assert.deepEqual([data.status, data.clerk], [404, false]);
+    assert.deepEqual([unknownData.status, unknownData.clerk], [404, false]);
+    assert.doesNotMatch(data.body, /"sernia-public"|sernia-public-not-found/);
   });
 });
 
@@ -145,7 +169,7 @@ test("in production SERNIA_PUBLIC_PAGES_ENABLED=true serves the pages without Cl
       assert.deepEqual([page.status, page.clerk], [200, false], origin);
       const data = await request(`${origin}${PRIVACY_DATA}`);
       assert.deepEqual([data.status, data.clerk], [200, false], origin);
-      assert.match(data.body, /serniaPublic/, origin);
+      assert.match(data.body, /"sernia-public"/, origin);
     }
     const unknown = await request("https://serniacapital.com/unknown");
     assert.deepEqual([unknown.status, unknown.clerk], [404, false]);
@@ -155,9 +179,9 @@ test("in production SERNIA_PUBLIC_PAGES_ENABLED=true serves the pages without Cl
 test("outside production SERNIA_PUBLIC_PAGES_ENABLED=false switches the pages off", async () => {
   await withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "portfolio-pr-397", SERNIA_PUBLIC_PAGES_ENABLED: "false" }, async () => {
     const page = await request("https://react-router-portfolio-pr-397.up.railway.app/privacy");
-    assert.deepEqual([page.status, page.clerk], [404, true]);
+    assert.deepEqual([page.status, page.clerk], [404, false]);
     const data = await request(`https://react-router-portfolio-pr-397.up.railway.app${PRIVACY_DATA}`);
-    assert.deepEqual([data.status, data.clerk], [404, true]);
+    assert.deepEqual([data.status, data.clerk], [404, false]);
   });
 });
 
@@ -189,7 +213,7 @@ test("on a Sernia host / is the Sernia home page, without Clerk", async () => {
       assert.deepEqual([page.status, page.clerk], [200, false], origin);
       const data = await request(`${origin}${HOME_DATA}`);
       assert.deepEqual([data.status, data.clerk], [200, false], origin);
-      assert.match(data.body, /serniaPublic/, origin);
+      assert.match(data.body, /"sernia-public"/, origin);
       assert.match(data.body, /bookingOpen/, origin);
     }
     // The call line's route, then the units list, which is read ahead without waiting for it.
@@ -198,14 +222,15 @@ test("on a Sernia host / is the Sernia home page, without Clerk", async () => {
   });
 });
 
-test("on other hosts / stays the personal site's home page, through Clerk, with no API call", async () => {
+test("on other hosts / stays the portfolio's home page, without Clerk, with no API call", async () => {
   await withApi(200, async (calls) => {
     for (const origin of ["http://localhost:5293", "https://eesposito.com"]) {
       const page = await request(`${origin}/`);
-      assert.deepEqual([page.status, page.clerk], [200, true], origin);
+      assert.deepEqual([page.status, page.clerk], [200, false], origin);
       const data = await request(`${origin}${HOME_DATA}`);
-      assert.deepEqual([data.status, data.clerk], [200, true], origin);
-      assert.doesNotMatch(data.body, /serniaPublic|bookingOpen/, origin);
+      assert.deepEqual([data.status, data.clerk], [200, false], origin);
+      assert.match(data.body, /"portfolio"/, origin);
+      assert.doesNotMatch(data.body, /"sernia-public"|bookingOpen/, origin);
     }
     assert.deepEqual(calls, []);
   });
@@ -220,7 +245,7 @@ test("in production / on a Sernia host is the Sernia 404 until the pages are on"
       assert.deepEqual([data.status, data.clerk], [404, false]);
       assert.match(data.body, /sernia-public-not-found/);
       const personal = await request("https://eesposito.com/");
-      assert.deepEqual([personal.status, personal.clerk], [200, true]);
+      assert.deepEqual([personal.status, personal.clerk], [200, false]);
     });
     assert.deepEqual(calls, []);
     await withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production", SERNIA_PUBLIC_PAGES_ENABLED: "true" }, async () => {
@@ -229,5 +254,78 @@ test("in production / on a Sernia host is the Sernia 404 until the pages are on"
       assert.deepEqual([data.status, data.clerk], [200, false]);
       assert.match(data.body, /bookingOpen/);
     });
+  });
+});
+
+// What the browser asks for when a link moves to /team/chat.
+const CHAT_DATA = "/team/chat.data?_routes=root,sites/team/routes/layout,sites/team/routes/chat";
+
+test("Clerk runs for the team's pages and nothing else", async () => {
+  for (const origin of ["https://serniacapital.com", "http://serniacapital.localhost:5293", "http://localhost:5293"]) {
+    for (const path of ["/team", "/team/chat", "/team/unknown"]) {
+      const page = await request(`${origin}${path}`);
+      assert.equal(page.clerk, true, `${origin}${path}`);
+      assert.equal(page.status, path === "/team/unknown" ? 404 : 200, `${origin}${path}`);
+    }
+    const data = await request(`${origin}${CHAT_DATA}`);
+    assert.deepEqual([data.status, data.clerk], [200, true], origin);
+    assert.match(data.body, /"team"/, origin);
+    assert.match(data.body, /clerkState/, origin);
+  }
+  for (const url of [
+    "http://localhost:5293/",
+    "http://localhost:5293/unknown",
+    "http://localhost:5293/privacy",
+    "https://serniacapital.com/privacy",
+    "https://serniacapital.com/",
+    "https://serniacapital.com/unknown",
+  ]) {
+    const page = await request(url);
+    assert.equal(page.clerk, false, url);
+    assert.doesNotMatch(page.body, /clerkState/, url);
+  }
+});
+
+test("on a Sernia host /team answers whether or not the public pages are on, in production too", async () => {
+  await withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production" }, async () => {
+    const page = await request("https://serniacapital.com/team");
+    assert.deepEqual([page.status, page.clerk], [200, true]);
+    const home = await request("https://serniacapital.com/");
+    assert.deepEqual([home.status, home.clerk], [404, false]);
+  });
+});
+
+test("in production a team path on another host is the portfolio's 404, without Clerk", async () => {
+  await withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production" }, async () => {
+    for (const path of ["/team", "/team/chat", "/team/unknown"]) {
+      const page = await request(`https://eesposito.com${path}`);
+      assert.deepEqual([page.status, page.clerk], [404, false], path);
+      assert.doesNotMatch(page.body, /clerkState|"team"/, path);
+    }
+    const data = await request(`https://eesposito.com${CHAT_DATA}`);
+    assert.deepEqual([data.status, data.clerk], [404, false]);
+    assert.doesNotMatch(data.body, /clerkState/);
+  });
+  await withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "development" }, async () => {
+    const page = await request("https://dev.eesposito.com/team/chat");
+    assert.deepEqual([page.status, page.clerk], [200, true]);
+  });
+});
+
+test("a team page on www.serniacapital.com moves to serniacapital.com before Clerk runs", async () => {
+  const page = await request("https://www.serniacapital.com/team/chat?id=conversation-1");
+  assert.deepEqual([page.status, page.clerk, page.location], [308, false, "//serniacapital.com/team/chat?id=conversation-1"]);
+  const publicPage = await request("https://www.serniacapital.com/privacy");
+  assert.deepEqual([publicPage.status, publicPage.clerk, publicPage.location], [200, false, null]);
+});
+
+test("the team layout says where the public site is from each host", async () => {
+  const from = (url: string) => teamLayoutRoute.loader({ url: new URL(url) } as never).publicSiteHref;
+  assert.equal(from("https://serniacapital.com/team"), "/");
+  assert.equal(from("http://serniacapital.localhost:5293/team"), "/");
+  assert.equal(from("http://localhost:5293/team"), "https://serniacapital.com/");
+  await withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production" }, async () => {
+    // The public pages are off, so there is nothing at / to link to.
+    assert.equal(from("https://serniacapital.com/team"), null);
   });
 });

@@ -256,7 +256,7 @@ function LiveUnits({
       {units.length === 0 ? (
         <p className="leading-6">
           There are no rental listings yet. Add them under{" "}
-          <Link to="/systems/leasing-leads/listings" className="underline underline-offset-4">
+          <Link to="/team/leads/listings" className="underline underline-offset-4">
             Rental listing data
           </Link>
           .

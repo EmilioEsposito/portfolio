@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/react-router";
 import { Link, useBlocker } from "react-router";
 import { Loader2, Save } from "lucide-react";
-import { AuthGuard } from "~/sites/team/components/auth-guard";
+import { teamTitle } from "~/sites/team/lib/team-meta";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import { Input } from "~/components/ui/input";
@@ -35,10 +35,7 @@ function pick(data: Settings): Settings {
   };
 }
 
-export const meta = () => [
-  { title: "Agent settings | Zillow Leads Agent" },
-  { name: "robots", content: "noindex, nofollow" },
-];
+export const meta = () => [{ title: teamTitle("Lead agent settings") }];
 
 async function refusal(response: Response): Promise<string> {
   const body = await response.json().catch(() => null);
@@ -155,7 +152,7 @@ function LeadSettingsForm() {
                     ? "Human approval is on, so these replies wait for the team too. Turn it off to choose."
                     : "Unticked replies wait for the team. A reply that books or reschedules is sent only if it states the new time."}
                 </p>
-                {booksShowings === false && <p className="mt-2 text-sm leading-6 text-muted-foreground">Replies do not change showings right now: the lead agent’s switch in <Link to="/systems/leasing-leads/bookings" className="text-foreground underline underline-offset-4">Booking settings</Link> is off.</p>}
+                {booksShowings === false && <p className="mt-2 text-sm leading-6 text-muted-foreground">Replies do not change showings right now: the lead agent’s switch in <Link to="/team/leads/bookings" className="text-foreground underline underline-offset-4">Booking settings</Link> is off.</p>}
               </fieldset>
             </div>
             <div className="space-y-2">
@@ -165,7 +162,7 @@ function LeadSettingsForm() {
               {!valid && <p className="text-sm text-destructive">Enter a whole number from 60 to 3,600.</p>}
             </div>
           </fieldset>
-          {automationEnabled === false && <p className="rounded-lg bg-muted p-3 text-sm leading-6 text-muted-foreground">Automated runs are currently disabled. Saving these settings does not enable the <Link to="/sernia-settings" className="text-foreground underline underline-offset-4">shared automation switch</Link>.</p>}
+          {automationEnabled === false && <p className="rounded-lg bg-muted p-3 text-sm leading-6 text-muted-foreground">Automated runs are currently disabled. Saving these settings does not enable the <Link to="/team/settings" className="text-foreground underline underline-offset-4">shared automation switch</Link>.</p>}
           <div className="flex flex-wrap items-center gap-3 border-t pt-5">
             <Button type="submit" disabled={!dirty || !valid || saving} className="gap-2">{saving ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Save className="size-4" aria-hidden="true" />}Save settings</Button>
             <Button type="button" variant="outline" disabled={!dirty || saving} onClick={() => { setForm(saved); setError(null); setSuccess(false); }}>Undo edits</Button>
@@ -173,11 +170,11 @@ function LeadSettingsForm() {
           </div>
         </form>
       )}
-      <Link to="/sernia-chat" className="mt-7 inline-block text-sm underline underline-offset-4">Open agent conversations</Link>
+      <Link to="/team/chat" className="mt-7 inline-block text-sm underline underline-offset-4">Open agent conversations</Link>
     </section>
   );
 }
 
 export default function ZillowLeadSettingsPage() {
-  return <AuthGuard requireDomain="serniacapital.com" message="Sernia sign-in required"><LeadSettingsForm /></AuthGuard>;
+  return <LeadSettingsForm />;
 }

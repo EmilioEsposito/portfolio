@@ -8,7 +8,6 @@ import {
   isSerniaHomeRequest,
   isSerniaHost,
   isSerniaPublicPath,
-  isSerniaPublicRequest,
   rootRequestMode,
   serniaPublicHosts,
   serniaPublicPagesEnabled,
@@ -66,10 +65,11 @@ test("SERNIA_PUBLIC_HOSTS replaces the default hosts", () => {
     assert.equal(isSerniaHost("preview.example.test:5173"), true);
     assert.equal(isSerniaHost("OTHER.example.test"), true);
     assert.equal(isSerniaHost("serniacapital.com"), false);
-    assert.equal(rootRequestMode("https://preview.example.test/sernia-chat"), "sernia-not-found");
+    assert.equal(rootRequestMode("https://preview.example.test/sernia-capital"), "sernia-not-found");
     assert.equal(rootRequestMode("https://preview.example.test/"), "sernia-public");
-    assert.equal(rootRequestMode("https://serniacapital.com/"), "app");
-    assert.equal(isApiProxyAllowed("preview.example.test", "/api/sernia-ai/chat"), false);
+    assert.equal(rootRequestMode("https://serniacapital.com/"), "portfolio");
+    assert.equal(isApiProxyAllowed("preview.example.test", "/api/ai-demos/chat-emilio"), false);
+    assert.equal(isApiProxyAllowed("serniacapital.com", "/api/ai-demos/chat-emilio"), true);
   });
   assert.equal(isSerniaHost("serniacapital.com"), true);
 });
@@ -108,7 +108,7 @@ test("the switch is read from the environment on each call", () => {
   assert.equal(serniaPublicPagesEnabled(), true);
   withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production" }, () => {
     assert.equal(serniaPublicPagesEnabled(), false);
-    assert.equal(rootRequestMode("https://eesposito.com/privacy"), "app");
+    assert.equal(rootRequestMode("https://eesposito.com/privacy"), "portfolio");
     assert.equal(rootRequestMode("https://serniacapital.com/privacy"), "sernia-not-found");
   });
   withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production", SERNIA_PUBLIC_PAGES_ENABLED: "true" }, () => {
@@ -118,20 +118,19 @@ test("the switch is read from the environment on each call", () => {
   });
   withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "portfolio-pr-397", SERNIA_PUBLIC_PAGES_ENABLED: "false" }, () => {
     assert.equal(serniaPublicPagesEnabled(), false);
-    assert.equal(rootRequestMode("https://react-router-portfolio-pr-397.up.railway.app/privacy"), "app");
+    assert.equal(rootRequestMode("https://react-router-portfolio-pr-397.up.railway.app/privacy"), "portfolio");
   });
 });
 
-test("while the pages are off, their paths take the app path and a Sernia host answers 404 everywhere", () => {
+test("while the pages are off, their paths are the portfolio's and a Sernia host answers 404 everywhere but /team", () => {
   const off = { pagesEnabled: false };
   for (const path of ["/privacy", "/sms-terms", "/showings", "/showings/320-03", "/", "/sernia-capital"]) {
     assert.equal(rootRequestMode(`https://serniacapital.com${path}`, off), "sernia-not-found", path);
     assert.equal(rootRequestMode(`https://www.serniacapital.com${path}`, off), "sernia-not-found", path);
-    assert.equal(rootRequestMode(`https://eesposito.com${path}`, off), "app", path);
-    assert.equal(rootRequestMode(`http://localhost:5293${path}`, off), "app", path);
+    assert.equal(rootRequestMode(`https://eesposito.com${path}`, off), "portfolio", path);
+    assert.equal(rootRequestMode(`http://localhost:5293${path}`, off), "portfolio", path);
   }
-  assert.equal(isSerniaPublicRequest("https://eesposito.com/privacy", off), false);
-  assert.equal(isSerniaPublicRequest("https://serniacapital.com/privacy", off), true);
+  assert.equal(rootRequestMode("https://serniacapital.com/team", off), "team");
   assert.equal(rootRequestMode("https://eesposito.com/privacy", { pagesEnabled: true }), "sernia-public");
 });
 
@@ -139,8 +138,9 @@ test("the /api rule does not depend on the pages switch", () => {
   withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production" }, () => {
     assert.equal(serniaPublicPagesEnabled(), false);
     assert.equal(isApiProxyAllowed("serniacapital.com", "/api/showing-bookings/public/units"), true);
-    assert.equal(isApiProxyAllowed("serniacapital.com", "/api/sernia-ai/chat"), false);
-    assert.equal(isApiProxyAllowed("eesposito.com", "/api/sernia-ai/chat"), true);
+    assert.equal(isApiProxyAllowed("serniacapital.com", "/api/sernia-ai/chat"), true);
+    assert.equal(isApiProxyAllowed("serniacapital.com", "/api/ai-demos/chat-emilio"), false);
+    assert.equal(isApiProxyAllowed("eesposito.com", "/api/ai-demos/chat-emilio"), true);
   });
 });
 
@@ -176,8 +176,8 @@ test("Sernia public paths are /showings, /showings/*, /privacy and /sms-terms", 
     "/sms-terms/extra",
     "/sms",
     "/sernia-capital",
-    "/sernia-chat",
-    "/systems/leasing-leads/bookings",
+    "/team",
+    "/team/leads/bookings",
     "/api/showing-bookings/public/units",
     "/showings%2Fx",
     "/privacy%",
@@ -186,7 +186,7 @@ test("Sernia public paths are /showings, /showings/*, /privacy and /sms-terms", 
   }
 });
 
-test("a Sernia public request is a Sernia host, or a Sernia public path on any host", () => {
+test("a Sernia public page is any path on a Sernia host it serves, or a Sernia public path on any host", () => {
   for (const url of [
     "https://serniacapital.com/privacy",
     "https://www.serniacapital.com/sms-terms",
@@ -195,40 +195,39 @@ test("a Sernia public request is a Sernia host, or a Sernia public path on any h
     "http://localhost:5293/privacy",
     "https://react-router-portfolio-pr-123.up.railway.app/sms-terms",
     "https://eesposito.com/showings/320-03",
+    "https://SERNIACAPITAL.COM:443/privacy",
   ]) {
-    assert.equal(isSerniaPublicRequest(url), true, url);
+    assert.equal(rootRequestMode(url), "sernia-public", url);
   }
   for (const url of [
     "https://eesposito.com/",
     "https://eesposito.com/sernia-capital",
-    "http://localhost:5293/sernia-chat",
-    "https://react-router-portfolio-pr-123.up.railway.app/systems/leasing-leads/bookings",
+    "http://localhost:5293/systems/leasing-leads",
   ]) {
-    assert.equal(isSerniaPublicRequest(url), false, url);
+    assert.equal(rootRequestMode(url), "portfolio", url);
   }
-  assert.equal(isSerniaPublicRequest(new URL("https://SERNIACAPITAL.COM:443/anything")), true);
 });
 
-test("on a Sernia host every path but the public ones and the home page answers 404", () => {
+test("on a Sernia host every path but the public ones, the home page, robots.txt and /team answers 404", () => {
   for (const path of [
     "/sernia-capital",
     "/systems/leasing-leads",
     "/sernia-chat",
     "/sitemap.xml",
-    "/robots.txt",
     "/index",
     "/apply",
     "/_index",
+    "/teams",
   ]) {
     assert.equal(rootRequestMode(`https://serniacapital.com${path}`), "sernia-not-found", path);
     assert.equal(rootRequestMode(`http://serniacapital.localhost:5293${path}`), "sernia-not-found", path);
   }
-  for (const path of ["/", "/privacy", "/sms-terms", "/showings", "/showings/320-03"]) {
+  for (const path of ["/", "/privacy", "/sms-terms", "/showings", "/showings/320-03", "/robots.txt"]) {
     assert.equal(rootRequestMode(`https://www.serniacapital.com${path}`), "sernia-public", path);
   }
   // Other hosts keep every other page, and show the Sernia pages at the same paths.
-  assert.equal(rootRequestMode("https://eesposito.com/"), "app");
-  assert.equal(rootRequestMode("http://localhost:5293/sernia-chat"), "app");
+  assert.equal(rootRequestMode("https://eesposito.com/"), "portfolio");
+  assert.equal(rootRequestMode("http://localhost:5293/robots.txt"), "portfolio");
   assert.equal(rootRequestMode("http://localhost:5293/privacy"), "sernia-public");
 });
 
@@ -255,8 +254,7 @@ test("/ is the Sernia home page on a Sernia host while the pages are on, and the
     "https://api.serniacapital.com/",
   ]) {
     for (const options of [on, off]) {
-      assert.equal(rootRequestMode(url, options), "app", url);
-      assert.equal(isSerniaPublicRequest(url, options), false, url);
+      assert.equal(rootRequestMode(url, options), "portfolio", url);
       assert.equal(isSerniaHomeRequest(url, options), false, url);
     }
   }
@@ -270,50 +268,12 @@ test("/ is the Sernia home page on a Sernia host while the pages are on, and the
 test("in production / on a Sernia host follows SERNIA_PUBLIC_PAGES_ENABLED", () => {
   withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production" }, () => {
     assert.equal(rootRequestMode("https://serniacapital.com/"), "sernia-not-found");
-    assert.equal(rootRequestMode("https://eesposito.com/"), "app");
+    assert.equal(rootRequestMode("https://eesposito.com/"), "portfolio");
   });
   withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production", SERNIA_PUBLIC_PAGES_ENABLED: "true" }, () => {
     assert.equal(rootRequestMode("https://serniacapital.com/"), "sernia-public");
-    assert.equal(rootRequestMode("https://eesposito.com/"), "app");
+    assert.equal(rootRequestMode("https://eesposito.com/"), "portfolio");
   });
-});
-
-test("on a Sernia host the /api proxy forwards only the public booking API", () => {
-  for (const [host, url] of [
-    ["serniacapital.com", "/api/showing-bookings/public/units/320-03"],
-    ["serniacapital.com", "/api/showing-bookings/public/units?listing=320-03"],
-    ["www.serniacapital.com:443", "/api/showing-bookings/public/bookings"],
-    ["serniacapital.localhost:5293", "/api/showing-bookings/public/a/../b"],
-  ]) {
-    assert.equal(isApiProxyAllowed(host, url), true, `${host}${url}`);
-  }
-  for (const url of [
-    "/api",
-    "/api/",
-    "/api/sernia-ai/chat",
-    "/api/ai-demos/chat-emilio",
-    "/api/showing-bookings/settings",
-    "/api/showing-bookings/public",
-    "/API/showing-bookings/public/units",
-    "/api/showing-bookings/public/../settings",
-    "/api/showing-bookings/public/%2e%2e/%2e%2e/sernia-ai/chat",
-    "/api/sernia-ai/../showing-bookings/public/units",
-    "/api/showing-bookings/publicity",
-    "http://example.test/api/sernia-ai/chat",
-  ]) {
-    assert.equal(isApiProxyAllowed("serniacapital.com", url), false, url);
-  }
-  // Encoded slashes stay inside one segment: fetch() forwards this path as is,
-  // and the API can only route it under the public prefix.
-  assert.equal(isApiProxyAllowed("serniacapital.com", "/api/showing-bookings/public/..%2F..%2Fsernia-ai"), true);
-});
-
-test("on any other host the /api proxy forwards every path, as before", () => {
-  for (const host of ["eesposito.com", "localhost:5293", "react-router-portfolio-pr-123.up.railway.app", undefined]) {
-    for (const url of ["/api/sernia-ai/chat", "/api/showing-bookings/public/units", "/api/showing-bookings/settings"]) {
-      assert.equal(isApiProxyAllowed(host, url), true, `${host}${url}`);
-    }
-  }
 });
 
 // The routes as app/routes.ts declares them. The Sernia public pages are the
@@ -330,8 +290,10 @@ test("every page under the Sernia public layout is at a Sernia public path", () 
 });
 
 test("the home page is the only route at /, so on a Sernia host / can serve nothing else", () => {
-  // The Sernia layout is pathless, so it maps to / too; it renders no page of its own.
-  const atHome = routes.filter((route) => route.path === "/" && route.file !== SERNIA_LAYOUT);
+  // The Sernia and team layouts are pathless, so they map to / too; they render no page of their own.
+  const atHome = routes.filter(
+    (route) => route.path === "/" && route.file !== SERNIA_LAYOUT && route.file !== "sites/team/routes/layout.tsx",
+  );
   assert.deepEqual(atHome.map((route) => route.file), ["sites/home.tsx"]);
 });
 

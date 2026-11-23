@@ -3,16 +3,17 @@ import test from "node:test";
 import { data, UNSAFE_ErrorResponseImpl as ErrorResponseImpl } from "react-router";
 
 import { createRootMiddleware, loadRoot } from "~/sites/root-request.server";
-import { serniaRoot } from "~/sites/sernia-root";
+import { rootSite, serniaRoot } from "~/sites/sernia-root";
 import { serniaHomeMeta } from "~/sites/sernia-public/components/home";
 
-// What the server says about a Sernia page, as the browser reads it: whether
-// it is one, and whether `/` on its host is the Sernia home page.
+// What the server says about a page, as the browser reads it: which site it is,
+// and for a Sernia page whether `/` on its host is the Sernia home page and
+// where its Team link goes.
 
 const ENVIRONMENT = ["SERNIA_PUBLIC_HOSTS", "SERNIA_PUBLIC_PAGES_ENABLED", "RAILWAY_ENVIRONMENT_NAME"] as const;
 for (const name of ENVIRONMENT) delete process.env[name];
 
-const rootData = (url: string) => loadRoot({ url: new URL(url) }, () => ({ clerkState: "stand-in" }));
+const rootData = (url: string) => loadRoot({ url: new URL(url) }, (team) => ({ ...team, clerkState: "stand-in" }));
 
 /** The error a page gets when the root middleware throws. */
 function thrownBy(url: string): unknown {
@@ -29,26 +30,51 @@ function thrownBy(url: string): unknown {
 test("a Sernia page knows whether / on its host is the Sernia home page", () => {
   for (const origin of ["https://serniacapital.com", "https://www.serniacapital.com", "http://serniacapital.localhost:5293"]) {
     for (const path of ["/", "/showings", "/privacy"]) {
-      assert.deepEqual(serniaRoot(undefined, rootData(origin + path)), { homeAtRoot: true }, origin + path);
+      assert.deepEqual(serniaRoot(undefined, rootData(origin + path)), { homeAtRoot: true, teamHref: "/team" }, origin + path);
     }
   }
   for (const origin of ["https://eesposito.com", "http://localhost:5293", "https://react-router-portfolio-pr-1.up.railway.app"]) {
-    assert.deepEqual(serniaRoot(undefined, rootData(`${origin}/showings`)), { homeAtRoot: false }, origin);
+    assert.deepEqual(serniaRoot(undefined, rootData(`${origin}/showings`)), { homeAtRoot: false, teamHref: "/team" }, origin);
+  }
+});
+
+test("in production the Team link from another host goes to serniacapital.com", () => {
+  process.env.RAILWAY_ENVIRONMENT_NAME = "production";
+  process.env.SERNIA_PUBLIC_PAGES_ENABLED = "true";
+  try {
+    assert.deepEqual(serniaRoot(undefined, rootData("https://eesposito.com/showings")), {
+      homeAtRoot: false,
+      teamHref: "https://serniacapital.com/team",
+    });
+    assert.deepEqual(serniaRoot(undefined, rootData("https://serniacapital.com/showings")), { homeAtRoot: true, teamHref: "/team" });
+  } finally {
+    delete process.env.RAILWAY_ENVIRONMENT_NAME;
+    delete process.env.SERNIA_PUBLIC_PAGES_ENABLED;
   }
 });
 
 test("so does the Sernia 404, and while the pages are off nothing is the home page", () => {
-  assert.deepEqual(serniaRoot(thrownBy("https://serniacapital.com/nothing"), undefined), { homeAtRoot: true });
+  assert.deepEqual(serniaRoot(thrownBy("https://serniacapital.com/nothing"), undefined), { homeAtRoot: true, teamHref: "/team" });
   process.env.SERNIA_PUBLIC_PAGES_ENABLED = "false";
   try {
-    assert.deepEqual(serniaRoot(thrownBy("https://serniacapital.com/"), undefined), { homeAtRoot: false });
+    assert.deepEqual(serniaRoot(thrownBy("https://serniacapital.com/"), undefined), { homeAtRoot: false, teamHref: "/team" });
   } finally {
     delete process.env.SERNIA_PUBLIC_PAGES_ENABLED;
   }
 });
 
+test("the root data names the site", () => {
+  assert.equal(rootSite(rootData("https://eesposito.com/")), "portfolio");
+  assert.equal(rootSite(rootData("https://serniacapital.com/privacy")), "sernia-public");
+  assert.equal(rootSite(rootData("https://serniacapital.com/team")), "team");
+  assert.equal(rootSite(rootData("http://localhost:5293/team/chat")), "team");
+  assert.equal(rootSite(undefined), null);
+  assert.equal(rootSite({ site: "other" }), null);
+});
+
 test("every other page is not a Sernia page", () => {
   assert.equal(serniaRoot(undefined, rootData("https://eesposito.com/")), null);
+  assert.equal(serniaRoot(undefined, rootData("https://serniacapital.com/team")), null);
   assert.equal(serniaRoot(new ErrorResponseImpl(404, "Not Found", null), undefined), null);
   assert.equal(serniaRoot(new Error("boom"), undefined), null);
   assert.equal(serniaRoot(undefined, undefined), null);
