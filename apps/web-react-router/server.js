@@ -7,7 +7,8 @@
  * - Local: http://127.0.0.1:${BACKEND_PORT} (default: 8000)
  *
  * On a Sernia host (serniacapital.com) the proxy forwards only the public
- * showing-bookings API; see app/sites/site.ts.
+ * showing-bookings API and the API paths the team's pages (/team) call
+ * (TEAM_API_PATHS); see app/sites/site.ts.
  *
  * Environment variables:
  *   BACKEND_PORT - FastAPI backend port for local dev (default: 8000)
@@ -29,8 +30,10 @@ const app = express();
 // Compression for all responses
 app.use(compression());
 
-// Serve static assets from the client build
-app.use(express.static("build/client", { maxAge: "1h" }));
+// Serve static assets from the client build. A folder there is not a page:
+// /team is the team's home page, while build/client/team/ holds its service
+// worker and manifest, so a folder never redirects to its trailing slash.
+app.use(express.static("build/client", { maxAge: "1h", redirect: false }));
 
 /**
  * Wait until a downstream response can accept more data.
@@ -204,8 +207,8 @@ export async function proxyToBackend(req, res, targetUrl, logTag) {
 }
 
 /**
- * A Sernia host reaches only the public showing-bookings API; other hosts
- * reach every /api path, as before.
+ * A Sernia host reaches only the public showing-bookings API and the team's
+ * API paths; other hosts reach every /api path, as before.
  * @param {import("express").Request} req
  * @param {import("express").Response} res
  * @param {import("express").NextFunction} next

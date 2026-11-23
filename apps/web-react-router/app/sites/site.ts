@@ -1,29 +1,64 @@
 /**
- * Which requests belong to Sernia Capital's public pages (serniacapital.com).
+ * Which site answers a request. One build serves three:
  *
- * The pages are /showings, /showings/*, /privacy and /sms-terms on any host,
- * and the home page at / on a Sernia host only.
+ * - The portfolio (eesposito.com): public, with no sign-in and no Clerk.
+ * - Sernia Capital's public pages (serniacapital.com): /showings,
+ *   /showings/*, /privacy and /sms-terms on any host, and the home page at /
+ *   on a Sernia host only. No sign-in and no Clerk. They are switched off in
+ *   production until SERNIA_PUBLIC_PAGES_ENABLED is "true"; see
+ *   serniaPublicPagesEnabled().
+ * - The Sernia team's pages: /team and /team/*. The only signed-in area, and
+ *   the only requests that run Clerk. Served on a Sernia host always, and on
+ *   any other host only outside production, so local runs, the development
+ *   environment (dev.eesposito.com) and PR previews have them too. In
+ *   production a team path on another host is the portfolio's 404.
  *
- * Those pages need no sign-in and load no Clerk: Clerk's production keys
- * belong to eesposito.com. The root route, the Sernia layout route, server.js
- * and the Vite dev proxy all decide from this module. server.js imports it
- * directly, relying on Node's built-in TypeScript type stripping, so it must
- * keep no imports and use only syntax that can be erased (no enums or
- * namespaces).
- *
- * The pages are switched off in production until SERNIA_PUBLIC_PAGES_ENABLED
- * is "true"; see serniaPublicPagesEnabled().
+ * The root route, the site layouts, server.js and the Vite dev proxy all
+ * decide from this module. server.js imports it directly, relying on Node's
+ * built-in TypeScript type stripping, so it must keep no imports and use only
+ * syntax that can be erased (no enums or namespaces).
  */
 
-/** Hosts that serve only the Sernia public pages. SERNIA_PUBLIC_HOSTS replaces this list. */
+/** Sernia Capital's hosts. SERNIA_PUBLIC_HOSTS replaces this list. */
 export const DEFAULT_SERNIA_PUBLIC_HOSTS = [
   "serniacapital.com",
   "www.serniacapital.com",
   "serniacapital.localhost",
 ] as const;
 
-/** The only API paths the /api proxy forwards for a Sernia host. */
+/** The public booking API, the only API the Sernia public pages call. */
 export const SERNIA_PUBLIC_API_PREFIX = "/api/showing-bookings/public/";
+
+/**
+ * The API paths the team's pages call, which the /api proxy forwards on a
+ * Sernia host as well. An entry ending in "/" covers every path under it;
+ * any other entry must match the whole path. Built from what
+ * app/sites/team/ calls; test/lib/site-rule.test.ts lists why each is here.
+ */
+export const TEAM_API_PATHS = [
+  // Sernia AI: chat, conversations, approvals, general agent settings and push notifications.
+  "/api/sernia-ai/",
+  // Booking settings, calendar connections (Google sends the browser back to
+  // /api/showing-bookings/calendar/callback), showing agents and showings. The
+  // public booking API is under it too.
+  "/api/showing-bookings/",
+  // Rental listing data: the listings, showing rules, Zillow ads and history.
+  "/api/rental-listings",
+  "/api/rental-listings/",
+  // The lead agent's settings.
+  "/api/zillow-leads/settings",
+  // Message tenants: the sender's contact, the tenants, and sending.
+  "/api/contacts/slug/sernia",
+  "/api/open_phone/tenants",
+  "/api/open_phone/send_message",
+  // The scheduler page: list, run and delete jobs.
+  "/api/schedulers/",
+  // The HITL demo chat and its approval queue.
+  "/api/ai-demos/hitl-agent/",
+] as const;
+
+/** Where the team's pages are for someone on a host that does not serve them. */
+export const TEAM_HOME_URL = "https://serniacapital.com/team";
 
 /**
  * Marks the data on the 404 the root middleware throws for a Sernia host, so
@@ -35,19 +70,33 @@ export type SerniaNotFound = {
   reason: typeof SERNIA_NOT_FOUND;
   /** Whether `/` on this host is the Sernia home page. */
   homeAtRoot: boolean;
+  /** Where the shell's Team link goes from this host. */
+  teamHref: string;
 };
 
 const PUBLIC_PAGE_PATHS = ["/showings", "/privacy", "/sms-terms"];
 const PUBLIC_PAGE_PREFIXES = ["/showings/"];
 
-/** How the root route serves a page request. */
-export type RootRequestMode = "app" | "sernia-public" | "sernia-not-found";
+/**
+ * How the root route serves a request.
+ *
+ * - `portfolio`: the portfolio, without Clerk. `/` on other hosts, every
+ *   portfolio page, unknown URLs on other hosts, and in production a team
+ *   path on another host (which then answers the portfolio's 404).
+ * - `sernia-public`: a Sernia public page, without Clerk.
+ * - `sernia-not-found`: any other path on a Sernia host. Answers the Sernia
+ *   404, without Clerk.
+ * - `team`: a team page, with Clerk.
+ */
+export type RootRequestMode = "portfolio" | "sernia-public" | "sernia-not-found" | "team";
 
-export type SerniaRequestOptions = {
+export type SiteOptions = {
   /** A SERNIA_PUBLIC_HOSTS value; the environment's when omitted. */
   hostsSetting?: string;
-  /** Whether the pages are served; serniaPublicPagesEnabled() when omitted. */
+  /** Whether the Sernia public pages are served; serniaPublicPagesEnabled() when omitted. */
   pagesEnabled?: boolean;
+  /** A RAILWAY_ENVIRONMENT_NAME value; the environment's when omitted. */
+  railwayEnvironmentName?: string;
 };
 
 type EnvironmentName = "SERNIA_PUBLIC_HOSTS" | "SERNIA_PUBLIC_PAGES_ENABLED" | "RAILWAY_ENVIRONMENT_NAME";
@@ -62,6 +111,13 @@ function hostsFromEnvironment(): string | undefined {
   return fromEnvironment("SERNIA_PUBLIC_HOSTS");
 }
 
+/** Whether RAILWAY_ENVIRONMENT_NAME names production. */
+export function isProduction(
+  railwayEnvironmentName: string | undefined = fromEnvironment("RAILWAY_ENVIRONMENT_NAME"),
+): boolean {
+  return railwayEnvironmentName?.trim().toLowerCase() === "production";
+}
+
 /**
  * Whether the Sernia public pages are served. In production
  * (RAILWAY_ENVIRONMENT_NAME is "production") they are off unless
@@ -74,7 +130,7 @@ export function serniaPublicPagesEnabled(
   railwayEnvironmentName: string | undefined = fromEnvironment("RAILWAY_ENVIRONMENT_NAME"),
 ): boolean {
   const value = setting?.trim().toLowerCase();
-  if (railwayEnvironmentName?.trim().toLowerCase() === "production") return value === "true";
+  if (isProduction(railwayEnvironmentName)) return value === "true";
   return value !== "false";
 }
 
@@ -131,57 +187,87 @@ export function isSerniaPublicPath(pathname: string): boolean {
   );
 }
 
+/** `/team` and anything under `/team/`, ignoring case as React Router does. */
+export function isTeamPath(pathname: string): boolean {
+  const path = decodePathname(pathname).toLowerCase();
+  return path === "/team" || path.startsWith("/team/");
+}
+
 /**
  * `/`, the one path whose page depends on the host: the Sernia home page on a
- * Sernia host, the personal site's home page everywhere else.
+ * Sernia host, the portfolio's home page everywhere else.
  */
 export function isHomePath(pathname: string): boolean {
   return pathname.replace(/\/+$/, "") === "";
 }
 
-/**
- * - `sernia-public`: a Sernia public path, on any host, and `/` on a Sernia
- *   host (the Sernia home page), while the pages are on. Served without Clerk.
- * - `sernia-not-found`: anything else on a Sernia host, and every path there
- *   while the pages are off. Answers the Sernia 404, also without Clerk.
- * - `app`: everything else, served as before, `/` on other hosts included.
- *   While the pages are off this includes their paths on other hosts, which
- *   then 404 like any unknown URL.
- */
-export function rootRequestMode(url: URL | string, options: SerniaRequestOptions = {}): RootRequestMode {
+function isRobotsPath(pathname: string): boolean {
+  return pathname.toLowerCase() === "/robots.txt";
+}
+
+/** Whether a host serves the team's pages: a Sernia host always, any other host outside production. */
+export function teamSiteServed(host: string | null | undefined, options: SiteOptions = {}): boolean {
+  return isSerniaHost(host, options.hostsSetting) || !isProduction(options.railwayEnvironmentName);
+}
+
+/** Where a link to the team's pages goes from this host: `/team` where they are served, else serniacapital.com. */
+export function teamHref(url: URL | string, options: SiteOptions = {}): string {
   const parsed = typeof url === "string" ? new URL(url) : url;
+  return teamSiteServed(parsed.host, options) ? "/team" : TEAM_HOME_URL;
+}
+
+/** See RootRequestMode. */
+export function rootRequestMode(url: URL | string, options: SiteOptions = {}): RootRequestMode {
+  const parsed = typeof url === "string" ? new URL(url) : url;
+  if (isTeamPath(parsed.pathname)) return teamSiteServed(parsed.host, options) ? "team" : "portfolio";
   const serniaHost = isSerniaHost(parsed.host, options.hostsSetting);
-  const pagesEnabled = options.pagesEnabled ?? serniaPublicPagesEnabled();
+  const pagesEnabled = options.pagesEnabled ?? serniaPublicPagesEnabled(undefined, options.railwayEnvironmentName);
   const publicPage = pagesEnabled && isSerniaPublicPath(parsed.pathname);
   if (serniaHost) {
+    // robots.txt keeps crawlers out of /team, whether or not the pages are on.
+    if (isRobotsPath(parsed.pathname)) return "sernia-public";
     return publicPage || (pagesEnabled && isHomePath(parsed.pathname)) ? "sernia-public" : "sernia-not-found";
   }
-  return publicPage ? "sernia-public" : "app";
+  return publicPage ? "sernia-public" : "portfolio";
 }
 
 /** True for `/` on a Sernia host while the pages are on: the Sernia home page. */
-export function isSerniaHomeRequest(url: URL | string, options: SerniaRequestOptions = {}): boolean {
+export function isSerniaHomeRequest(url: URL | string, options: SiteOptions = {}): boolean {
   const parsed = typeof url === "string" ? new URL(url) : url;
   return isHomePath(parsed.pathname) && rootRequestMode(parsed, options) === "sernia-public";
 }
 
 /**
- * True when the host is a Sernia host, or the path is a Sernia public path on
- * any host while the pages are on. Such a request loads no Clerk.
+ * The address a team request is redirected to, or null. A team path on
+ * `www.` of a Sernia host goes to the same URL on the host without `www.`,
+ * so sign-in, notifications and the calendar connection have one origin.
+ * The Sernia public pages answer on `www.` as they are.
  */
-export function isSerniaPublicRequest(url: URL | string, options: SerniaRequestOptions = {}): boolean {
-  return rootRequestMode(url, options) !== "app";
+export function teamRedirect(url: URL | string, options: SiteOptions = {}): string | null {
+  const parsed = typeof url === "string" ? new URL(url) : url;
+  if (!isTeamPath(parsed.pathname)) return null;
+  const host = normalizeHost(parsed.host);
+  if (!host.startsWith("www.")) return null;
+  const bare = host.slice("www.".length);
+  const hosts = serniaPublicHosts(options.hostsSetting);
+  if (!hosts.includes(host) || !hosts.includes(bare)) return null;
+  const target = new URL(parsed.href);
+  target.hostname = bare;
+  return target.href;
 }
 
-function isUnderPublicApi(pathname: string): boolean {
-  return pathname.startsWith(SERNIA_PUBLIC_API_PREFIX);
+function isSerniaApiPath(pathname: string): boolean {
+  return (
+    pathname.startsWith(SERNIA_PUBLIC_API_PREFIX) ||
+    TEAM_API_PATHS.some((entry) => (entry.endsWith("/") ? pathname.startsWith(entry) : pathname === entry))
+  );
 }
 
 /**
  * The /api proxy rule. Other hosts proxy every /api path, as before. A Sernia
- * host proxies only paths under SERNIA_PUBLIC_API_PREFIX, checked both as
- * received and after resolving `..` the way fetch() resolves it before
- * forwarding.
+ * host proxies the public booking API and the paths in TEAM_API_PATHS, checked
+ * both as received and after resolving `..` the way fetch() resolves it
+ * before forwarding. Everything else answers 404.
  *
  * @param requestUrl The path and query as received, such as Express's `req.originalUrl`.
  */
@@ -197,5 +283,6 @@ export function isApiProxyAllowed(
   } catch {
     return false;
   }
-  return isUnderPublicApi(requestUrl) && isUnderPublicApi(resolved);
+  const received = requestUrl.split(/[?#]/, 1)[0];
+  return isSerniaApiPath(received) && isSerniaApiPath(resolved);
 }

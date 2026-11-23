@@ -36,7 +36,8 @@ export default defineConfig(({ mode }) => {
           secure: false,
           ws: true,
           // Same rule as server.js: a Sernia host reaches only the public
-          // showing-bookings API. Returning false answers 404.
+          // showing-bookings API and the team's API paths. Returning false
+          // answers 404.
           bypass: (req) => (isApiProxyAllowed(req.headers.host, req.url ?? "") ? undefined : false),
         },
       },
