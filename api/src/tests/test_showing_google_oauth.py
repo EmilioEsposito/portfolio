@@ -135,7 +135,7 @@ def test_a_redirect_uri_is_built_only_on_an_allowed_origin():
         sign("https://elsewhere.example.com")
 
 
-def test_the_consent_url_asks_for_offline_access_to_the_two_calendar_scopes(google):
+def test_the_consent_url_asks_for_offline_access_to_the_calendar_and_picker_scopes(google):
     client = google_oauth.oauth_client()
     url = google_oauth.consent_url(
         client, redirect_to=REDIRECT_URI, state="the-state", login_hint=TEAM_ACCOUNT
@@ -149,6 +149,8 @@ def test_the_consent_url_asks_for_offline_access_to_the_two_calendar_scopes(goog
         "email",
         "https://www.googleapis.com/auth/calendar.events.freebusy",
         "https://www.googleapis.com/auth/calendar.app.created",
+        "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+        "https://www.googleapis.com/auth/directory.readonly",
     }
     assert query == {
         "client_id": CLIENT_ID,
@@ -191,6 +193,18 @@ async def test_the_permissions_left_unticked_are_reported(google):
     narrow = Account(TEAM_SUBJECT, TEAM_ACCOUNT, scopes=("openid", google_oauth.FREEBUSY_SCOPE))
     grant = await google_oauth.exchange_code(google.approve(narrow), redirect_to=REDIRECT_URI)
     assert grant.missing_scopes == [google_oauth.APP_CALENDARS_SCOPE]
+
+
+@pytest.mark.asyncio
+async def test_the_pickers_permissions_are_never_a_condition(google):
+    """Only free/busy and the app's own calendars are required of a grant."""
+    assert google_oauth.CALENDAR_SCOPES == (
+        "https://www.googleapis.com/auth/calendar.events.freebusy",
+        "https://www.googleapis.com/auth/calendar.app.created",
+    )
+    old = Account(TEAM_SUBJECT, TEAM_ACCOUNT, scopes=("openid", *google_oauth.CALENDAR_SCOPES))
+    grant = await google_oauth.exchange_code(google.approve(old), redirect_to=REDIRECT_URI)
+    assert grant.missing_scopes == []
 
 
 @pytest.mark.asyncio

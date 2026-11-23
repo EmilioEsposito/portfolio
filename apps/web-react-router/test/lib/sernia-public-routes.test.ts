@@ -192,9 +192,9 @@ test("on a Sernia host / is the Sernia home page, without Clerk", async () => {
       assert.match(data.body, /serniaPublic/, origin);
       assert.match(data.body, /bookingOpen/, origin);
     }
-    // Only the call line's route; never the units list, which reads calendars.
-    assert.ok(calls.length > 0);
-    assert.ok(calls.every((url) => url.endsWith("/api/showing-bookings/public/call-line")), calls.join());
+    // The call line's route, then the units list, which is read ahead without waiting for it.
+    const asked = new Set(calls.map((url) => new URL(url).pathname));
+    assert.deepEqual([...asked], ["/api/showing-bookings/public/call-line", "/api/showing-bookings/public/units"]);
   });
 });
 

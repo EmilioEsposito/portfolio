@@ -1,52 +1,54 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Pencil, Plus, Power, Save, UsersRound } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
-import { Textarea } from "~/components/ui/textarea";
 import {
   type AgentView,
-  type ConnectionsView,
   type SettingsView,
   type ShowingAgent,
-  cleanAgent,
   describeWindows,
   newAgent,
-  parseCalendars,
 } from "~/lib/showing-bookings";
+import {
+  type AgentFormState,
+  type CalendarCandidates,
+  agentToSave,
+  withCalendars,
+  withTick,
+} from "~/lib/showing-calendar-picker";
 import { cn } from "~/lib/utils";
+import { CalendarPicker } from "./CalendarPicker";
 import { useShowingBookingsApi } from "./use-showing-bookings-api";
 import { WindowsEditor } from "./WindowsEditor";
 
-type Editing = { id: number | "new"; draft: ShowingAgent; calendarsText: string } | null;
-
 function AgentForm({
-  editing,
-  connections,
+  form,
   saving,
   problems,
   onChange,
+  onRefresh,
   onSave,
   onCancel,
 }: {
-  editing: NonNullable<Editing>;
-  connections: ConnectionsView | null;
+  form: AgentFormState;
   saving: boolean;
   problems: string[];
-  onChange: (next: NonNullable<Editing>) => void;
+  // Takes the change rather than the changed form, so a calendar answer that just arrived is kept.
+  onChange: (change: (form: AgentFormState) => AgentFormState) => void;
+  onRefresh: () => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
-  const { draft } = editing;
+  const { draft } = form;
   const set = <K extends keyof ShowingAgent>(key: K, value: ShowingAgent[K]) =>
-    onChange({ ...editing, draft: { ...draft, [key]: value } });
-  const prefix = `agent-${editing.id}`;
-  const usable = (connections?.connections ?? []).filter((row) => row.status !== "revoked");
+    onChange((current) => ({ ...current, draft: { ...current.draft, [key]: value } }));
+  const prefix = `agent-${form.id}`;
   return (
     <form
       className="space-y-5 rounded-lg border p-4"
-      aria-label={editing.id === "new" ? "New showing agent" : `Change ${draft.name}`}
+      aria-label={form.id === "new" ? "New showing agent" : `Change ${draft.name}`}
       onSubmit={(event) => {
         event.preventDefault();
         onSave();
@@ -114,38 +116,12 @@ function AgentForm({
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor={`${prefix}-calendars`}>Calendars that make them busy</Label>
-          <Textarea
-            id={`${prefix}-calendars`}
-            rows={2}
-            value={editing.calendarsText}
-            placeholder="jane.doe@example.com"
-            aria-describedby={`${prefix}-calendars-hint`}
-            onChange={(event) => onChange({ ...editing, calendarsText: event.target.value })}
-          />
-          <p id={`${prefix}-calendars-hint`} className="text-xs text-muted-foreground">
-            One calendar address per line. A personal calendar must be shared with the connected account as “See only
-            free/busy”. With none listed, the agent counts as busy.
-          </p>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor={`${prefix}-connection`}>Read through</Label>
-          <select
-            id={`${prefix}-connection`}
-            value={draft.connection_id ?? ""}
-            onChange={(event) => set("connection_id", event.target.value ? Number(event.target.value) : null)}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            <option value="">The team&rsquo;s connection</option>
-            {usable.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.google_email}
-              </option>
-            ))}
-          </select>
-        </div>
+        <CalendarPicker
+          id={`${prefix}-calendars`}
+          form={form}
+          onTick={(calendarId, ticked) => onChange((current) => withTick(current, calendarId, ticked))}
+          onRefresh={onRefresh}
+        />
 
         <section aria-labelledby={`${prefix}-hours-heading`} className="space-y-2">
           <h4 id={`${prefix}-hours-heading`} className="text-sm font-semibold">
@@ -193,7 +169,7 @@ function AgentForm({
       <div className="flex flex-wrap gap-3 border-t pt-4">
         <Button type="submit" disabled={saving} className="gap-2">
           {saving ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Save className="size-4" aria-hidden="true" />}
-          {editing.id === "new" ? "Add agent" : "Save agent"}
+          {form.id === "new" ? "Add agent" : "Save agent"}
         </Button>
         <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>
           Cancel
@@ -245,11 +221,6 @@ function AgentItem({
         <dd className="break-all">
           {agent.busy_calendar_ids.length ? agent.busy_calendar_ids.join(", ") : "No calendars listed: counts as busy"}
         </dd>
-        <dt className="text-muted-foreground">Read through</dt>
-        <dd className="break-all">
-          {agent.reads_through ?? "No calendar connected"}
-          {agent.connection_id === null && agent.reads_through ? " (the team's)" : ""}
-        </dd>
       </dl>
       <div className="mt-3 flex flex-wrap gap-2">
         <Button variant="outline" size="sm" className="gap-1.5" disabled={busy} onClick={onEdit}>
@@ -268,11 +239,12 @@ function AgentItem({
 export function AgentsSection() {
   const api = useShowingBookingsApi();
   const [agents, setAgents] = useState<AgentView[] | null>(null);
-  const [connections, setConnections] = useState<ConnectionsView | null>(null);
   const [isProduction, setIsProduction] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<Editing>(null);
+  const [form, setForm] = useState<AgentFormState | null>(null);
+  // Counts the calendar reads, so one for a form since closed, or overtaken by another, is dropped.
+  const reads = useRef(0);
   const [saving, setSaving] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
   const [toggling, setToggling] = useState<number | null>(null);
@@ -282,14 +254,12 @@ export function AgentsSection() {
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    const [list, rows, settings] = await Promise.all([
+    const [list, settings] = await Promise.all([
       api<AgentView[]>("/agents", {}, "Could not load the showing agents"),
-      api<ConnectionsView>("/calendar/connections", {}, "Could not load the calendar connections"),
       api<SettingsView>("/settings", {}, "Could not load the environment"),
     ]);
     if (list.ok) setAgents(list.body);
     else setLoadError(list.message);
-    if (rows.ok) setConnections(rows.body);
     if (settings.ok) setIsProduction(settings.body.is_production);
     setLoading(false);
   }, [api]);
@@ -298,26 +268,50 @@ export function AgentsSection() {
     void load();
   }, [load]);
 
+  // Google is asked each time; the list on screen stays until the answer arrives.
+  async function readCalendars(id: AgentFormState["id"]) {
+    const read = ++reads.current;
+    setForm((current) => current && { ...current, reading: true });
+    const result = await api<CalendarCandidates>(
+      id === "new" ? "/calendar/candidates" : `/calendar/candidates?agent_id=${id}`,
+      {},
+      "Could not load the calendars",
+    );
+    if (read !== reads.current) return;
+    setForm(
+      (current) =>
+        current && (result.ok ? withCalendars(current, result.body) : { ...current, reading: false, readError: result.message }),
+    );
+  }
+
   function edit(agent: AgentView | null) {
     setProblems([]);
     setNotice(null);
+    const opened = { calendars: null, reading: true, readError: null };
     if (agent === null) {
-      setEditing({ id: "new", draft: newAgent(), calendarsText: "" });
+      setForm({ id: "new", draft: newAgent(), saved: [], followsEmail: true, ...opened });
+      void readCalendars("new");
       return;
     }
     const { id, reads_through: _readsThrough, ...draft } = agent;
-    setEditing({ id, draft, calendarsText: draft.busy_calendar_ids.join("\n") });
+    setForm({ id, draft, saved: draft.busy_calendar_ids, followsEmail: false, ...opened });
+    void readCalendars(id);
+  }
+
+  function close() {
+    reads.current += 1;
+    setForm(null);
   }
 
   async function save() {
-    if (!editing || saving) return;
+    if (!form || saving) return;
     setSaving(true);
     setProblems([]);
-    const body = cleanAgent({ ...editing.draft, busy_calendar_ids: parseCalendars(editing.calendarsText) });
-    const path = editing.id === "new" ? "/agents" : `/agents/${editing.id}`;
-    const result = await rawSave(path, editing.id === "new" ? "POST" : "PUT", body);
+    const body = agentToSave(form);
+    const path = form.id === "new" ? "/agents" : `/agents/${form.id}`;
+    const result = await rawSave(path, form.id === "new" ? "POST" : "PUT", body);
     if (result.ok) {
-      setEditing(null);
+      close();
       setNotice({ ok: true, message: `${result.body.name} saved.` });
       await load();
     } else {
@@ -379,11 +373,11 @@ export function AgentsSection() {
             Showing agents
           </h3>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Who can host showings: their hours, preferred times, priority, and the calendars that make them busy. An
+            Who can host showings: their hours, preferred times, priority, and the calendars that block showings. An
             inactive agent gets no new showings.
           </p>
         </div>
-        {!editing && agents && (
+        {!form && agents && (
           <Button size="sm" className="gap-1.5" onClick={() => edit(null)}>
             <Plus className="size-4" aria-hidden="true" />
             Add agent
@@ -411,24 +405,25 @@ export function AgentsSection() {
         </p>
       )}
 
-      {editing && (
+      {form && (
         <div className="mt-5">
           <AgentForm
-            editing={editing}
-            connections={connections}
+            key={form.id}
+            form={form}
             saving={saving}
             problems={problems}
-            onChange={setEditing}
+            onChange={(change) => setForm((current) => current && change(current))}
+            onRefresh={() => void readCalendars(form.id)}
             onSave={() => void save()}
             onCancel={() => {
-              setEditing(null);
+              close();
               setProblems([]);
             }}
           />
         </div>
       )}
 
-      {agents && agents.length === 0 && !editing && (
+      {agents && agents.length === 0 && !form && (
         <div className="mt-5 rounded-lg border border-dashed p-5 text-sm">
           <p className="flex items-center gap-2 font-medium">
             <UsersRound className="size-4" aria-hidden="true" />

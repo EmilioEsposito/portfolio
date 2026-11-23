@@ -8,9 +8,10 @@ holds only while the lead agent uses the booking service: per-lead booking
 links, the lead's own showings (booked or cancelled), a showing others booked
 that the lead can join, and times open at one unit only. They also cover
 the policy for a lead's own showing: confirming a time by email, moving and
-cancelling it, reconfirming it with and without the lead's details in, a lead who would rather not give a mobile number, and one case
-built as production builds it with the switch off, which must be answered as
-before the booking service existed.
+cancelling it, moving and reconfirming it with and without the lead's details
+in, a lead who would rather not give a mobile number, and one case built as
+production builds it with the switch off, which must be answered as before the
+booking service existed.
 
 ``expected`` is the action a person would want, and ``why`` what a person or
 the judge should look for. ``booking``, when set, is what sending the decision
@@ -121,6 +122,10 @@ OPEN = [
     TourSlot(start=_at(14, 17), unit="412-01"),
     TourSlot(start=_at(15, 11), unit="320-03"),
 ]
+# The same for a lead booked at 320-03 on Wednesday at 4:00: production's case
+# leaves the lead's own showing out of the open times and the booked tours
+# (``case.build_case``), so it is in neither here.
+OPEN_WHILE_BOOKED = [slot for slot in OPEN if (slot.unit, slot.start) != ("320-03", _at(14, 16))]
 
 
 def scenarios() -> list[Synthetic]:
@@ -131,7 +136,7 @@ def scenarios() -> list[Synthetic]:
         "Ua6gS3hD8jF1kL4qW7eR2t",
         "Tb2nM8vC5xZ1aQ7wE4rY6u",
     )
-    max_, ash, pat, rio, dee, eli, vic = (
+    max_, ash, pat, rio, dee, eli, vic, uma = (
         "Kc5vB9nM2xL8qW4eR7tY1u",
         "Wf3gH6jK9lZ2xC5vB8nM1q",
         "Rj7kL1zX4cV8bN2mQ5wE9t",
@@ -139,6 +144,7 @@ def scenarios() -> list[Synthetic]:
         "Qa9sD2fG5hJ8kL1zX4cV7b",
         "Nm6bV3cX9zL2kJ5hG8fD1s",
         "Jp8rT4yU1iO6pA3sD9fG2h",
+        "Lw5eR9tY3uI7oP1aS4dF8g",
     )
     # Booked through the lead's own link: details in. A place a confirming
     # reply booked is provisional until the lead adds them.
@@ -155,8 +161,7 @@ def scenarios() -> list[Synthetic]:
                 )
             ),
             edit=CaseEdit(
-                unit_offered=OPEN,
-                booked=[BookedTour(unit="320-03", start=_at(14, 16))],
+                unit_offered=OPEN_WHILE_BOOKED,
                 booking_links=links(dee),
                 own_showings=[booked_alex.model_copy()],
                 note="Made up: the lead booked through their link, with their details.",
@@ -164,8 +169,8 @@ def scenarios() -> list[Synthetic]:
             expected="reply",
             why=(
                 "Confirm the existing time, 'Wednesday, April 14 at 4:00 PM', and nothing else. "
-                "No details line: the lead's details are in, and their link would only show "
-                "the booking form again."
+                "No details line: the lead's details are in, and their link would only say "
+                "they are booked."
             ),
             booking=Booking(),
             details_line=False,
@@ -192,8 +197,7 @@ def scenarios() -> list[Synthetic]:
                 )
             ),
             edit=CaseEdit(
-                unit_offered=OPEN,
-                booked=[BookedTour(unit="320-03", start=_at(14, 16))],
+                unit_offered=OPEN_WHILE_BOOKED,
                 booking_links=links(eli),
                 own_showings=[provisional],
                 note="Made up: an email reply booked the place; the lead has not added details.",
@@ -228,8 +232,7 @@ def scenarios() -> list[Synthetic]:
                 )
             ),
             edit=CaseEdit(
-                unit_offered=OPEN,
-                booked=[BookedTour(unit="320-03", start=_at(14, 16))],
+                unit_offered=OPEN_WHILE_BOOKED,
                 booking_links=links(alex),
                 own_showings=[booked_alex],
                 note="Made up: the lead booked through their own link.",
@@ -251,8 +254,7 @@ def scenarios() -> list[Synthetic]:
                 )
             ),
             edit=CaseEdit(
-                unit_offered=OPEN,
-                booked=[BookedTour(unit="320-03", start=_at(14, 16))],
+                unit_offered=OPEN_WHILE_BOOKED,
                 booking_links=links(sam),
                 own_showings=[booked_alex.model_copy()],
                 note="Made up: the lead is booked for Wednesday at 4:00.",
@@ -427,8 +429,7 @@ def scenarios() -> list[Synthetic]:
                 )
             ),
             edit=CaseEdit(
-                unit_offered=OPEN,
-                booked=[BookedTour(unit="320-03", start=_at(14, 16))],
+                unit_offered=OPEN_WHILE_BOOKED,
                 booking_links=links(ash),
                 own_showings=[booked_alex.model_copy()],
                 note="Made up: the lead is booked for Wednesday at 4:00; Thursday 11:00 is open.",
@@ -436,7 +437,52 @@ def scenarios() -> list[Synthetic]:
             expected="reply",
             why=(
                 "Thursday at 11:00 is open at 320-03: confirm the move, stating 'Thursday, April "
-                "15 at 11:00 AM' once, with the details line. Record the tour as rescheduled (or "
+                "15 at 11:00 AM' once. No details line: the showing it moves has the lead's "
+                "details, and the moved one keeps them. Record the tour as rescheduled (or "
+                "confirmed) at that time for 320-03, and a team note with the old and new times."
+            ),
+            booking=Booking(action="move", unit="320-03", start=_at(15, 11)),
+            details_line=False,
+            good_reply=(
+                "Hello,\n\nNo problem. Your showing is now Thursday, April 15 at 11:00 AM at "
+                "320 Example St, Unit 3." + SIGNATURE
+            ),
+            good_unit="320-03",
+            good_tour={"status": "rescheduled", "start": _at(15, 11).isoformat()},
+        ),
+        Synthetic(
+            scenario=Scenario(
+                thread=_thread(
+                    "synthetic-move-provisional",
+                    (300, False, "Could I see 320 Example St tomorrow at 4 PM?"),
+                    (
+                        270,
+                        True,
+                        "Hello,\n\nYou're confirmed for Wednesday, April 14 at 4:00 PM at "
+                        "320 Example St, Unit 3.\n\nTo get a text reminder and a calendar "
+                        f"invite, add your details here: {links(uma)['320-03']}",
+                    ),
+                    (
+                        5,
+                        False,
+                        "Sorry, I have to work tomorrow. Can we do Thursday at 11 instead?",
+                    ),
+                )
+            ),
+            edit=CaseEdit(
+                unit_offered=OPEN_WHILE_BOOKED,
+                booking_links=links(uma),
+                own_showings=[provisional.model_copy()],
+                note=(
+                    "Made up: an email reply booked Wednesday at 4:00 and the lead has not "
+                    "added details; Thursday 11:00 is open."
+                ),
+            ),
+            expected="reply",
+            why=(
+                "Thursday at 11:00 is open at 320-03: confirm the move, stating 'Thursday, April "
+                "15 at 11:00 AM' once, with the details line and the lead's own 320-03 link: the "
+                "showing it moves has no details to keep. Record the tour as rescheduled (or "
                 "confirmed) at that time for 320-03, and a team note with the old and new times."
             ),
             booking=Booking(action="move", unit="320-03", start=_at(15, 11)),
@@ -444,8 +490,8 @@ def scenarios() -> list[Synthetic]:
             good_reply=(
                 "Hello,\n\nNo problem. Your showing is now Thursday, April 15 at 11:00 AM at "
                 "320 Example St, Unit 3.\n\n"
-                f"To get a text reminder and a calendar invite, add your details here: "
-                f"{links(ash)['320-03']}" + SIGNATURE
+                "To get a text reminder and a calendar invite, add your details here: "
+                f"{links(uma)['320-03']}" + SIGNATURE
             ),
             good_unit="320-03",
             good_tour={"status": "rescheduled", "start": _at(15, 11).isoformat()},
@@ -460,8 +506,7 @@ def scenarios() -> list[Synthetic]:
                 )
             ),
             edit=CaseEdit(
-                unit_offered=OPEN,
-                booked=[BookedTour(unit="320-03", start=_at(14, 16))],
+                unit_offered=OPEN_WHILE_BOOKED,
                 booking_links=links(pat),
                 own_showings=[booked_alex.model_copy()],
                 note="Made up: the lead is booked for Wednesday at 4:00 and cancels.",

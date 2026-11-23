@@ -70,14 +70,17 @@ below.
 With the switch off, the case, its rendered text and the automatic-send checks
 are exactly what they were before the booking service existed;
 `test_zillow_lead_case_unchanged.py` compares them byte for byte with a
-snapshot of the existing fixtures. With it on, three things change, all filled
-in by code (`showing_bookings/lead_tours.py`):
+snapshot of the existing fixtures. With it on, four things change, all filled
+in by code (`showing_bookings/lead_tours.py`, `case.build_case`):
 
 - **A link per lead.** Each thread gets one random token (`lead_links.py`,
   table `zillow_lead_links`: thread id, token, created), made the first time
   the thread is handled with the switch on. It holds no personal data and
   appears only in that thread's links. Each unit's booking link in the case is
   the booking page with it: `<SHOWING_PUBLIC_BASE_URL>/showings/<unit>?t=<token>`.
+  Only where that page answers: a unit the public may not book now (in the booking
+  service's live mode, one that is not ticked; or any, with public booking off)
+  keeps the listing's own link, unless the lead has a showing there already.
   A booking made through it is tied to the thread
   (`showing_attendees.zillow_thread_id`); see the booking service's README.
 - **The lead's own showings.** `LeadCase.own_showings` lists the thread's
@@ -90,6 +93,11 @@ in by code (`showing_bookings/lead_tours.py`):
   them under "This lead's
   own showings", or "(none)". With the switch off the field is `None` and the
   section is absent. Nothing about the host or other attendees is included.
+- **Their own showing is not offered back.** A showing the thread is booked
+  into is left out of "Tour times that may be offered", "Tours already booked"
+  and the preferred times at that unit, so the policy's rule to offer booked
+  showings first applies to other people's. It stays under "This lead's own
+  showings". The time of a cancelled one may be offered again.
 - **Tour times know their unit.** `TourSlot.unit` is set by the booking
   service, so each unit lists its own times ("- 320-03, Wednesday, April 14:
   4:00 PM"). Times from a weekly pattern have no unit and read as before. The
@@ -136,7 +144,7 @@ passes it go automatically. With the switch off nothing here runs: `handle_threa
 
 | Decision | What happens to the thread's showing at the decision's unit |
 | --- | --- |
-| A reply a person sends unchanged, with the tour `confirmed` or `rescheduled`, in person, with a start and a listed unit | Booked through `place_booking` (source `lead_agent`) just before the send. Already booked there at that time: nothing new. Booked there at another time: a move, the old place cancelled after the send. |
+| A reply a person sends unchanged, with the tour `confirmed` or `rescheduled`, in person, with a start and a listed unit | Booked through `place_booking` (source `lead_agent`) just before the send. Already booked there at that time: nothing new. Booked there at another time: a move, the old place cancelled after the send with no text to the lead. |
 | A reply a person sends unchanged, with the tour `cancelled` | Cancelled after the send (reason `prospect`). |
 | A reply that is rejected | Nothing booked; a place booked for it by a run that stopped before sending is cancelled. |
 | `no_reply` recording the tour as `cancelled` | Cancelled at once (reason `prospect`): nothing waits for a send. |
@@ -176,7 +184,9 @@ Around a send, in order:
   a timeout, `handle.send_result`), the booking is cancelled at once
   (`reply_not_sent`), before its held notices could go. Uncertain (a timeout,
   a 5xx, anything else), the booking stands, marked `reply_uncertain` on the
-  Showings section.
+  Showings section (and `lead_reply_uncertain_at`), and its held notices go
+  when their five minutes are over. Nothing is texted to the lead about a place
+  whose reply is neither sent nor uncertain.
 
 A process that stops between the booking and the send (which can happen
 only inside an approval) leaves the send card pending, and the place
@@ -189,10 +199,11 @@ is a place whose own reply was sent (`lead_reply_sent_at`, saved with the
 release of its notices), even if the process stopped before the approval was
 saved and the card is then rejected or approved again and refused. If
 nobody ever decides the card, the place stays booked and its held notices go
-after five minutes; the card and the Showings section show it. The
-conversation keeps what was done under `showing_booking`
-(action, unit, start, showing and attendee ids, what was cancelled, the send
-result).
+after five minutes, except the lead's own text and invite of a move that kept
+their details, which wait for the decision (the team is alerted that the text
+is stuck); the card and the Showings section show it. The conversation keeps
+what was done under `showing_booking` (action, unit, start, showing and
+attendee ids, whether details were kept, what was cancelled, the send result).
 
 The place starts provisional: the thread's name (or "Zillow lead"), the
 thread id, no email and no consent to texts; a phone number from the thread is
@@ -201,6 +212,17 @@ residents' text go as for a team booking without texts; nothing goes to the
 lead. The reply's own booking link (the case's per-lead link) opens the
 booking page in an "add your details" state, which completes the same place
 and sends the confirmation text and the invite as for a page booking.
+
+A moved showing keeps the lead's details. When the place being moved has them
+and its number is not known to be wrong, the new place takes over the name,
+mobile, email, the consent to texts as it was given and the requirement ticks,
+and the lead gets a text saying the showing moved, and a new invite, once the
+reply is settled as sent or uncertain. They get no text that the old one is
+cancelled. Their link then opens a page that says "You're booked". The send
+card's sentence about the move is the same either way; `showing_booking` records
+`details_kept`. The policy has no details line on a reply that moves such a
+showing. See
+[the booking service's README](../showing_bookings/README.md#showings-booked-by-email).
 
 ### The policy for booked showings
 
@@ -214,9 +236,9 @@ with the switch off is told what it was told before. What they add:
   states it once as "Wednesday, April 14 at 4:00 PM" (this one applies to
   every case). With the own-showings section, a reply confirming an in-person tour also carries
   the lead's own link on the line "To get a text reminder and a calendar
-  invite, add your details here: <link>", unless that showing is listed with
-  "details added" (the link would only show the booking form again), and
-  never makes a mobile number a condition of the showing.
+  invite, add your details here: <link>", unless that time, or the showing it
+  moves, is listed with "details added" (the link would only say they are
+  booked), and never makes a mobile number a condition of the showing.
 - `record.md` (lead agent only): with the own-showings section, `confirmed` or
   `rescheduled` only for a time this reply confirms (or the lead's own booked
   showing, unchanged), `start` exactly that time, `lead.unit` the listing's

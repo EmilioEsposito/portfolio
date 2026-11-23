@@ -11,8 +11,8 @@ confirmation that holds something:
   the booking for the team (``attention_reason``);
 - neither, five minutes after the text was sent: release them, because Quo
   does not promise a delivery report for every text;
-- captured (capture mode has no delivery report) or skipped (send mode off):
-  release them at once, so they are captured or skipped in turn;
+- captured (there is no delivery report), or skipped (an old row): release them at
+  once, so each is captured in turn;
 - refused or otherwise not sent (``failed``), or itself cancelled: stop them
   and mark the booking. A booking whose number Quo refuses while the person
   waits is withdrawn by ``bookings.py`` instead, which stops them at once;
@@ -22,12 +22,16 @@ confirmation that holds something:
 ``daily_texts.queue_due`` (the host's morning text and the apply text),
 ``outbox.drain`` and ``alerts.check``, in that order: the job every minute
 (``scheduled_run``, registered by ``register_job`` only when background
-automation is on) and the team's "Send pending now" both run it. Each step runs
+automation is on), and outside production, where that job is off, the team's
+button on the tab. Each step runs
 on its own: one that raises is logged at error level with the step's name and
 the rest still run, so held notices are always released and due notices always
 delivered. With nothing
 held, due, failed, coming up in the next two days or owed an apply text, the
 job returns after one query.
+
+A captured notice a person sends by hand (``captured.py``) whose confirmation
+text goes too is held again, and waits for it by the same rules.
 """
 
 from collections.abc import Awaitable, Callable
@@ -37,6 +41,7 @@ from typing import TypeVar
 import logfire
 from sqlalchemy import exists, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.showing_bookings import delivery_checks, outbox, resident_notices
@@ -54,8 +59,7 @@ T = TypeVar("T")
 REPORT_WAIT = timedelta(minutes=5)
 DELIVERED = {"delivered"}
 UNDELIVERED = {"undelivered", "failed"}
-# Quo's refusals of a number, as ``quo.py`` and ``fakes.py`` name them.
-NUMBER_REFUSALS = {"opted_out", "invalid_number", "unreachable_number"}
+NUMBER_REFUSALS = delivery_checks.NUMBER_REFUSALS
 HOLDERS_PER_RUN = 100
 
 UNDELIVERED_NOTE = "Not sent: the confirmation text was reported undelivered."
@@ -178,13 +182,23 @@ async def _decide(holder: ShowingNotice, now: datetime, texts: TextSender | None
 
 
 async def release_held(*, now: datetime, texts: TextSender | None = None) -> HoldReport:
-    """Release or stop the held notices whose confirmation text has an answer. Takes ``now``."""
+    """Release or stop the held notices whose confirmation text has an answer. Takes ``now``.
+
+    A text not sent yet has none, and may wait for days (a place whose reply is
+    not settled, ``delivery_checks.reply_unsettled``): it is left out before the
+    limit, so those never fill a run.
+    """
     report = HoldReport()
+    confirmation = aliased(ShowingNotice)
     async with AsyncSessionFactory() as session, session.begin():
         holder_ids = list(
             await session.scalars(
                 select(ShowingNotice.waits_for_notice_id)
-                .where(ShowingNotice.status == "held")
+                .outerjoin(confirmation, confirmation.id == ShowingNotice.waits_for_notice_id)
+                .where(
+                    ShowingNotice.status == "held",
+                    confirmation.status.is_distinct_from("pending"),
+                )
                 .distinct()
                 .limit(HOLDERS_PER_RUN)
             )

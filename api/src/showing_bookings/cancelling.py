@@ -5,6 +5,7 @@ settings tab, and a unit going off the market.
 | --- | --- | --- | --- | --- |
 | A prospect cancels, others still booked | cancelled (``prospect``) | stays | text confirming it, invite withdrawn | updated |
 | The last prospect cancels | cancelled (``prospect``) | cancelled (``prospect``) | the same | cancelled |
+| A lead moved their showing by email (the old place) | cancelled (``prospect``) | stays, or cancelled (``prospect``) when they were the last | no text; invite withdrawn | updated, or cancelled when they were the last |
 | The team removes one attendee | cancelled (``team``) | cancelled when they were the last | the team's cancellation text, invite withdrawn | updated, or cancelled when they were the last |
 | The team cancels a showing | every one cancelled (``team``) | cancelled (``team``) | the team's cancellation text, invite withdrawn | cancelled |
 | The unit goes off the market | every one cancelled (``off_market``) | cancelled (``off_market``) | the same | cancelled |
@@ -127,8 +128,9 @@ async def _stop(session: AsyncSession, condition) -> int:
 
 
 def will_text(attendee: ShowingAttendee) -> bool:
-    """Whether a cancellation texts this person: a mobile, texts accepted, and no
-    sign the number is wrong (its confirmation was undelivered or refused)."""
+    """Whether a cancellation texts this person: a mobile, texts accepted, no sign
+    the number is wrong (its confirmation was undelivered or refused), and not a
+    place whose lead agent's reply is not settled, which they never heard of."""
     return delivery_checks.can_text(attendee)
 
 
@@ -158,11 +160,16 @@ async def _tell_attendee(
     by_team: bool,
     rules: ShowingRules,
     now: datetime,
+    moved: bool = False,
 ) -> list[int]:
-    """The attendee's cancellation text and their invite withdrawn. Returns the text's id."""
+    """The attendee's cancellation text and their invite withdrawn. Returns the text's id.
+
+    ``moved``: the place is the old one of a showing that moved, so no text says
+    it is cancelled; what tells them of the new time says it replaces this one.
+    """
     visit = bookings.visit_of(showing, rules)
     queued: list[int] = []
-    if will_text(attendee):
+    if will_text(attendee) and not moved:
         body = (
             wording.team_cancelled_text(visit, bookings.units_url())
             if by_team
@@ -346,13 +353,15 @@ async def _remove(
     reason: CancelReason,
     rules: ShowingRules,
     now: datetime,
+    moved: bool = False,
 ) -> tuple[Showing, list[int], list[int]]:
     """Cancel one booked attendee, and their showing when they were the last.
 
     The caller holds the shared booking lock and the attendee's row lock, so
     the number still booked cannot change underneath. Returns the showing, the
-    ids of the texts queued to the attendee, and the id of the host's text when
-    the showing starts within 2 hours; all are delivered at once.
+    ids of the texts queued to the attendee (none for the old place of a move),
+    and the id of the host's text when the showing starts within 2 hours; all
+    are delivered at once.
     """
     others = await session.scalar(
         select(func.count())
@@ -377,7 +386,13 @@ async def _remove(
         _mark(showing, reason, now)
         await session.flush()
     texts = await _tell_attendee(
-        session, attendee, showing, by_team=reason in BY_TEAM, rules=rules, now=now
+        session,
+        attendee,
+        showing,
+        by_team=reason in BY_TEAM,
+        rules=rules,
+        now=now,
+        moved=moved,
     )
     if last:
         await queue_host_cancel(session, showing, now)
@@ -434,7 +449,7 @@ async def cancel_by_token(
                 showing_id=showing.id,
                 showing_cancelled=showing.status == "cancelled",
             )
-        view = bookings.view_of(showing, attendee, rules.timezone, now)
+        view = await bookings.view_of(session, showing, attendee, rules.timezone, now)
     await _deliver_texts(queued + host, now=now, texts=texts)
     return view
 
@@ -450,6 +465,7 @@ async def cancel_attendee(
     reason: CancelReason,
     now: datetime,
     texts: TextSender | None = None,
+    moved: bool = False,
 ) -> bool:
     """Cancel one booked place, as the cancel link does, with ``reason``.
 
@@ -458,8 +474,10 @@ async def cancel_attendee(
     the reply that booked it was not sent. The same notices as any
     cancellation: the attendee's own text and invite withdrawn when they had
     them, the host's event updated or cancelled, and the residents' text when
-    they were told. Returns whether it cancelled anything; a place already
-    cancelled, or whose showing has started, is left as it is.
+    they were told. With ``moved`` (the showing moved and this is its old
+    place) the attendee's own text is left out, and everything else is the
+    same. Returns whether it cancelled anything; a place already cancelled, or
+    whose showing has started, is left as it is.
     """
     async with AsyncSessionFactory() as session:
         rules = await listings_service.read_showing_rules(session)
@@ -476,12 +494,13 @@ async def cancel_attendee(
         if showing.status != "scheduled" or showing.starts_at <= now:
             return False
         showing, queued, host = await _remove(
-            session, attendee, showing.id, reason=reason, rules=rules, now=now
+            session, attendee, showing.id, reason=reason, rules=rules, now=now, moved=moved
         )
     logfire.info(
         "showing place cancelled from a lead agent decision",
         attendee_id=attendee_id,
         reason=reason,
+        moved=moved,
         showing_cancelled=showing.status == "cancelled",
     )
     await _deliver_texts(queued + host, now=now, texts=texts)

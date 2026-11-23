@@ -718,6 +718,8 @@ async def test_the_link_reads_the_provisional_place_and_nothing_else(lead):
         "starts_at": "2027-04-14T20:00:00Z",
         "ends_at": "2027-04-14T20:30:00Z",
         "timezone": "America/New_York",
+        "details_added": False,
+        "texted": False,
     }
     assert answer.headers["cache-control"] == "no-store"
 
@@ -764,7 +766,7 @@ async def test_completing_the_details_sends_the_confirmation_and_the_invite(lead
 async def test_completed_details_are_live_texted_to_a_test_number(lead, monkeypatch):
     monkeypatch.setenv("SHOWING_TEST_PHONES", ALEX_MOBILE)
     token = await provisional(lead)
-    await store_settings(lead_agent_uses_open_times=True, send_mode="live", test_sends_enabled=True)
+    await store_settings(lead_agent_uses_open_times=True, send_mode="test")
 
     async with lead.world.client() as client:
         answer = await client.post(
@@ -780,7 +782,7 @@ async def test_completed_details_are_live_texted_to_a_test_number(lead, monkeypa
 async def test_a_refused_number_undoes_the_details_and_keeps_the_place(lead, monkeypatch):
     monkeypatch.setenv("SHOWING_TEST_PHONES", ALEX_MOBILE)
     token = await provisional(lead)
-    await store_settings(lead_agent_uses_open_times=True, send_mode="live", test_sends_enabled=True)
+    await store_settings(lead_agent_uses_open_times=True, send_mode="test")
     lead.world.texts.refuse(ALEX_MOBILE, "invalid_number")
 
     async with lead.world.client() as client:
@@ -818,7 +820,8 @@ async def test_completed_details_cannot_be_completed_twice(lead):
 
     assert first.status_code == 201
     assert (second.status_code, second.json()["detail"]["code"]) == (409, "already_completed")
-    assert (read.status_code, read.json()["detail"]["code"]) == (404, "no_booking")
+    # The link's page now says they are booked (test_zillow_lead_moves.py).
+    assert read.status_code == 200 and read.json()["details_added"] is True
     _, attendees, notices = await rows()
     assert attendees[0].mobile == ALEX_MOBILE
     assert len(by_kind(notices)["prospect_confirmation"]) == 1

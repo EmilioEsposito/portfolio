@@ -26,6 +26,15 @@ eval run. When a person approves a reply (``handle.apply_approval``),
   used their link, or an earlier reply booked it), nothing new is booked.
   Any other upcoming place the thread holds at that unit is the old time of a
   move, cancelled only after the reply is sent.
+- A moved showing keeps the lead's details. When a place being moved has them
+  (name, mobile, email, the consent to texts and the requirement ticks) and its
+  number is not known to be wrong, the new place takes them over as they are
+  (``_moving``), the consent record included: consent was given then. Its
+  confirmation text, worded as a move, and the invite behind it are queued too,
+  and nothing reaches the lead before the reply's send is settled
+  (``delivery_checks.reply_unsettled``). The email told the lead, so the place
+  stands if the number is refused, and is marked for the team. Otherwise the
+  new place is provisional, as above.
 - A refused time (gone, full, the unit off the market, the thread already
   booked there) answers ``Prepared.refused``: the caller does not send, and
   puts the reason on the reply's card for a person.
@@ -35,13 +44,15 @@ eval run. When a person approves a reply (``handle.apply_approval``),
 Then ``after_send`` settles it with what the send did:
 
 - ``sent``: the held notices go now; the old time of a move, or the places a
-  cancellation names, are cancelled (reason ``prospect``).
+  cancellation names, are cancelled (reason ``prospect``). The lead is texted
+  about a cancellation, never about the old time of a move.
 - ``failed`` (Gmail refused it, so nothing went out): the place this reply
   booked is cancelled at once (``reply_not_sent``), and its notices, still
   held, are stopped before they go. Nothing else changes.
 - ``uncertain``: the place stands, marked ``reply_uncertain`` on the
-  Showings section; the old
-  time of a move, or a cancellation, goes ahead as for ``sent``.
+  Showings section (and ``lead_reply_uncertain_at``), and its held notices go
+  when their hold ends; the old time of a move, or a cancellation, goes ahead
+  as for ``sent``.
 
 Before anyone approves, the send card states what sending does
 (``plan_reply``, ``Plan.note``): "Sending this books unit 320-03 for Wed,
@@ -70,17 +81,19 @@ from zoneinfo import ZoneInfo
 
 import logfire
 from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings import bookings, cancelling, residents
+from api.src.showing_bookings import bookings, cancelling, delivery_checks, residents
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.providers import TextSender
-from api.src.showing_bookings.schema import normalize_us_mobile
+from api.src.showing_bookings.schema import RequirementConfirmation, normalize_us_mobile
 from api.src.showing_bookings.settings import read_settings
 from api.src.zillow_leads.agent import LeadFacts, TourState
 
-# How long a booking's host event and residents' text wait for the reply's
-# send. Gmail answers in seconds; the hold only has to outlast it.
+# How long a booking's host event and residents' text (and the lead's own text,
+# for a move that kept their details) wait for the reply's send. Gmail answers in
+# seconds; the hold only has to outlast it.
 HOLD = timedelta(minutes=5)
 # The attendee's name when the thread gives none.
 PLACEHOLDER_NAME = "Zillow lead"
@@ -92,6 +105,8 @@ PLAN_PREFIX = "Sending this "
 # Added above a fresh ``Plan.note`` when the thread's showings changed after
 # the card was written, so approving it would now do something else.
 PLAN_CHANGED = "The thread's showings changed since this card was written; approve again to send it with this change."
+# The lead changed the place being moved while the new one was being booked.
+PLACE_CHANGED = "The lead's showing changed while this was being booked. Approve it again."
 
 
 async def enabled() -> bool:
@@ -146,6 +161,8 @@ class Prepared:
     showing_id: int | None = None
     attendee_id: int | None = None
     residents_notice_id: int | None = None
+    # Whether that place has the lead's details, kept from the one it replaces.
+    details_kept: bool = False
     # Places to cancel once the reply is sent: a move's old time, or a cancellation.
     to_cancel: list[int] = field(default_factory=list)
     refusal_code: str | None = None
@@ -185,6 +202,7 @@ class Prepared:
             "start": self.start.isoformat() if self.start else None,
             "showing_id": self.showing_id,
             "attendee_id": self.attendee_id,
+            "details_kept": self.details_kept,
             "to_cancel": self.to_cancel,
             "refusal": self.refusal_code,
             "sent": self.sent,
@@ -221,51 +239,109 @@ async def _unsent_booking_of(attendee_id: int, conversation_id: str) -> bool:
 
     A place is in one of three states: never sent (cleaned up), sent
     (``lead_reply_sent_at``: kept, whatever happens to the card afterwards) or
-    uncertain (``reply_uncertain``: kept and marked). It is this
+    uncertain (``lead_reply_uncertain_at``: kept and marked). It is this
     conversation's unsent booking when this conversation booked it
     (``lead_conversation_id``), its reply was never sent nor may have been, and
-    the lead has not completed it through their link. A place the lead booked
-    through their link, or one an earlier reply booked and sent, never is.
+    the lead has not completed it through their link
+    (``delivery_checks.reply_unsettled``). A place the lead booked through their
+    link, or one an earlier reply booked and sent, never is.
     """
     async with AsyncSessionFactory() as session:
-        row = (
-            await session.execute(
-                select(
-                    ShowingAttendee.lead_conversation_id,
-                    ShowingAttendee.texts_consent_at,
-                    ShowingAttendee.attention_reason,
-                    ShowingAttendee.lead_reply_sent_at,
-                ).where(ShowingAttendee.id == attendee_id)
-            )
-        ).first()
-    if row is None:
-        return False
-    owner, consent, attention, sent_at = row
+        place = await session.get(ShowingAttendee, attendee_id)
     return (
-        owner == conversation_id
-        and consent is None
-        and sent_at is None
-        and attention != REPLY_UNCERTAIN
+        place is not None
+        and place.lead_conversation_id == conversation_id
+        and delivery_checks.reply_unsettled(place)
     )
 
 
-async def _booking_rows(attendee_id: int) -> tuple[int, int | None]:
-    """A recovered place's showing, and the residents' text of that showing, if any.
+async def _recovered(attendee_id: int) -> dict[str, Any]:
+    """A recovered place's showing, the residents' text of that showing, if any, and
+    whether the place kept the lead's details, as ``Prepared`` holds them.
 
     The residents' text is released with the place's own notices once the
     reply is sent (``release_notices`` moves only one still held past now).
     """
     async with AsyncSessionFactory() as session:
-        showing_id = await session.scalar(
-            select(ShowingAttendee.showing_id).where(ShowingAttendee.id == attendee_id)
-        )
+        place = await session.get_one(ShowingAttendee, attendee_id)
         residents_notice_id = await session.scalar(
             select(ShowingNotice.id).where(
-                ShowingNotice.showing_id == showing_id,
+                ShowingNotice.showing_id == place.showing_id,
                 ShowingNotice.kind == residents.NEW_SHOWING_KIND,
             )
         )
-    return showing_id, residents_notice_id
+    return {
+        "showing_id": place.showing_id,
+        "attendee_id": attendee_id,
+        "residents_notice_id": residents_notice_id,
+        "details_kept": place.texts_consent_at is not None,
+    }
+
+
+@dataclass(frozen=True)
+class Kept:
+    """What a lead gave on the place being moved, which the new place takes over as it is."""
+
+    name: str
+    mobile: str
+    email: str
+    consent_at: datetime
+    consent_version: str | None
+    consent_page: str | None
+    confirmations: tuple[RequirementConfirmation, ...]
+
+
+@dataclass(frozen=True)
+class Moving:
+    """The places a move replaces, as they stand: their details, and their starts."""
+
+    kept: Kept | None
+    # The starts of the ones the lead knows of, for the new place's text.
+    replaces: tuple[datetime, ...]
+
+
+async def _moving(session: AsyncSession, attendee_ids: list[int]) -> Moving:
+    """What the new place of a move takes over from the old ones, as things are now.
+
+    The details are kept only from a place that has them (a mobile, an email
+    and recorded consent to texts) whose number is not known to be wrong. Of
+    several, the place with the latest consent. A place whose own reply is not
+    settled, which the lead never heard of, gives neither details nor a start.
+    """
+    if not attendee_ids:
+        return Moving(None, ())
+    rows = (
+        await session.execute(
+            select(ShowingAttendee, Showing.starts_at)
+            .join(Showing, Showing.id == ShowingAttendee.showing_id)
+            .where(ShowingAttendee.id.in_(attendee_ids), ShowingAttendee.status == "booked")
+            .order_by(Showing.starts_at, ShowingAttendee.id)
+        )
+    ).all()
+    known = [(place, start) for place, start in rows if not delivery_checks.reply_unsettled(place)]
+    with_details = [
+        place
+        for place, _ in known
+        if place.email and place.texts_consent_at is not None and delivery_checks.can_text(place)
+    ]
+    latest = max(with_details, key=lambda place: (place.texts_consent_at, place.id), default=None)
+    return Moving(
+        kept=None
+        if latest is None
+        else Kept(
+            name=latest.name,
+            mobile=latest.mobile,
+            email=latest.email,
+            consent_at=latest.texts_consent_at,
+            consent_version=latest.texts_consent_version,
+            consent_page=latest.texts_consent_page,
+            confirmations=tuple(
+                RequirementConfirmation.model_validate(item)
+                for item in latest.requirement_confirmations
+            ),
+        ),
+        replaces=tuple(start for _, start in known),
+    )
 
 
 @dataclass(frozen=True)
@@ -417,16 +493,13 @@ async def _prepare(
             conversation_id=conversation_id,
             attendee_id=same[0],
         )
-        showing_id, residents_notice_id = await _booking_rows(same[0])
         return Prepared(
             "moved" if others else "booked",
             want.unit,
             want.start,
-            showing_id=showing_id,
-            attendee_id=same[0],
-            residents_notice_id=residents_notice_id,
             to_cancel=others,
             conversation_id=conversation_id,
+            **await _recovered(same[0]),
         )
     if same:
         return Prepared(
@@ -439,20 +512,24 @@ async def _prepare(
         )
     try:
         async with AsyncSessionFactory() as session:
-            listing, rules = await bookings._listing(session, want.unit, now)
+            listing, rules = await bookings._listing(session, want.unit, now, only_open=True)
+            moving = await _moving(session, others)
+
+        async def unchanged(session: AsyncSession) -> None:
+            # Under the booking locks: what the new place takes over is what the
+            # old one holds now, should the lead have changed it meanwhile.
+            if await _moving(session, others) != moving:
+                raise bookings.Refused(409, "place_changed", PLACE_CHANGED)
+
         placed = await bookings.place_booking(
             listing,
             rules,
             want.start,
-            bookings.Person(
-                name=_name(lead.name),
-                source="lead_agent",
-                mobile=normalize_us_mobile(lead.phone or ""),
-                zillow_thread_id=thread_id,
-                lead_conversation_id=conversation_id,
-            ),
+            _person(lead, thread_id, conversation_id, moving.kept),
             now=now,
+            checks=unchanged,
             hold_notices_until=now + HOLD,
+            replaces=moving.replaces if moving.kept is not None else (),
         )
     except bookings.Refused as refused:
         logfire.info(
@@ -474,6 +551,7 @@ async def _prepare(
         showing_id=placed.showing.id,
         attendee_id=placed.attendee.id,
         moves=len(others),
+        details_kept=moving.kept is not None,
     )
     return Prepared(
         "moved" if others else "booked",
@@ -482,8 +560,37 @@ async def _prepare(
         showing_id=placed.showing.id,
         attendee_id=placed.attendee.id,
         residents_notice_id=placed.residents_notice_id,
+        details_kept=moving.kept is not None,
         to_cancel=others,
         conversation_id=conversation_id,
+    )
+
+
+def _person(
+    lead: LeadFacts, thread_id: str, conversation_id: str, kept: Kept | None
+) -> bookings.Person:
+    """Who the place is for: with the details kept from the place being moved, or
+    provisional, with what the thread says."""
+    if kept is None:
+        return bookings.Person(
+            name=_name(lead.name),
+            source="lead_agent",
+            mobile=normalize_us_mobile(lead.phone or ""),
+            zillow_thread_id=thread_id,
+            lead_conversation_id=conversation_id,
+        )
+    return bookings.Person(
+        name=kept.name,
+        source="lead_agent",
+        mobile=kept.mobile,
+        email=kept.email,
+        texts_accepted=True,
+        consent_page=kept.consent_page,
+        consent_at=kept.consent_at,
+        consent_version=kept.consent_version,
+        confirmations=kept.confirmations,
+        zillow_thread_id=thread_id,
+        lead_conversation_id=conversation_id,
     )
 
 
@@ -513,12 +620,14 @@ async def after_send(
             if booked_here and result == "sent":
                 await _sent(prepared.attendee_id, prepared.residents_notice_id, now=now)
             if booked_here and result == "uncertain":
-                await _mark(prepared.attendee_id, REPLY_UNCERTAIN)
+                await _uncertain(prepared.attendee_id, now=now)
             if prepared.action == "already_booked" and result == "sent":
                 await _confirmed_by(prepared.attendee_id, prepared.conversation_id)
+            # The old place of a move is cancelled with no text to the lead saying so.
+            moved = prepared.action != "cancel"
             for attendee_id in prepared.to_cancel:
                 if await cancelling.cancel_attendee(
-                    attendee_id, reason="prospect", now=now, texts=texts
+                    attendee_id, reason="prospect", now=now, texts=texts, moved=moved
                 ):
                     cancelled.append(attendee_id)
     except Exception:
@@ -546,12 +655,15 @@ async def _sent(attendee_id: int, residents_notice_id: int | None, *, now: datet
         await bookings.release_notices(session, attendee_id, residents_notice_id, now=now)
 
 
-async def _mark(attendee_id: int, reason: str) -> None:
+async def _uncertain(attendee_id: int, *, now: datetime) -> None:
+    """The reply that booked a place may or may not have gone out: the place stands,
+    marked for the team, and is never cleaned up as unsent. Its own column keeps
+    that when a confirmation text that did not reach the number replaces the mark."""
     async with AsyncSessionFactory() as session, session.begin():
         await session.execute(
             update(ShowingAttendee)
             .where(ShowingAttendee.id == attendee_id, ShowingAttendee.status == "booked")
-            .values(attention_reason=reason)
+            .values(attention_reason=REPLY_UNCERTAIN, lead_reply_uncertain_at=now)
         )
 
 
@@ -591,24 +703,22 @@ async def cancel_unsent(
 ) -> list[int]:
     """Cancel the places a conversation booked for a reply that will not be sent.
 
-    For a rejected reply. Leaves a place marked ``reply_uncertain`` (the reply
-    may have gone out) and one the lead has since completed through their
-    link. Nothing at all while the switch is off. Returns what it cancelled.
+    For a rejected reply. Leaves a place whose reply is uncertain (it may have
+    gone out) and one the lead has since completed through their link. Nothing
+    at all while the switch is off. Returns what it cancelled.
     """
     if not await enabled():
         return []
     async with AsyncSessionFactory() as session:
-        ids = list(
-            await session.scalars(
-                select(ShowingAttendee.id).where(
-                    ShowingAttendee.lead_conversation_id == conversation_id,
-                    ShowingAttendee.status == "booked",
-                    ShowingAttendee.texts_consent_at.is_(None),
-                    ShowingAttendee.lead_reply_sent_at.is_(None),
-                    ShowingAttendee.attention_reason.is_distinct_from(REPLY_UNCERTAIN),
-                )
+        places = await session.scalars(
+            select(ShowingAttendee)
+            .where(
+                ShowingAttendee.lead_conversation_id == conversation_id,
+                ShowingAttendee.status == "booked",
             )
+            .order_by(ShowingAttendee.id)
         )
+        ids = [place.id for place in places if delivery_checks.reply_unsettled(place)]
     cancelled = [
         attendee_id
         for attendee_id in ids

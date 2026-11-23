@@ -297,9 +297,16 @@ def build_case(
     service). The case stores the times either way, never where they came from.
 
     ``booking_links`` replace units' booking links (the booking service's page
-    with this thread's own token), and ``own_showings`` are the thread's own
-    showings. Both come from the booking service, only while it is in use;
+    with this thread's own token; an empty one is no link at all), and
+    ``own_showings`` are the thread's own showings. Both come from the booking
+    service, only while it is in use;
     without them the case is exactly what it was before either existed.
+
+    A showing the lead is booked into is not offered back to them: its time is
+    left out of the open times and the booked tours at that unit, so what the
+    policy offers first is other people's showings. It stays under
+    ``own_showings``, and a reply may still state its time
+    (``allowed_tour_times``).
     """
     last = len(thread.messages) - 1 if upto is None else upto
     visible = thread.model_copy(update={"messages": thread.messages[: last + 1]})
@@ -312,13 +319,22 @@ def build_case(
     listed = [
         item.model_copy(
             update={
-                "booking_url": links.get(item.unit) or item.booking_url or listing_data.booking_url
+                "booking_url": links.get(item.unit, item.booking_url or listing_data.booking_url)
             }
         )
         for item in listing_data.listings
         if item not in rented
     ]
     offerable = offerable_slots(listing_data, now) if slots is None else slots
+    booked = booked_tours or []
+    if own_showings is not None:
+        mine = {(own.unit.casefold(), own.start) for own in own_showings if own.status == "booked"}
+        offerable = [
+            slot
+            for slot in offerable
+            if slot.unit is None or (slot.unit.casefold(), slot.start) not in mine
+        ]
+        booked = [tour for tour in booked if (tour.unit.casefold(), tour.start) not in mine]
     return LeadCase(
         case_id=f"{thread.thread_id}-{last}",
         now=now,
@@ -327,7 +343,7 @@ def build_case(
         listings=listed,
         rented_units=listing_data.rented_units + [item.unit for item in rented],
         offerable_slots=offerable,
-        booked_tours=[tour for tour in (booked_tours or []) if tour.start > now],
+        booked_tours=[tour for tour in booked if tour.start > now],
         preferred_times=_preferred_times(listed, offerable, zone),
         own_showings=(
             None

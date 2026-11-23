@@ -14,9 +14,13 @@ text keeps working after booking is closed.
   rent, showing length, the confirmations with their wording, the consent
   small print, the Turnstile site key, and the offers in order. No host names.
 - ``POST /units/{unit}/bookings``: book or join a showing at one start.
-- ``POST /units/{unit}/lead-booking``: ``{lead_token}``: the place the Zillow
-  lead agent booked for the token's thread at this unit, before the lead has
-  added their details (``lead_details.py``); 404 ``no_booking`` otherwise.
+- ``POST /units/{unit}/lead-booking``: ``{lead_token}``: the place booked for
+  the token's thread at this unit, and whether the lead's details are in
+  (``lead_details.py``); 404 ``no_booking`` when there is none.
+- ``POST /units/{unit}/lead-booking/unit``: ``{lead_token}``: what the booking
+  page shows for the unit, with no times, for a lead with such a place. The page
+  asks it when the unit itself answers 404, which in live mode is every unit
+  that is not live.
 - ``POST /units/{unit}/lead-booking/details``: the booking form without a
   time, plus ``lead_token``: completes that place with the lead's details.
 - ``POST /bookings/lookup``: a booking by its cancel token, for the
@@ -155,14 +159,24 @@ async def book(
     return JSONResponse(result.model_dump(mode="json"), status_code=201, headers=_NO_STORE)
 
 
-@public_router.post("/units/{unit}/lead-booking", response_model=lead_details.ProvisionalView)
+@public_router.post("/units/{unit}/lead-booking", response_model=lead_details.LeadPlaceView)
 async def lead_booking(unit: str, request: Request, now: datetime = Depends(clock)):
     try:
         body = bookings.parse_body(lead_details.LeadTokenRequest, await _body(request))
-        view = await lead_details.provisional(unit, body, now=now)
+        view = await lead_details.place(unit, body, now=now)
     except bookings.Refused as refused:
         return _refused(refused)
     return JSONResponse(view.model_dump(mode="json"), headers=_NO_STORE)
+
+
+@public_router.post("/units/{unit}/lead-booking/unit", response_model=bookings.UnitPage)
+async def lead_booking_unit(unit: str, request: Request, now: datetime = Depends(clock)):
+    try:
+        body = bookings.parse_body(lead_details.LeadTokenRequest, await _body(request))
+        page = await lead_details.unit_for_place(unit, body, now=now)
+    except bookings.Refused as refused:
+        return _refused(refused)
+    return JSONResponse(page.model_dump(mode="json"), headers=_NO_STORE)
 
 
 @public_router.post(

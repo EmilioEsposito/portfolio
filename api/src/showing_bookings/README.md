@@ -14,9 +14,9 @@ booking API, cancelling, the residents' texts, the team's actions, the
 reminders (including the reminder by email in a Zillow lead's thread), the
 host's texts, the team's alerts, the host's morning text, the apply text,
 joins until 2 hours before, and removing prospects' details after 12 months.
-Nothing is sent unless switched on: the setting starts in capture
-mode, outside production only test recipients can ever be sent to, and the
-public booking API is off in production until the team opens it.
+Nothing is sent unless a person switches it on or sends it: the setting starts
+in capture mode, outside production only the test list can ever be reached, and
+the public booking API is off in production until the team opens it.
 
 ## Tables
 
@@ -64,15 +64,15 @@ A row starts `pending`, or `held` when it waits for another notice
 
 | Status | Meaning |
 | --- | --- |
-| `captured` | Rendered and kept on the row. No provider was called. |
+| `captured` | Rendered and kept on the row. No provider was called. A person can send it by hand (see Captured messages). |
 | `sent` | The provider accepted it. `provider_id` and `provider_status` hold its answer. |
 | `failed` | The provider refused it, such as a number that has opted out. Nothing went out. |
 | `unknown` | It may have gone out: a timeout, a lost answer or a send cut off midway. Never retried. |
-| `skipped` | The send mode is off. |
+| `skipped` | Only rows from when the send mode could be off. |
 | `cancelled` | Never sent: the booking was withdrawn, or the confirmation text it waited for was not delivered. |
 
 `outbox.deliver` delivers one row at once, and `outbox.drain` delivers every
-row due by its `now` argument. A drain settles the rows the guard skips or
+row due by its `now` argument. A drain settles the rows the guard
 captures together, then takes the rows it would send one at a time. Each is
 claimed just before its own provider call: the row is locked with
 `FOR UPDATE SKIP LOCKED`, the guard is asked again, `attempts` goes up and
@@ -91,6 +91,9 @@ saved as `failed` with the reason `no_email_sender`. A notice whose check
 finds it cannot go and needs the team (the reminder by email with no usable
 route) is saved as `failed` before the guard is asked, with no send.
 
+A row a person sent by hand also has `send_approved_by` (their Sernia email)
+and `send_approved_at`.
+
 A text notice to several numbers is one group text: the notice's
 `recipient` is the first number and `payload.also_to` holds the rest, who
 share one thread. The guard counts every number in it, so it is a test send
@@ -100,9 +103,10 @@ only when every number is a test recipient.
 `test_showing_boundaries.py` fails if another file uses a sending method (a
 text, a group text, or a calendar event write, which invites people), if the
 Quo sender is imported anywhere but `outbox.py` or the Google calendar adapter
-anywhere but `connections.py`, if the Quo contact reader (`quo_contacts.py`,
-which sends nothing) is imported anywhere but `residents.py`, if a file other than `google_oauth.py` and
-`google_calendar.py` names Google's hosts, or if anything here uses the repo's
+or the calendar picker's lists (`google_lists.py`, which only reads) anywhere
+but `connections.py`, if the Quo contact reader (`quo_contacts.py`,
+which sends nothing) is imported anywhere but `residents.py`, if a file other than `google_oauth.py`,
+`google_calendar.py` and `google_lists.py` names Google's hosts, or if anything here uses the repo's
 general `send_message` or `create_calendar_event`, which have no guard. The
 team's alert channel (`push.py`) is held to the same rule: only `outbox.py`
 imports it or calls `send_alert`, and the reminders, host's texts and alerts
@@ -116,27 +120,125 @@ The setting is the `showing_bookings_config` row in `app_settings`:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `send_mode` | `capture` | `off` skips every notice; `capture` keeps them without sending; `live` lets the guard send |
-| `live_units` | `[]` | units whose notices really go out in production |
-| `test_sends_enabled` | `false` | in live mode, also send notices that reach only test recipients |
+| `send_mode` | `capture` | `test` sends only to the test list; `capture` sends nothing by itself; `live` sends to real people, in production, for the units that are live |
+| `live_units` | `[]` | the units ticked for live mode |
+| `live_all_units` | `false` | every unit is live, including ones added later; the ticks are kept |
 | `lead_agent_uses_open_times` | `false` | the Zillow lead agent offers these open times |
-| `public_booking_enabled` | unset | the public booking routes answer; unset is off in production, on elsewhere |
+| `public_booking_enabled` | unset | the public booking routes answer; unset is off in production, on elsewhere, until it is changed once |
 | `public_limits` | 2, 2, 6, 50 | upcoming showings per mobile and per email, bookings per IP address a day, page bookings from everyone a day |
 
-`guard.decide` is one pure function. A notice is sent only when the mode is
-`live` and either this is production (`RAILWAY_ENVIRONMENT_NAME` is
-`production`) and the unit is live, or test sends are on and every address the
-notice reaches is a test recipient. A calendar event counts every guest, so an
-invite that also names someone else is captured. Everything else is captured.
-A preview's database is a copy of production's rows, so outside production
-nothing but a test send can go out, whatever the row says.
+A row saved before test mode needs no migration. It reads as what it meant:
+`off` is `capture`; `live` with test sends on and no live units is `test`; any
+other row keeps its mode, and the dropped `test_sends_enabled` is ignored, in a
+save from a tab left open too. A row that does not read is capture, with no
+live unit.
 
-Test recipients come from two environment variables, read each time:
+`guard.decide` is one pure function: capture or send. It decides in this order.
+
+1. Outside production (`RAILWAY_ENVIRONMENT_NAME` is not `production`), a notice
+   that reaches anyone not on the test list is captured, whatever the row says
+   and whoever approved it: a preview's database is a copy of production's rows.
+2. A notice a person sent by hand is sent, in any mode.
+3. `test` sends when everyone the notice reaches is on the test list.
+4. `live` sends in production when the unit is live.
+5. Everything else is captured.
+
+Everyone a notice reaches counts: every number of a group text, and every guest
+of an event, so an invite that also names someone else is captured. Live mode
+has no test sends.
+
+The test list comes from two environment variables, read each time:
 `SHOWING_TEST_PHONES` and `SHOWING_TEST_EMAILS`, comma separated. Entries that
 are not a US mobile number or an email address are ignored.
 
 Each delivered row records the `mode` it was delivered in and the guard's
 reason (`guard_reason`), so the Messages list can say why a row was captured.
+
+### Which units may be booked
+
+In live mode a unit that is not live sends no text to anyone who books it, so
+the public and the lead agent may not book it (`settings.unit_open`). In test
+and capture mode, and with all units live, every unit on offer is open. The
+gate is the setting alone, so a preview follows the row it copied.
+
+| Asks | A unit that is not live |
+| --- | --- |
+| `GET /public/units` | is left out |
+| `GET /public/units/{unit}` and `POST .../bookings`, joins included | 404 `unknown_unit` |
+| the lead agent's open times and booked tours | are left out |
+| the lead agent's link for the unit | is the listing's own link instead, or none when that is a unit's page here too |
+| a reply that would book it, or move a showing to a new time there | is held, as for a time that is gone |
+
+It never asks for anything that exists: a showing booked there stays, with its
+cancel link, its corrections and its messages, which are captured from then on.
+The team books and sees every unit. A lead with a place there keeps their link:
+the unit's page answers 404 to others, so the web page reads what it shows from
+`POST /public/units/{unit}/lead-booking/unit` (`lead_details.unit_for_place`),
+and their details are taken as before.
+
+### Captured messages, and sending them by hand
+
+`captured.py`. `GET /notices/captured` lists captured notices, each written as it
+would be sent now, to whom, with a state:
+
+| State | Meaning |
+| --- | --- |
+| `ready` | It can be sent. With a note when it would wait: "Residents get texts only between 8 AM and 9 PM", or, while its confirmation text is ticked or on its way, "Goes once the confirmation is delivered". |
+| `too_late` | By the one rule, `delivery_checks.too_late`: the showing has started; for the apply text two days after the start; for the host's morning text noon of its day; for the residents' reminder the start of the last showing it lists. A cancellation counts by the showing's own start. |
+| `no_longer_applies` | Anything a delivery would stop it for, with the reason: the booking was cancelled, the showing moved to another host, the number is known to be wrong or was corrected, the event already says this, what it follows was never sent (Told already, below), or its confirmation text did not reach the person. |
+
+The last two stay listed for two days after they were captured. The states come
+from the checks a delivery makes, run on a copy of the row (`outbox.preview`), so
+the list, the send and the delivery agree.
+
+`POST /notices/send-captured` takes the ids a person picked. In one transaction
+each row is locked, must still be captured and ready, and becomes `pending` (or
+`held`) with `send_approved_by` and `send_approved_at`. A row already handled is
+answered as that. From there the outbox delivers it like any other, with every
+check again as it goes (`_prepare`, and `delivery_checks.by_hand_problem`), so
+two people pressing at once send nothing twice, and a process that stops midway
+leaves rows the job every minute finishes. A request delivers for up to 45
+seconds and leaves the rest to the job. It answers what happened to each:
+`sent`, `waiting` (until when), `unknown`, `not_sent` (why), `kept` (outside
+production, not on the test list) or `handled`.
+
+- A message whose confirmation text is sent with it, or is on its way, waits for
+  it by the rules of Held notices. When the text is left unsent, the person
+  chose that and the message goes by itself. One captured behind a number since
+  corrected waits for the latest text to the number on the booking.
+- A confirmation text whose number Quo refuses marks the booking
+  (`confirmation_refused`) and alerts the team: nobody is on the page to be told,
+  so the booking is not withdrawn.
+- Several host event notices for one showing end as one event: each renders from
+  the showing as it is, the first creates it, and one that would change nothing
+  is not sent. The event goes to the calendar the host's connection writes to
+  now, should it have been captured before one was connected.
+- The host's morning text lists every showing of that host's day.
+- When a person corrects their mobile, what waited for the old text waits for the
+  new one and follows the mode again: the approval is cleared, and so it is on
+  residents' text brought back by a join.
+- Switching modes never sends what is already captured.
+- Each send is logged with the person's user id, the notice ids and counts.
+
+### Told already
+
+A captured message counts as told while anything is queued or prepared, so
+capture mode keeps a booking's cancellations and changes too. When a message is
+about to be really sent that is not enough: `told.missing`, asked by the outbox
+only after the guard answered send, cancels it when what it follows was captured
+and never sent.
+
+| A message | Goes when |
+| --- | --- |
+| the residents' cancellation | their new-showing text, or a reminder that listed the showing, went |
+| a host's event or prospect's invite cancelled, an old host's event cancelled | there is an event to cancel |
+| a host's event update because someone left, with no event yet | something for that host about the showing went, or nothing was captured |
+| a host's text that someone left, that the showing is cancelled or that it moved away | the same |
+
+Went means sent, may have gone out or being sent now. Every other message says
+something by itself. An update for someone still booked is one: with no event
+yet it creates the event, with everyone booked, so a host hears of someone who
+joins live a showing that was booked in capture mode.
 
 ## Providers
 
@@ -198,10 +300,7 @@ agents share with it; an agent with a Sernia sign-in may connect their own.
    `POST /calendar/connect` answers with Google's consent URL for the OAuth
    client in the Google Cloud project `sernia-showings`, which is Internal:
    only serniacapital.com accounts can approve it, with no Google review. It
-   asks for offline access to two calendar permissions,
-   `calendar.events.freebusy` (free/busy of every calendar the account can
-   see) and `calendar.app.created` (calendars the app itself creates), plus
-   `openid` and `email` to learn which account approved.
+   asks for offline access to the permissions below.
 2. Google sends the browser to `/api/showing-bookings/calendar/callback`, the
    module's one route without sign-in (`calendar_callback.py`). The request
    carries no sign-in, so who started the connection travels in `state`:
@@ -209,12 +308,24 @@ agents share with it; an agent with a Sernia sign-in may connect their own.
    nonce, signed with `SESSION_SECRET_KEY` and good for ten minutes. A
    missing, altered or expired state saves nothing.
 3. The callback trades Google's one-time code for tokens, checks that both
-   calendar permissions were granted, makes sure the account has a calendar
+   required permissions were granted, makes sure the account has a calendar
    named "Sernia showings" (created once; a reconnect keeps it), and saves the
    row with the refresh token encrypted. It answers with a small page that
    sends the browser back to the tab with the result, such as
    `?calendar=connected`. A page, not a redirect status, because the web
    server's `/api` proxy follows redirects itself.
+
+| Permission | Why | Required |
+| --- | --- | --- |
+| `openid`, `email` | which account approved | yes |
+| `calendar.events.freebusy` | free/busy of every calendar the account can see | yes |
+| `calendar.app.created` | the showings calendar, which the app creates | yes |
+| `calendar.calendarlist.readonly` | the calendar picker: the calendars on the account's own list | no |
+| `directory.readonly` | the calendar picker: the people in the Workspace directory, by name and email address | no |
+
+A grant without the last two connects as before and everything but the picker
+works with it. A connection made before the picker keeps working as it is; its
+card says when a Reconnect would add them (`reconnect_adds_permissions`).
 
 The redirect URI is built from an allowed origin, never from a request header:
 `https://eesposito.com`, `https://dev.eesposito.com` or `http://localhost` on
@@ -248,6 +359,54 @@ someone presses Reconnect.
 "Disconnect" revokes the grant at Google, then marks the row `revoked` and
 drops its token; the showings calendar stays in the account, and connecting
 again reuses it.
+
+### The calendar picker
+
+`calendar_candidates.py` answers which calendars the showing agent form
+offers (`GET /calendar/candidates`). It reads Google afresh each time through
+the team's connection, as `agents.team_connection` picks it, and only reads:
+
+1. The people in the Workspace directory, by their main calendar (its id is
+   the person's primary email address), and the account's own calendar list,
+   both to the last page (`google_lists.py`). A calendar in both is in the
+   team's group. Left out: the account's own calendar, every connection's
+   showings calendar, and Google's virtual calendars (ids ending
+   `@group.v.calendar.google.com`). At most 500 are kept, shared ones first,
+   and `truncated` says when there were more.
+2. A free/busy read of each over the next day, 50 at a time, read exactly as
+   availability reads them (`GoogleCalendar.readable`). Only a calendar that
+   comes back is offered. The times are dropped and nothing is recorded on the
+   connection.
+
+Every calendar saved on the agent in `agent_id` is in the answer whatever
+happens: in its group, or as `saved` under its address when it is in neither
+list, with `readable` true, false, or null when it could not be checked.
+
+| Answer | When |
+| --- | --- |
+| `connection` is `none`, `lost` or `unusable` | No account is connected, Google no longer accepts it, or this environment cannot use it (`problem`). Google is not asked. |
+| `directory` or `calendar_list` is `not_granted` | The connection's saved permissions lack it, or Google says so. The other list is still read. |
+| ... `api_off` | The API is off in the Google Cloud project. |
+| ... `sharing_off` | Google says the Workspace does not share its directory with apps. |
+| ... `refused` | Google said no, and not why. |
+| ... `failed` | Google did not answer, or set a limit. Trying again may work. |
+| `check_failed` | Google did not say whether some calendars can be read; those not saved on the agent are left out. |
+
+Google's own wording, names and addresses stay out of the logs, which hold
+counts and these words only. Request tracing records the whole URL, query
+included, and Google's page tokens can hold an email address, so a page after
+the first is not traced.
+
+Setup, once, for the team to be listed:
+
+- The People API must be enabled in the `sernia-showings` project, beside the
+  Google Calendar API.
+- The Workspace must share its directory with apps: Google Admin console,
+  Directory, Directory settings, Sharing settings, External Directory Sharing,
+  "Organization data and authenticated user basic profile fields"
+  ([Google's note](https://developers.google.com/people/v1/directory)). A
+  change can take up to 24 hours.
+- A team member presses Reconnect and leaves every box ticked.
 
 ### Usable here
 
@@ -307,7 +466,17 @@ one agent.
 - No connection chosen means the team's: the oldest connection that is
   connected. An agent added before any calendar is connected is read once one
   is.
-- An agent with no calendars listed counts as busy.
+- An agent with no calendars listed counts as busy, and so does one with a
+  calendar that cannot be read.
+- The form ticks calendars from the calendar picker (above) and takes no typed
+  address. A new agent's own calendar, the one at their email, is ticked while
+  it is listed and follows the email until a tick is changed by hand. A ticked
+  or saved calendar always stays in the list, so a save drops none that was not
+  unticked: one that cannot be read is marked "Can't read: counts as busy".
+- The form always saves no connection, so the team's reads every agent. The
+  column and the rules above are kept.
+- Where no connection is usable, as in a preview, no calendar can be picked;
+  Load sample agents adds two that have one.
 - Deactivating keeps the row, so past showings still name the agent, and gives
   them no new showings. Showings already booked keep their host.
 
@@ -383,18 +552,25 @@ open times from the sample week.
 `tour_source_for_lead_agent` for each lead: with the switch off, or the setting
 unreadable, it gets its own `NoTours` and behaves exactly as before.
 
-With it on, `BookingTourSource` answers `zillow_leads.tours.TourSource`:
+With it on, `BookingTourSource` answers `zillow_leads.tours.TourSource`, for the
+units that may be booked (see Which units may be booked):
 
 - open times: each unit's own starts (as a new time or a join), each a
   `TourSlot` with its unit, which the case lists under that unit. No host's
   name is passed on.
 - booked: the showings with room, by unit, which the lead policy offers first.
+  A showing the lead is booked into themselves is left out of both lists for
+  their own case (`case.build_case`, from the own showings below), so it is
+  never offered back to them; a reply may still state its time.
 
 and `lead_booking_for` adds what belongs to the lead's thread:
 
 - each unit's booking page with the thread's own token
   (`zillow_leads/lead_links.py`), `<SHOWING_PUBLIC_BASE_URL>/showings/<unit>?t=<token>`,
-  as the case's booking link;
+  as the case's booking link. Only for a page that answers: public booking is on,
+  and the unit may be booked or the lead has a place there, which the page then
+  shows. For any other unit the case keeps the listing's own link, and has none
+  when that is a unit's page of this site too;
 - the thread's own upcoming showings, from the attendee rows tied to it
   (`zillow_thread_id`): unit, start, and booked or the cancel reason. Nothing
   about the host or anyone else booked. A place cancelled because the reply
@@ -427,10 +603,9 @@ route answers 404, as for a path that does not exist, and saves nothing,
 except two: `POST /bookings/lookup` and `POST /bookings/cancel` answer either
 way, so a person booked before the team closed booking can still read and
 cancel from the link in their text. A cancel token exists only for a booking
-once made, so they show nothing while booking has never been on. The
-Send mode section of the tab has the control, "Open booking to the public",
-which sets it through `PUT /settings/public-booking` (`null` goes back to the
-default); a send-mode save keeps it as stored.
+once made, so they show nothing while booking has never been on. The tab's "Who
+can book" sets it on or off through `PUT /settings/public-booking`; a send-mode
+save keeps it as stored.
 
 ### Routes
 
@@ -448,9 +623,10 @@ tokens; a cancel token travels in the body for the same reason.
 | `GET /call-line` | `{turnstile_site_key}` and nothing else, for the call line on a page with no unit (the Sernia home page). Reads no listings and no calendars, so the page can answer at once; the 404 while the switch is off tells the page to leave the call line out. |
 | `GET /units/{unit}` | the listing's unit key, address, rent, showing length, time zone, the confirmations with their wording and version, `confirmations_version`, the consent small print, the privacy and SMS terms paths, the Turnstile site key, and the offers in order (`start`, `join`, `preferred`, `places_left`). No host names. 404 `unknown_unit` for a unit not on offer. |
 | `POST /units/{unit}/bookings` | `{start, name, mobile, email, confirmations: {lease_start, pets, texts}, turnstile_token, confirmations_version?, lead_token?}`. 201 with the cancel token, `kind` (`new` or `join`), the confirmation text's status and the booking as below. |
-| `POST /units/{unit}/lead-booking` | `{lead_token}`: the place the lead agent booked by email for the token's thread at this unit, while the lead has not added their details: `{unit, address, starts_at, ends_at, timezone}`, nothing else. 404 `no_booking` otherwise, or with the lead agent's switch off. See Showings booked by email below. |
+| `POST /units/{unit}/lead-booking` | `{lead_token}`: the place booked for the token's thread at this unit: `{unit, address, starts_at, ends_at, timezone, details_added, texted}`, nothing else. `details_added` is false for the place the lead agent booked by email while the lead has not added their details, and true when they are in. `texted` is whether their confirmation text went. 404 `no_booking` with neither, or with the lead agent's switch off. See Showings booked by email below. |
+| `POST /units/{unit}/lead-booking/unit` | `{lead_token}`: what `GET /units/{unit}` answers, with no offers, for a thread with such a place, whether or not the unit may be booked now. 404 `no_booking` otherwise. |
 | `POST /units/{unit}/lead-booking/details` | The booking form's body without `start`, plus `lead_token`: completes that place with the lead's details. 201 with the same answer as a booking, `kind` `details`; 409 `already_completed`; 404 `no_booking`. |
-| `POST /bookings/lookup` | `{cancel_token}`: status, unit, address, start and end, time zone, the mobile with all but the last two digits hidden, the corrections left, `started` (the start has passed) and `cancelled_by_team` (cancelled by the team or because the unit went off the market). |
+| `POST /bookings/lookup` | `{cancel_token}`: status, unit, address, start and end, time zone, the mobile with all but the last two digits hidden, `texted` (the confirmation text to that mobile went out, or may have; false while it is captured or waiting, when the page says "We'll text" instead of "We texted"), the corrections left, `started` (the start has passed) and `cancelled_by_team` (cancelled by the team or because the unit went off the market). |
 | `POST /bookings/mobile` | `{cancel_token, mobile}`: texts the confirmation to the new number, at most twice per booking; the same answer as the lookup. |
 | `POST /bookings/cancel` | `{cancel_token}`: cancels the booking (see Cancelling below) and answers as the lookup does. A booking already cancelled answers the same and sends nothing; 409 `started` once the showing has started; 404 `unknown_booking`. |
 | `POST /team-phone` | `{turnstile_token}`: the team number (`SERNIA_TEAM_PHONE`), its display form, the extension (`SERNIA_TEAM_PHONE_EXTENSION`, default 1) and a `tel:` link that dials it. |
@@ -502,14 +678,18 @@ tokens; a cancel token travels in the body for the same reason.
    Zillow lead agent. It takes a `Person` (name, source, and optionally a
    mobile, an email, consent to texts, the form's confirmations, a lead
    token or Zillow thread) and an optional `checks(session)` run under the
-   locks, which is how the page applies its limits. It looks up the unit's
+   locks, which is how the page applies its limits and a moved showing checks
+   that the old place has not changed. It looks up the unit's
    residents itself, before its transaction (`resident_notices.find_for`, which
    may read Quo), so every source tells them the same way: a new showing
    queues their text held behind the confirmation text, or due at once (in the
    daytime) when the booking has none; a join brings back an announcement
    stopped with an earlier failed confirmation, held behind this booking's
    confirmation or due at once without one; a lookup that went wrong marks the
-   showing and never stops the booking.
+   showing and never stops the booking. A place booked from the lead agent's
+   reply stands whatever happens to its confirmation text (the email told the
+   lead), so only its invite waits for that text; its host notice and the
+   residents' text do not.
 4. After the commit the confirmation text is delivered at once. If Quo refuses
    the number (invalid, unreachable or opted out) the booking is withdrawn:
    the attendee is cancelled with `cancel_reason` `number_refused`, a showing
@@ -627,6 +807,7 @@ because phones and mail scanners open links to preview them.
 | --- | --- | --- | --- | --- |
 | A prospect cancels, others still booked | cancelled, `prospect` | stays | a text confirming it, with the unit's booking page; invite withdrawn | updated |
 | The last prospect cancels | cancelled, `prospect` | cancelled, `prospect` | the same | cancelled |
+| A lead moved their showing by email: the old place | cancelled, `prospect` | stays, or cancelled (`prospect`) when they were the last | no text; invite withdrawn | updated, or cancelled when they were the last |
 | The team removes one attendee | cancelled, `team` | cancelled when they were the last | the team's cancellation text, with the units on offer; invite withdrawn | updated, or cancelled when they were the last |
 | The team cancels a showing | each cancelled, `team` | cancelled, `team` | the same | cancelled |
 | The unit goes off the market | each cancelled, `off_market` | cancelled, `off_market` | the same | cancelled |
@@ -642,10 +823,16 @@ because phones and mail scanners open links to preview them.
 - Texts go only to an attendee with a mobile who accepted texts and whose
   confirmation text was not reported undelivered or refused
   (`attention_reason`); a number known to be wrong is not texted again, though
-  the invite is still withdrawn. A prospect's
-  or the team's cancellation text is delivered at once; calendar changes go
-  with the job every minute. Off-market cancellations queue everything for the
-  job.
+  the invite is still withdrawn. Nor is a lead about a place whose reply never
+  went (`delivery_checks.reply_unsettled`), which they never heard of. A
+  prospect's or the team's cancellation text is delivered at once; calendar
+  changes go with the job every minute. Off-market cancellations queue
+  everything for the job.
+- A showing that moved texts the lead no cancellation: the old place is
+  cancelled with `moved` (`cancelling.cancel_attendee`), which leaves out that
+  one text and nothing else. The invite is withdrawn, and the host's and the
+  residents' notices are those of any cancellation. A real cancellation by the
+  lead still texts them.
 - Up to the start. A prospect cancelling after it is refused with 409
   `started`; so is the team (409 on its routes).
 - Twice is safe: a second call finds nothing booked, changes nothing and
@@ -695,9 +882,14 @@ something:
 | reported `delivered` | released: pending and due now |
 | reported `undelivered` or `failed` | cancelled; the booking gets `attention_reason` `confirmation_undelivered` |
 | sent, no final report after 5 minutes | released |
-| captured (capture mode has no report) or skipped | released at once |
+| captured (it has no report) or skipped (an old row) | released at once |
 | refused or otherwise failed, or cancelled | cancelled; the booking is marked for the team |
 | pending, or unknown for less than 5 minutes | left held |
+
+A confirmation or an invite for a place the lead agent booked also waits,
+whatever its time, until the reply that books the place is settled: sent, or
+possibly sent (see Showings booked by email). Such a row stays as it is, and
+counts as stuck ten minutes after it was due, so the team is alerted.
 
 The status is read from Quo through `outbox.refresh_text_status`.
 `holds.send_pending(now=)` runs, in order, `release_held`,
@@ -705,8 +897,9 @@ The status is read from Quo through `outbox.refresh_text_status`.
 the apply text), `outbox.drain` and `alerts.check`. The APScheduler job
 `showing-notices` runs it every minute, registered only when background
 automation is on; with nothing held, due, recently failed, coming up in the
-next two days or owed an apply text it returns after one query. "Send pending
-now" on the tab runs the same steps. Each step runs on its own: one that raises
+next two days or owed an apply text it returns after one query. Outside
+production, where the job is off, "Run the every-minute job once" on the tab runs
+the same steps. Each step runs on its own: one that raises
 is logged at error level (`logfire.exception`, naming the step) and the rest
 still run, so held notices are always released and due notices always
 delivered.
@@ -771,7 +964,8 @@ booking transaction, as it may read Quo.
   showing has started by then, or a new-showing text whose showing is
   cancelled, is cancelled instead of sent.
 - "Told" means the first text was sent, captured, may have gone out
-  (unknown), or is being sent when the showing is cancelled. The cancellation
+  (unknown), or is being sent when the showing is cancelled; when the
+  cancellation would really go, captured is not enough (Told already, above). The cancellation
   text never overtakes the announcement: while the announcement is being sent
   it waits a minute, then goes only if the announcement went out, and is
   cancelled ("never went out") if it failed or was stopped.
@@ -786,8 +980,7 @@ booking transaction, as it may read Quo.
   contact matches exactly, but a current tenant's contact names the unit
   another way, such as `3` for `03`), `resident_without_mobile`, or
   `too_many_residents` (more than ten).
-- Behind the guard like every notice: captured unless the unit is live in
-  production or every number in the text is a test recipient.
+- Behind the guard like every notice; every number in the text counts.
 - Wording: `wording.resident_new_showing_text` and
   `wording.resident_cancelled_text`, version `RESIDENT_VERSION`.
 - No public answer carries anything about residents.
@@ -814,32 +1007,69 @@ table of which decision does what, and the order around a send).
   go in one transaction; it cancels the place with
   reason `reply_not_sent` when Gmail refused it (its notices are stopped
   before they go, so there is nothing to undo), or marks it `reply_uncertain`
-  when the send's result is unknown.
+  and saves `lead_reply_uncertain_at` when the send's result is unknown.
 - A thread holds at most one upcoming place per unit. Confirming another time
-  there books the new one first and cancels the old one (reason `prospect`)
-  after the send; a cancellation in the thread cancels with reason `prospect`
-  (`cancelling.cancel_attendee`), with the same texts to the residents and the
-  host as any cancellation. Every step is safe to repeat.
+  there books the new one first and cancels the old one (reason `prospect`,
+  with no text to the lead) after the send; a cancellation in the thread
+  cancels with reason `prospect` (`cancelling.cancel_attendee`), with the same
+  texts to the lead, the residents and the host as any cancellation. Every
+  step is safe to repeat.
 - `plan_reply` says what sending a reply would do without changing anything;
   the lead agent puts it on the send card, holds a card whose statement went
   stale, and applies nothing when a person sends edited words.
 - A place is in one of three states: never sent (cleaned up), sent
   (`lead_reply_sent_at`: kept, whatever happens to the reply's card
-  afterwards) or uncertain (`reply_uncertain`: kept and marked). A place this
-  conversation booked and never sent (`lead_conversation_id`, no details,
-  neither sent nor uncertain) is still the reply's own booking: a later
-  approval recovers it, and a definite send failure, a rejection or an edited
-  send cancels it. A place booked through the lead's link, by an earlier sent
-  reply, or whose own reply was sent, never is.
+  afterwards) or uncertain (`lead_reply_uncertain_at`: kept and marked; the
+  mark itself, `reply_uncertain`, gives way to one about the confirmation
+  text). A place this conversation booked and never sent
+  (`lead_conversation_id`, not completed through the link, neither sent nor
+  uncertain: `delivery_checks.reply_unsettled`) is still the reply's own
+  booking: a later approval recovers it, and a definite send failure, a
+  rejection or an edited send cancels it. A place booked through the lead's
+  link, by an earlier sent reply, or whose own reply was sent, never is.
+
+A moved showing keeps the lead's details (`lead_bookings._moving`). When a
+place being moved has them (a mobile, an email and recorded consent to texts)
+and its number is not known to be wrong (`attention_reason` is neither
+`confirmation_undelivered` nor `confirmation_refused`), the new place takes
+over the name, mobile, email, the consent record (accepted, when, version,
+page, as given then) and the requirement confirmations. Its source is
+`lead_agent`. What says how the old place was completed (the link's token, the
+browser) stays with the old one. Otherwise the new place is provisional. With
+several old places, the one with the latest consent counts. The old places are
+read again under the booking locks; one that changed meanwhile holds the reply
+(`place_changed`) to be approved again.
+
+- The confirmation text says it is a move: the new day, time and place, the
+  showing it replaces, the cancel link and the STOP line
+  (`wording.moved_confirmation_text`, version `MOVED_VERSION`, the same kind
+  of notice as any confirmation). The invite waits behind its delivery.
+- Nothing reaches the lead before the reply is settled. The text and the invite
+  are held like the place's other notices and go when the reply is sent, or
+  after the five minutes when its result is uncertain. Beyond that hold they
+  never go while the reply is unsettled, and neither does a reminder, an apply
+  text or a cancellation text about the place. A process that stopped before
+  the send therefore texts the lead nothing until a person decides the card.
+  The run every minute leaves such a text and invite out before its limit, so
+  they never hold up other messages, and stops them once the showing starts.
+- A definite failure cancels the place before anything went, with no text.
+- If Quo refuses the number, or the text is undelivered, the place stands,
+  marked for the team (`confirmation_refused`, `confirmation_undelivered`), and
+  the invite is not sent. The host's event and the residents' text do not wait
+  for the text. The reminder the evening before then goes by email.
 
 The lead adds their details (`lead_details.py`). The reply's link carries the
 thread's token; on that unit's page the web app's loader asks
 `POST /units/{unit}/lead-booking` with the token in the body. When the thread
 holds a provisional place there (source `lead_agent`, no consent saved yet,
 scheduled and ahead), the page shows that time and the usual form without
-the picker. `POST /units/{unit}/lead-booking/details` checks the fields and
-ticks as for a page booking, Turnstile, the page's limits (not counting this
-place), then under the locks (shared booking lock, mobile, email, thread)
+the picker. With none but a place that has the details (completed, booked
+through the link, or kept from a move whose reply is settled), the page says
+"You're booked", with when and where and that the text has a link to cancel.
+With neither, it is the normal form.
+
+`POST /units/{unit}/lead-booking/details` checks the fields and ticks as for a
+page booking, Turnstile, the page's limits (not counting this place), then under the locks (shared booking lock, mobile, email, thread)
 saves the details and the consent record on the same attendee and queues the
 confirmation text with the invite held behind it, plus a host event update
 held behind it when the host's event already went out. The confirmation is
@@ -847,7 +1077,8 @@ delivered at once; the held notices are released by the usual rules. If Quo
 refuses the number, the details are undone, the held notices stopped, and the
 place stays booked (422 `number_refused`, so another number can be tried). A
 completed place answers 409 `already_completed`. Neither route returns
-anything about the host or anyone else booked.
+anything about the host or anyone else booked, and the first returns no name
+and no cancel token.
 
 The Showings section marks such a place "Booked by email with the lead agent"
 with "details not added yet" or "details added" (`details_pending`) and a
@@ -868,7 +1099,7 @@ missed evening while the showing is still ahead.
 
 | Reminder | Kind | Goes to | Says |
 | --- | --- | --- | --- |
-| The prospect's | `prospect_reminder`, one per booking | someone still booked, with a mobile, who accepted texts and whose number is not known to be wrong | when, where, and the cancel link |
+| The prospect's | `prospect_reminder`, one per booking | someone still booked, with a mobile, who accepted texts and whose number is not known to be wrong (and not for a place whose lead agent's reply is not settled) | when, where, and the cancel link |
 | The residents' | `resident_reminder`, one per unit and day (recipient key `residents:<day>`) | the unit's residents, found afresh that evening by the announcement's own lookup, one group text for roommates | the times of the next day's scheduled showings there, in order |
 | A lead's, by email | `lead_email_reminder`, one per booking, channel `email` | a place the Zillow lead agent booked in an email thread whose confirming reply was sent (`lead_reply_sent_at`), for a lead with no mobile we text; only while `lead_agent_uses_open_times` is on | when, where, the cancel link, and the lead's own link to add their details, as a plain-text reply in their Zillow thread |
 
@@ -961,11 +1192,11 @@ showings in order, each with its time, place and how many people are booked.
 - Only what the guard lets through: the guard judges a notice by the unit of
   the showing it is attached to, and this text lists several units. So it
   lists only the showings the guard would really send for to the agent's
-  number now (`guard.would_send`, which is `decide` answering send: live mode,
-  and the unit in `live_units` in production or the number a test recipient),
-  and is attached to the first of them. With none (capture, off, or no listed
-  unit live) it lists every showing and is captured or skipped as usual, so
-  the Messages list still shows it. It never mixes the two. The same rule runs
+  number now (`guard.would_send`, which is `decide` answering send),
+  and is attached to the first of them. With none (capture mode, or no listed
+  unit live) it lists every showing and is captured as usual, so
+  the Messages list still shows it. It never mixes the two. Sent by hand, it lists
+  every showing of the day. The same rule runs
   when it is queued and again at delivery, where it may move to another of the
   day's showings; the outbox then judges it by that showing's unit. It is the
   only notice that lists more than one unit: the residents' reminder lists one
@@ -1019,7 +1250,7 @@ For each showing that started 12 months ago or more and still holds details:
 | Row | Changed | Kept |
 | --- | --- | --- |
 | `showing_attendees` | `name` becomes "Removed"; `mobile`, `email`, `user_agent`, `signature_agent`, `client_ip_hash`, `lead_token` and `texts_consent_page` emptied; `requirement_confirmations` emptied; `cancel_token` replaced by a new random value (`removed-<uuid>`) that was never sent, so the old link answers 404 `unknown_booking` | the row and its id, status, attendance, source, `texts_accepted`, consent time and version, cancel reason, `attention_reason`, Zillow thread and conversation ids, calendar event id and times |
-| `showing_notices` of the showing, to anyone (prospects, residents, the host, a lead's reminder by email) | `recipient` becomes `removed` (for the email reminder, the Zillow relay address); `payload` becomes `{"body" or "summary": "Removed 12 months after the showing.", "removed": true}` (for the email reminder, its subject, conversation id and message id go too); `last_error`, when set, becomes that same marker, since a provider's message can quote a number or an address | the row and its kind, channel, status, mode, guard reason, attempts, provider id and status (codes and opaque ids), and times |
+| `showing_notices` of the showing, to anyone (prospects, residents, the host, a lead's reminder by email) | `recipient` becomes `removed` (for the email reminder, the Zillow relay address); `payload` becomes `{"body" or "summary": "Removed 12 months after the showing.", "removed": true}` (for the email reminder, its subject, conversation id and message id go too); `last_error`, when set, becomes that same marker, since a provider's message can quote a number or an address | the row and its kind, channel, status, mode, guard reason, attempts, provider id and status (codes and opaque ids), who sent it by hand (a Sernia email, the team's own) and times |
 | `showings` | nothing | everything |
 
 - 12 months is `interval '12 months'` before the database's own clock
@@ -1045,12 +1276,12 @@ For each showing that started 12 months ago or more and still holds details:
 - failed: refused (`failed`) or may have gone out (`unknown`), and either way
   will not be tried again. Not a prospect's confirmation whose number Quo
   refused: the person was told on the page, and the booking is withdrawn or
-  marked on the Showings section;
+  marked on the Showings section. One sent by hand counts;
 - is stuck: due ten minutes ago and neither gone out nor captured, skipped or
   cancelled; or still held fifteen minutes after its confirmation text went
   (ten minutes past the five-minute release).
 
-A notice merely captured or skipped never is. `alerts.check(now=)` is the
+A notice merely captured never is. `alerts.check(now=)` is the
 job's last step, after the drain. For each notice it saves `alerted_at` and
 `alert_reason` on the row and commits first, then sends one alert: so a notice
 is alerted about once, even when the alert itself fails. Only notices from the
@@ -1081,25 +1312,36 @@ Read at call time. Names only; values live in each environment.
 
 Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
 
-- `GET /settings`: the settings, the environment, and the test recipients, shortened.
+- `GET /settings`: the settings, the environment, the test list, shortened, and
+  every rental listing (unit and address), for the units that can be live.
 - `PATCH /settings`: `{settings, based_on}`. A save from a stale screen answers
-  409. A live unit must be a rental listing and is saved as the listing spells it.
-  The lead agent's switch is kept as stored.
+  409. A newly ticked unit must be a rental listing and is saved as the listing
+  spells it; one ticked already whose listing is gone stays until it is unticked.
+  The lead agent's and the public booking switches are kept as stored.
 - `PUT /settings/lead-agent`: `{lead_agent_uses_open_times}`, changing nothing else.
 - `GET /notices`: notices newest first, with their wording, status and mode,
   what each is in words (`kind_label`), whether it failed or is stuck
-  (`attention`) and when the team was alerted (`alerted_at`); a group text's
+  (`attention`), when the team was alerted (`alerted_at`) and who sent it by hand
+  and when (`send_approved_by`, `send_approved_at`); a group text's
   other numbers are in `payload.also_to`.
+- `GET /notices/captured` and `POST /notices/send-captured` `{ids}`, 1 to 200 of
+  them: see Captured messages, and sending them by hand.
 - `POST /notices/send-pending`: run `holds.send_pending` once (release or
   stop held notices, queue the reminders due, `drain`, alert the team) and
-  answer its counts.
-- `PUT /settings/public-booking`: `{public_booking_enabled: true | false | null}`,
+  answer its counts. 403 in production, where the job does this every minute.
+- `PUT /settings/public-booking`: `{public_booking_enabled: true | false}`,
   changing nothing else.
 - `GET /calendar/connections`: each connection with its last read and whether
   it is usable here, and whether this environment can connect calendars.
 - `POST /calendar/connect`: `{origin, account?}`, Google's consent URL;
   `account` preselects the account for a reconnect.
 - `POST /calendar/connections/{id}/check` and `.../disconnect`.
+- `GET /calendar/candidates?agent_id=`: the calendars the agent form offers,
+  read from Google afresh, with every calendar saved on that agent
+  (`{connection, account, problem, directory, calendar_list, check_failed,
+  truncated, calendars: [{calendar_id, name, group, readable}]}`, see The
+  calendar picker). `agent_id` is left out for a new agent; 404 for no such
+  agent. No email address is ever in the URL.
 - `GET /agents`, `POST /agents`, `PUT /agents/{id}`,
   `POST /agents/{id}/deactivate` and `.../activate`. A failed check answers
   422 with `detail.problems`.
@@ -1107,8 +1349,8 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
 - `GET /showings`: `open_times` for every unit on offer, the scheduled showings
   in the next 14 days with host, attendee count and the people booked (name,
   mobile, email, whether they take texts, and `attention_reason` when the
-  booking needs a call), `resident_attention` when the residents were not
-  texted, the lead agent's switch and the send mode.
+  booking needs a call) and `resident_attention` when the residents were not
+  texted.
 - `POST /showings/{id}/cancel`: cancel a showing and everyone in it.
 - `POST /showings/{id}/attendees/{attendee_id}/remove`: remove one person.
   Both answer `{showing_id, showing_status, attendees_cancelled, texts_queued}`;
@@ -1166,9 +1408,18 @@ active agent but the host and shows the reason when one is refused.
 Attendance refuses 404 `unknown_attendee`, 409 `not_booked` for a cancelled
 booking and 409 `not_started` before the start.
 
-The Booking settings tab (`/systems/leasing-leads/bookings`) shows the Send
-mode, Messages, Calendar connections, Showing agents and Showings sections.
-The Showings section holds the lead agent's switch, lists who is coming to
+The Booking settings tab (`/systems/leasing-leads/bookings`) starts with a line
+saying what happens right now, from the saved settings (and what it will be,
+while there are unsaved edits). Then:
+
+- Who can book: the team (always), the public booking switch and the lead
+  agent's switch, each saved at once.
+- What a booking sends: the three modes with their own settings, saved together.
+- Captured messages, with the ones that can be sent ticked and a question, naming
+  how many go to real people, before they are.
+- Messages (the history), Calendar connections, Showing agents and Showings.
+
+The Showings section lists who is coming to
 each showing with a mark on a booking that needs a call and a line when the
 residents were not texted, and has Cancel showing and Remove, each behind a
 confirmation that says what will be sent. Add a booking opens a short form
@@ -1188,6 +1439,11 @@ or Google. `test_showing_google_oauth.py` and `test_showing_google_calendar.py`
 cover the Google code without a database; `test_showing_calendar_connections.py`
 covers connecting, using and disconnecting end to end, including that no
 token, code or secret reaches the logs or the browser.
+`test_showing_google_lists.py` covers the picker's reads without a database
+(pages, limits, each refusal, 50 calendars at a time), and
+`test_showing_calendar_candidates.py` the route: what is offered and left out,
+the calendars saved on an agent in every state, a connection without the
+picker's permissions, each kind of Google's trouble, and what reaches the logs.
 `test_showing_open_times.py` holds the design's worked example and each rule;
 `test_showing_agents.py` the agents, Showings and switch routes;
 `test_showing_lead_tours.py` the tour source and that the lead agent offers no
@@ -1249,6 +1505,14 @@ production, a live send to a test recipient once across repeated runs, Gmail's
 answers, the live sender refusing under pytest and its own logic with Gmail
 mocked; and the Messages list.
 
+`test_zillow_lead_moves.py` covers a showing moved by email that keeps the
+lead's details: what the new place takes over; the moved text and the invite
+waiting for the send, past the hold too; a refused, an uncertain and an
+interrupted send; a refused or undelivered number; no cancellation text for the
+old place and one for a real cancellation; when the details are not kept; the
+old place changing meanwhile; the link's "You're booked" state and what it
+never shows; and the lead's own showing left out of what they are offered.
+
 `test_showing_daily_texts.py` covers the host's morning text (at 7:59 and
 8:00, after a missed morning and past noon, one and three showings, an agent
 hosting none, an agent without a mobile, a showing cancelled before and after
@@ -1263,6 +1527,16 @@ the daily job on the database's clock). `test_showing_late_joins.py` covers
 joins until 2 hours before (offered 3 hours ahead and not 1, booking,
 the team, a new time still refused, the re-check, a full showing, the lead
 agent's times unchanged).
+`test_showing_guard.py` runs the guard over every mode, environment, tick, set of
+addresses and approval, and the rows saved before test mode.
+`test_showing_captured.py` covers captured messages: each state and the list, a
+send in each mode and environment, twice and at once, a stopped process, the
+confirmation text (sent with it, on its way, left unsent, undelivered, refused,
+corrected), the daytime, a showing cancelled or moved meanwhile, one event from
+several notices, mode switches, alerts, the logs and removing details.
+`test_showing_told.py` covers what follows a message that was only captured, in
+live and capture mode. `test_showing_unit_gate.py` covers which units may be
+booked on every public and lead path, and what stays untouched.
 `test_showing_job_steps.py` makes each step of the every-minute job raise in
 turn and checks the release and the drain still deliver and the failure is
 logged with the step's name.
@@ -1270,4 +1544,5 @@ logged with the step's name.
 ## Later steps
 
 - A text to the team when a connection is lost; today it is an error-level log.
-- The lead policy's line about the details link, with an eval run.
+- The lead policy's sentence for a moved showing that keeps the lead's details
+  (no details line then), with an eval run.

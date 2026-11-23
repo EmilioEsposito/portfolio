@@ -6,6 +6,7 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  useRouteError,
   useRouteLoaderData,
   type ShouldRevalidateFunctionArgs,
 } from "react-router";
@@ -26,27 +27,18 @@ import { cn } from "~/lib/utils";
 import { EnvBanner } from "~/components/env-banner";
 import { SerniaPublicError, SerniaPublicShell } from "~/components/sernia-public/shell";
 import { createRootMiddleware, loadRoot } from "~/lib/root-request.server";
-import { isSerniaPublicPath, SERNIA_NOT_FOUND } from "~/lib/sernia-public";
+import { isSerniaPublicPath } from "~/lib/sernia-public";
 import { SERNIA_NAME, serniaErrorMeta } from "~/lib/sernia-public-seo";
+import { serniaRoot } from "~/lib/sernia-root";
 
 // Sernia Capital's public pages (serniacapital.com, and their paths on any
 // host while they are switched on) load no Clerk at all and use their own
-// layout. ~/lib/sernia-public decides which requests those are; the server
-// tells the browser through the root loader data or the 404 it throws.
-
-/**
- * The Sernia layout applies when the root middleware threw the Sernia 404, or
- * when the root loader served a Sernia public request.
- */
-function isSerniaPublic(error: unknown, rootData: unknown) {
-  return (
-    (isRouteErrorResponse(error) && error.data === SERNIA_NOT_FOUND) ||
-    (typeof rootData === "object" && rootData !== null && "serniaPublic" in rootData)
-  );
-}
+// layout, icons and font. ~/lib/sernia-public decides which requests those
+// are; the server tells the browser through the root loader data or the 404 it
+// throws, which ~/lib/sernia-root reads.
 
 export function meta({ error, loaderData }: Route.MetaArgs) {
-  if (isSerniaPublic(error, loaderData)) {
+  if (serniaRoot(error, loaderData)) {
     if (error) return serniaErrorMeta(isRouteErrorResponse(error) ? error.status : undefined);
     // Sernia pages set their own meta; this keeps the personal site's out if one does not.
     return [{ title: SERNIA_NAME }];
@@ -87,22 +79,46 @@ export function shouldRevalidate({
 }
 
 export const links: Route.LinksFunction = () => [
-  { rel: "manifest", href: "/manifest.json" },
-  { rel: "icon", href: "/favicon.png", type: "image/png" },
-  { rel: "apple-touch-icon", href: "/favicon.png" },
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
   {
     rel: "preconnect",
     href: "https://fonts.gstatic.com",
     crossOrigin: "anonymous",
   },
-  {
-    rel: "stylesheet",
-    href: "https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap",
-  },
 ];
 
+/** The app's icons, install manifest and font. Not in `links`, which every page gets. */
+function AppLinks() {
+  return (
+    <>
+      <link rel="manifest" href="/manifest.json" />
+      <link rel="icon" href="/favicon.png" type="image/png" />
+      <link rel="apple-touch-icon" href="/favicon.png" />
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap"
+      />
+    </>
+  );
+}
+
+/** The Sernia public pages' icons and font. The app's manifest opens /sernia-chat, so it stays out. */
+function SerniaLinks() {
+  return (
+    <>
+      <link rel="icon" href="/images/sernia/icon.png" type="image/png" sizes="96x96" />
+      <link rel="icon" href="/images/sernia/icon.svg" type="image/svg+xml" sizes="any" />
+      <link rel="apple-touch-icon" href="/images/sernia/apple-touch-icon.png" />
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Figtree:wght@400..700&display=swap"
+      />
+    </>
+  );
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
+  const sernia = serniaRoot(useRouteError(), useRouteLoaderData("root"));
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -113,6 +129,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="apple-mobile-web-app-title" content="Sernia" />
         <Meta />
         <Links />
+        {sernia ? <SerniaLinks /> : <AppLinks />}
       </head>
       <body className={cn("antialiased overflow-x-hidden")}>
         {children}
@@ -173,7 +190,7 @@ export default function App({ loaderData }: Route.ComponentProps) {
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
   const rootData = useRouteLoaderData("root");
-  if (isSerniaPublic(error, rootData)) {
+  if (serniaRoot(error, rootData)) {
     return (
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
         <SerniaPublicShell>

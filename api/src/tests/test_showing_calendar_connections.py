@@ -410,7 +410,14 @@ async def test_the_list_says_which_connections_can_be_used_here(api, google):
         "last_error": None,
         "usable_here": True,
         "unusable_reason": None,
+        # Connected before the calendar picker, and the one it reads through.
+        "reconnect_adds_permissions": True,
     }
+    assert [by_id[row]["reconnect_adds_permissions"] for row in (other_key, lost, revoked)] == [
+        False,
+        False,
+        False,
+    ]
     assert by_id[other_key]["usable_here"] is False
     assert "another key" in by_id[other_key]["unusable_reason"]
     assert (by_id[lost]["status"], by_id[lost]["usable_here"]) == ("lost", False)
@@ -689,7 +696,7 @@ async def test_a_calendar_notice_goes_to_the_connection_that_holds_its_calendar(
 async def test_the_hosts_event_goes_through_google_and_tells_the_guests(api, google):
     await connect(api, google)
     (row,) = await rows()
-    await store_settings(send_mode="live", test_sends_enabled=True)
+    await store_settings(send_mode="test")
     showing = await add_showing(await add_agent())
     created = await queue_event(showing, "host_event_created", "create", row.showings_calendar_id)
 
@@ -719,7 +726,7 @@ async def test_a_lost_connection_fails_its_calendar_notices_without_writing(api,
     await connect(api, google)
     (row,) = await rows()
     google.revoke_everything()
-    await store_settings(send_mode="live", test_sends_enabled=True)
+    await store_settings(send_mode="test")
     showing = await add_showing(await add_agent())
     created = await queue_event(showing, "host_event_created", "create", row.showings_calendar_id)
 
@@ -735,7 +742,7 @@ async def test_in_a_preview_without_the_key_calendar_notices_fail(api, google, m
     await connect(api, google)
     (row,) = await rows()
     monkeypatch.delenv("SHOWING_TOKEN_KEY")
-    await store_settings(send_mode="live", test_sends_enabled=True)
+    await store_settings(send_mode="test")
     showing = await add_showing(await add_agent())
     created = await queue_event(showing, "host_event_created", "create", row.showings_calendar_id)
     requests = len(google.requests)
@@ -753,7 +760,7 @@ async def test_a_test_without_its_mock_fails_loudly_instead_of_reaching_google(
     await connect(api, google)
     (row,) = await rows()
     monkeypatch.setattr(google_http, "client", REAL_GOOGLE_CLIENT)  # refuses under pytest
-    await store_settings(send_mode="live", test_sends_enabled=True)
+    await store_settings(send_mode="test")
     showing = await add_showing(await add_agent())
     created = await queue_event(showing, "host_event_created", "create", row.showings_calendar_id)
 
@@ -828,6 +835,7 @@ def test_every_showing_bookings_route_needs_a_sernia_user_but_the_public_ones():
         "/api/showing-bookings/public/units/{unit}",
         "/api/showing-bookings/public/units/{unit}/bookings",
         "/api/showing-bookings/public/units/{unit}/lead-booking",
+        "/api/showing-bookings/public/units/{unit}/lead-booking/unit",
         "/api/showing-bookings/public/units/{unit}/lead-booking/details",
         "/api/showing-bookings/public/bookings/lookup",
         "/api/showing-bookings/public/bookings/mobile",

@@ -36,6 +36,11 @@ Old installers or custom CA bundles fail closed before dependency downloads.
   The create/provision/test wrappers automatically select the installed `.nvmrc` Node version
   through nvm when the inherited Node is too old. They change only the child process environment,
   never the global nvm default. If the pinned Node version is absent, run `nvm install` from the checkout first.
+- On macOS, GUI-launched setup also looks in Homebrew, its libpq keg and the
+  standard user uv/pnpm directories. When macOS selects Apple/Xcode Python, setup uses
+  the installed Homebrew Python for the bootstrap trust check. Child processes use
+  Homebrew's CA file by default and respect an explicit `SSL_CERT_FILE`. Setup checks
+  the installed Python 3.11 environment before running migrations.
 - Docker Desktop / Docker Compose for the existing `portfolio-postgres` service, or that local
   Postgres already running. PostgreSQL client tools (`psql`, `pg_dump`, `pg_restore`) must be on PATH
   and at least as new as the local server (currently PostgreSQL 17).

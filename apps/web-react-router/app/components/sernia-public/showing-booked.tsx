@@ -5,16 +5,61 @@ import { CallLine } from "~/components/sernia-public/call-line";
 import {
   type BookingResult,
   type BookingView,
+  type LeadBooking,
   NETWORK_MESSAGE,
   PUBLIC_API,
   bookingPlace,
+  cancelInTheTextLine,
+  fixedLine,
   formatSpan,
   readRefusal,
+  sameLinkLine,
+  textedLine,
 } from "~/lib/showing-booking-page";
 import { cancelPath } from "~/lib/showing-cancel-page";
 
+/** When and where, as every confirmation screen shows them. */
+function WhenAndWhere({
+  view,
+}: {
+  view: Pick<BookingView, "starts_at" | "ends_at" | "timezone" | "address" | "unit">;
+}) {
+  return (
+    <dl className="space-y-3 rounded-lg border p-4 text-[15px]">
+      <div>
+        <dt className="text-sm text-muted-foreground">When</dt>
+        <dd className="font-medium">{formatSpan(view.starts_at, view.ends_at, view.timezone)}</dd>
+      </div>
+      <div>
+        <dt className="text-sm text-muted-foreground">Where</dt>
+        <dd className="font-medium">{bookingPlace(view)}</dd>
+      </div>
+    </dl>
+  );
+}
+
 /**
- * After booking: when and where, the number we texted with "Wrong number?
+ * A lead's own link (`?t=`) when their details are already in: when and where,
+ * that the text has (or will have) the link to cancel, and the call line for someone the text
+ * never reached. The page holds no cancel link itself: a lead's link can be
+ * forwarded.
+ */
+export function ShowingAlreadyBooked({ place, siteKey }: { place: LeadBooking; siteKey: string | null }) {
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">You're booked</h1>
+      <WhenAndWhere view={place} />
+      <p className="leading-7 text-muted-foreground">
+        Plans changed? {cancelInTheTextLine(place)}
+      </p>
+      <CallLine siteKey={siteKey} lead="Didn't get the text?" tail="." />
+    </div>
+  );
+}
+
+/**
+ * After booking: when and where, the number we texted (or will, while the text is
+ * captured or waiting) with "Wrong number?
  * Fix it", and a pointer to the cancel link in the text. A fix texts the
  * confirmation to the new number, at most twice per booking (the API says
  * how many are left).
@@ -70,7 +115,7 @@ export function ShowingBooked({ result, siteKey }: { result: BookingResult; site
         setFixing(false);
         setMobile("");
         setNoMore(next.corrections_left <= 0);
-        setDone(`Done. We texted the confirmation to ${next.mobile}.`);
+        setDone(fixedLine(next));
         return;
       }
       const refusal = readRefusal(response.status, body);
@@ -94,20 +139,11 @@ export function ShowingBooked({ result, siteKey }: { result: BookingResult; site
         Your showing is booked
       </h1>
 
-      <dl className="space-y-3 rounded-lg border p-4 text-[15px]">
-        <div>
-          <dt className="text-sm text-muted-foreground">When</dt>
-          <dd className="font-medium">{formatSpan(view.starts_at, view.ends_at, view.timezone)}</dd>
-        </div>
-        <div>
-          <dt className="text-sm text-muted-foreground">Where</dt>
-          <dd className="font-medium">{bookingPlace(view)}</dd>
-        </div>
-      </dl>
+      <WhenAndWhere view={view} />
 
       <div className="space-y-3">
         <p className="leading-7">
-          We texted {view.mobile}.{" "}
+          {textedLine(view)}{" "}
           {!noMore && !fixing && (
             <>
               Wrong number?{" "}
@@ -159,7 +195,7 @@ export function ShowingBooked({ result, siteKey }: { result: BookingResult; site
                 disabled={busy}
                 className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-70"
               >
-                {busy ? "Texting…" : "Text this number"}
+                {busy ? (view.texted ? "Texting…" : "Saving…") : "Text this number"}
               </button>
               <button
                 type="button"
@@ -188,7 +224,7 @@ export function ShowingBooked({ result, siteKey }: { result: BookingResult; site
         <Link to={cancelPath(result.cancel_token)} className="font-medium text-foreground underline underline-offset-4">
           Cancel this showing
         </Link>
-        . The text has the same link.
+        . {sameLinkLine(view)}
       </p>
     </div>
   );

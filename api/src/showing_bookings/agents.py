@@ -36,6 +36,15 @@ class AgentInvalid(Exception):
         super().__init__("; ".join(problems))
 
 
+def is_calendar_address(calendar_id: str) -> bool:
+    """Whether an agent may be saved with this calendar."""
+    return (
+        0 < len(calendar_id) <= MAX_CALENDAR_ID_LENGTH
+        and calendar_id == calendar_id.strip()
+        and not any(character.isspace() for character in calendar_id)
+    )
+
+
 def agent_problems(agent: ShowingAgent) -> list[str]:
     """Every reason this agent must not be saved. Empty means it may be."""
     problems: list[str] = []
@@ -49,12 +58,7 @@ def agent_problems(agent: ShowingAgent) -> list[str]:
     if len(agent.busy_calendar_ids) > MAX_CALENDARS:
         problems.append(f"calendars: at most {MAX_CALENDARS}")
     for calendar_id in agent.busy_calendar_ids:
-        if (
-            not calendar_id
-            or calendar_id != calendar_id.strip()
-            or any(character.isspace() for character in calendar_id)
-            or len(calendar_id) > MAX_CALENDAR_ID_LENGTH
-        ):
+        if not is_calendar_address(calendar_id):
             problems.append(f"calendars: {calendar_id[:40]!r} is not a calendar address")
     if len({calendar_id.casefold() for calendar_id in agent.busy_calendar_ids}) < len(
         agent.busy_calendar_ids

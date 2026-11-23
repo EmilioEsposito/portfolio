@@ -18,7 +18,13 @@ from api.src.tests.test_zillow_lead_agent import decision
 from api.src.zillow_leads.auto_reply import reply_problems
 from api.src.zillow_leads.case import OWN_SHOWINGS_HEADING, ListingData, render_case
 from api.src.zillow_leads.evals import synthetic
-from api.src.zillow_leads.evals.checks import ExpectedOutcome, ReplyChecks, build_dataset
+from api.src.zillow_leads.evals.checks import (
+    DETAILS_LINE,
+    ExpectedOutcome,
+    ReplyChecks,
+    booking_change,
+    build_dataset,
+)
 from api.src.zillow_leads.evals.scenarios import (
     CaseEdit,
     case_for,
@@ -279,6 +285,62 @@ def test_restating_an_own_showing_needs_the_details_line_only_while_details_are_
         assert "states_tour_time" not in checks(
             case, decision(reply_body=with_line, lead=unit, tour=tour)
         )
+
+
+@pytest.mark.parametrize(
+    ("scenario_id", "needs_line"),
+    [("synthetic-move-2", False), ("synthetic-move-provisional-2", True)],
+)
+def test_a_move_needs_the_details_line_only_when_the_moved_showing_has_no_details(
+    scenario_id, needs_line
+):
+    item = ITEMS[scenario_id]
+    case = case_for(item.scenario, synthetic.LISTINGS, item.edit)
+    plain = item.good_reply.removesuffix(synthetic.SIGNATURE).split("\n\nTo get")[0]
+    with_line = f"{plain}\n\n{DETAILS_LINE} {item.edit.booking_links['320-03']}"
+    for body, has_line in ((with_line, True), (plain, False)):
+        reply = decision(
+            reply_body=body + synthetic.SIGNATURE, lead={"unit": "320-03"}, tour=item.good_tour
+        )
+        assert booking_change(case, reply).action == "move"
+        assert checks(case, reply)["details_line"] is (has_line == needs_line)
+        assert expected_checks(case, reply, item)["expected_details_line"] is (
+            has_line == needs_line
+        )
+
+
+def test_details_at_another_unit_or_on_a_cancelled_showing_do_not_excuse_the_line():
+    """Only a booked place the reply moves counts, and a new booking moves nothing."""
+    item = ITEMS["synthetic-move-provisional-2"]
+    case = case_for(item.scenario, synthetic.LISTINGS, item.edit)
+    added = case.own_showings[0].model_copy(update={"details_added": True})
+    elsewhere = added.model_copy(update={"unit": "412-01"})
+    cancelled = added.model_copy(update={"status": "cancelled", "cancelled_by": "prospect"})
+    bare = decision(
+        reply_body=item.good_reply.split("\n\nTo get")[0] + synthetic.SIGNATURE,
+        lead={"unit": "320-03"},
+        tour=item.good_tour,
+    )
+    for own, action in (
+        ([*case.own_showings, elsewhere], "move"),
+        ([*case.own_showings, cancelled], "move"),
+        ([elsewhere], "book"),
+        ([cancelled], "book"),
+        ([], "book"),
+    ):
+        changed = case.model_copy(update={"own_showings": own})
+        assert booking_change(changed, bare).action == action
+        assert checks(changed, bare)["details_line"] is False, own
+
+
+def test_no_case_offers_a_lead_the_showing_they_are_in():
+    """As ``build_case`` does for a live case; times an edit adds come after it."""
+    for item in ITEMS.values():
+        case = case_for(item.scenario, synthetic.LISTINGS, item.edit)
+        mine = {(own.unit, own.start) for own in case.own_showings or [] if own.status == "booked"}
+        offered = {(slot.unit, slot.start) for slot in case.offerable_slots}
+        booked = {(tour.unit, tour.start) for tour in [*case.booked_tours, *item.edit.booked]}
+        assert not mine & (offered | booked), item.scenario.scenario_id
 
 
 @pytest.mark.asyncio

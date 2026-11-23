@@ -2,15 +2,19 @@
 
 Signed-in Sernia users only, on every route.
 
-- ``GET /settings`` and ``PATCH /settings``: the send mode, live units and the
-  test-send switch. A save sends ``based_on``, the settings as the caller last
-  read them; if they have changed since, nothing is saved and the answer is 409.
+- ``GET /settings`` and ``PATCH /settings``: the send mode and the live units. A
+  save sends ``based_on``, the settings as the caller last read them; if they
+  have changed since, nothing is saved and the answer is 409.
 - ``GET /notices``: notices newest first, with their wording, status and mode,
   what each is in words, and whether it failed or is stuck (``alerts.py``).
+- ``GET /notices/captured``: the captured messages a person can send, and the
+  ones they no longer can, with why (``captured.py``).
+- ``POST /notices/send-captured``: send the captured messages named by id, and
+  answer what happened to each.
 - ``POST /notices/send-pending``: run the job's steps once, as the job every
   minute does (``holds.send_pending``): release or stop the held notices, queue
   the reminders due, deliver, and alert the team about failed or stuck
-  notices. Answers what it did.
+  notices. Answers what it did. Outside production only, where the job is off.
 - ``GET /calendar/connections``: each connected Google account, whether it can
   be used here, and whether this environment can connect calendars at all.
 - ``POST /calendar/connect``: Google's consent URL for a new connection, or to
@@ -20,10 +24,13 @@ Signed-in Sernia users only, on every route.
   once and save the result.
 - ``POST /calendar/connections/{id}/disconnect``: revoke the grant at Google,
   then mark the connection revoked.
+- ``GET /calendar/candidates``: the calendars the agent form offers, read from
+  Google afresh, with every calendar saved on the agent in ``agent_id``
+  (``calendar_candidates.py``).
 - ``PUT /settings/lead-agent``: switch the lead agent's use of open times on or
   off, changing nothing else in the settings.
-- ``PUT /settings/public-booking``: open booking to the public, close it, or
-  go back to the environment's default, changing nothing else.
+- ``PUT /settings/public-booking``: open booking to the public or close it,
+  changing nothing else.
 - ``GET /agents``, ``POST /agents``, ``PUT /agents/{id}``,
   ``POST /agents/{id}/deactivate`` and ``.../activate``: the showing agents.
 - ``POST /agents/load-samples``: add the made-up agents from ``seed.py``.
@@ -48,7 +55,7 @@ from datetime import UTC, datetime, timedelta
 import logfire
 from clerk_backend_api import User
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,8 +69,11 @@ from api.src.showing_bookings import (
     agents,
     alerts,
     bookings,
+    calendar_candidates,
     cancelling,
+    captured,
     connections,
+    google_oauth,
     holds,
     open_times,
     team_actions,
@@ -77,7 +87,7 @@ from api.src.showing_bookings.models import (
     ShowingAttendee,
     ShowingNotice,
 )
-from api.src.showing_bookings.providers import TextSender
+from api.src.showing_bookings.providers import CalendarSource, EmailSender, TextSender
 from api.src.showing_bookings.schema import (
     DAYS_AHEAD,
     Attendance,
@@ -85,14 +95,12 @@ from api.src.showing_bookings.schema import (
     ConnectionStatus,
     Email,
     Notice,
-    SendMode,
     ShowingAgent,
 )
 from api.src.showing_bookings.settings import (
     SETTINGS_KEY,
     ShowingBookingSettings,
     current_environment,
-    public_booking_default,
     public_booking_on,
     read_settings,
     read_test_recipients,
@@ -103,6 +111,16 @@ from api.src.utils.clerk import verify_serniacapital_user
 
 def text_sender() -> TextSender | None:
     """None sends through Quo, behind the outbox's guard. Tests replace it with a stand-in."""
+    return None
+
+
+def calendar_source() -> CalendarSource | None:
+    """None writes to the connected Google account, behind the guard. Tests replace it."""
+    return None
+
+
+def email_sender() -> EmailSender | None:
+    """None sends in the lead's Zillow thread, behind the guard. Tests replace it."""
     return None
 
 
@@ -122,16 +140,22 @@ router = APIRouter(
 )
 
 
+class ListedUnit(BaseModel):
+    unit: str
+    address: str
+
+
 class SettingsView(BaseModel):
     settings: ShowingBookingSettings
     # Railway's environment name, or "local".
     environment: str
     is_production: bool
-    # Who test sends can reach here, shortened: "•••-0142", "p…@example.com".
+    # The test list here, shortened: "•••-0142", "p…@example.com".
     test_recipients: list[str]
-    # Whether the public booking routes answer here, and what unset means here.
+    # Whether the public booking routes answer here.
     public_booking_on: bool
-    public_booking_default: bool
+    # Every rental listing, for the units that can be live.
+    listings: list[ListedUnit]
 
 
 class SettingsUpdate(BaseModel):
@@ -148,23 +172,6 @@ def _shortened(address: str) -> str:
     return f"•••-{address[-4:]}"
 
 
-def _wording(notice: ShowingNotice) -> str:
-    payload = notice.payload
-    if notice.channel == "sms":
-        return payload.get("body", "")
-    if notice.channel == "email":
-        return f"Subject: {payload.get('subject', '')}\n\n{payload.get('body', '')}"
-    action = {"create": "New event", "update": "Changed event", "cancel": "Cancelled event"}
-    lines = [f"{action.get(payload.get('operation'), 'Event')}: {payload.get('summary', '')}"]
-    if payload.get("location"):
-        lines.append(payload["location"])
-    if payload.get("description"):
-        lines.append(payload["description"])
-    if payload.get("attendees"):
-        lines.append("Guests: " + ", ".join(payload["attendees"]))
-    return "\n".join(lines)
-
-
 @router.get("/settings", response_model=SettingsView)
 async def get_settings(session: DBSession):
     try:
@@ -173,13 +180,18 @@ async def get_settings(session: DBSession):
         logfire.exception("showing bookings: settings could not be loaded")
         raise HTTPException(503, "Settings could not be loaded. Try again.") from None
     environment = current_environment()
+    listings = await session.execute(
+        select(RentalListingRecord.unit, RentalListingRecord.address).order_by(
+            RentalListingRecord.unit
+        )
+    )
     return SettingsView(
         settings=settings,
         environment=environment or "local",
         is_production=environment == PRODUCTION,
         test_recipients=sorted(_shortened(address) for address in read_test_recipients()),
         public_booking_on=public_booking_on(settings, environment),
-        public_booking_default=public_booking_default(environment),
+        listings=[ListedUnit(unit=unit, address=address) for unit, address in listings],
     )
 
 
@@ -188,25 +200,6 @@ async def update_settings(
     body: SettingsUpdate, session: DBSession, user: User = Depends(verify_serniacapital_user)
 ):
     new = body.settings
-    if new.live_units:
-        # Save each live unit as its listing spells it, and refuse a unit with no listing.
-        listed = {
-            unit.casefold(): unit
-            for unit in await session.scalars(
-                select(RentalListingRecord.unit).where(
-                    func.lower(RentalListingRecord.unit).in_(
-                        [unit.casefold() for unit in new.live_units]
-                    )
-                )
-            )
-        }
-        unknown = [unit for unit in new.live_units if unit.casefold() not in listed]
-        if unknown:
-            raise HTTPException(422, f"No rental listing for: {', '.join(unknown)}.")
-        new = new.model_copy(
-            update={"live_units": [listed[unit.casefold()] for unit in new.live_units]}
-        )
-
     # Create the row if absent, then lock it, so two first saves cannot both win.
     current = await read_settings(session)
     await session.execute(
@@ -229,6 +222,21 @@ async def update_settings(
     }
     if stored != body.based_on.model_copy(update=switch):
         raise HTTPException(409, "Settings changed elsewhere. Reload before saving.")
+    if new.live_units:
+        # Save each live unit as its listing spells it, and refuse one with no listing.
+        # One that is live already stays as it is, so a listing that is gone never
+        # stands in the way of a save.
+        known = {unit.casefold(): unit for unit in stored.live_units}
+        known |= {
+            unit.casefold(): unit
+            for unit in await session.scalars(select(RentalListingRecord.unit))
+        }
+        unknown = [unit for unit in new.live_units if unit.casefold() not in known]
+        if unknown:
+            raise HTTPException(422, f"No rental listing for: {', '.join(unknown)}.")
+        new = new.model_copy(
+            update={"live_units": [known[unit.casefold()] for unit in new.live_units]}
+        )
     new = new.model_copy(update=switch)
     row.value = new.model_dump()
     await session.commit()
@@ -259,11 +267,13 @@ async def list_notices(session: DBSession, limit: int = Query(100, ge=1, le=500)
             showing_starts_at=starts_at,
             recipient=notice.recipient,
             recipient_key=notice.recipient_key,
-            wording=_wording(notice),
+            wording=wording.notice_text(notice.channel, notice.payload),
             payload=notice.payload,
             status=notice.status,
             mode=notice.mode,
             guard_reason=notice.guard_reason,
+            send_approved_by=notice.send_approved_by,
+            send_approved_at=notice.send_approved_at,
             not_before=notice.not_before,
             attempts=notice.attempts,
             provider_status=notice.provider_status,
@@ -278,8 +288,43 @@ async def list_notices(session: DBSession, limit: int = Query(100, ge=1, le=500)
     ]
 
 
+@router.get("/notices/captured", response_model=list[captured.CapturedNotice])
+async def list_captured(session: DBSession, now: datetime = Depends(clock)):
+    return await captured.list_captured(session, now=now)
+
+
+@router.post("/notices/send-captured", response_model=captured.SendReport)
+async def send_captured(
+    body: captured.SendRequest,
+    user: User = Depends(verify_serniacapital_user),
+    now: datetime = Depends(clock),
+    texts: TextSender | None = Depends(text_sender),
+    calendar: CalendarSource | None = Depends(calendar_source),
+    emails: EmailSender | None = Depends(email_sender),
+):
+    """Send captured messages by hand. In production they go in any send mode;
+    elsewhere only the ones to the test list leave."""
+    report = await captured.send(
+        body.ids, by=_sernia_email(user), now=now, texts=texts, calendar=calendar, emails=emails
+    )
+    logfire.info(
+        "showing bookings: captured messages sent by hand",
+        user_id=user.id,
+        notice_ids=body.ids,
+        sent=report.count("sent"),
+        waiting=report.count("waiting"),
+        unknown=report.count("unknown"),
+        not_sent=report.count("not_sent"),
+        kept=report.count("kept"),
+        handled=report.count("handled"),
+    )
+    return report
+
+
 @router.post("/notices/send-pending", response_model=holds.SendPendingReport)
 async def send_pending(user: User = Depends(verify_serniacapital_user)):
+    if current_environment() == PRODUCTION:
+        raise HTTPException(403, "In production the job every minute does this.")
     report = await holds.send_pending(now=datetime.now(UTC))
     logfire.info(
         "showing bookings: send pending run by hand", user_id=user.id, **report.model_dump()
@@ -310,6 +355,9 @@ class ConnectionView(BaseModel):
     # client here, or no key to read its token (as in a preview).
     usable_here: bool
     unusable_reason: str | None
+    # True when reconnecting would add a permission the calendar picker uses:
+    # on the connection it reads through, when one was not granted.
+    reconnect_adds_permissions: bool
 
 
 class ConnectionsView(BaseModel):
@@ -332,8 +380,11 @@ class ConnectStart(BaseModel):
     url: str
 
 
-def _connection_view(connection: CalendarConnection) -> ConnectionView:
+def _connection_view(
+    connection: CalendarConnection, rows: list[CalendarConnection]
+) -> ConnectionView:
     reason = connections.unusable_reason(connection)
+    picked = agents.team_connection(rows)
     return ConnectionView(
         id=connection.id,
         google_email=connection.google_email,
@@ -346,6 +397,12 @@ def _connection_view(connection: CalendarConnection) -> ConnectionView:
         last_error=connection.last_error,
         usable_here=reason is None,
         unusable_reason=reason,
+        reconnect_adds_permissions=(
+            reason is None
+            and picked is not None
+            and picked.id == connection.id
+            and not set(google_oauth.PICKER_SCOPES) <= set(connection.scopes)
+        ),
     )
 
 
@@ -360,16 +417,20 @@ def _sernia_email(user: User) -> str:
     return user.id
 
 
+async def _connection_rows(session: AsyncSession) -> list[CalendarConnection]:
+    return list(await session.scalars(select(CalendarConnection)))
+
+
 async def _connection_view_by_id(session: AsyncSession, connection_id: int) -> ConnectionView:
     connection = await session.get(CalendarConnection, connection_id)
     if connection is None:
         raise HTTPException(404, "No such calendar connection.")
-    return _connection_view(connection)
+    return _connection_view(connection, await _connection_rows(session))
 
 
 @router.get("/calendar/connections", response_model=ConnectionsView)
 async def list_connections(session: DBSession):
-    rows = await session.scalars(
+    found = await session.scalars(
         # Working ones first, then lost ones, which need a reconnect, then disconnected ones.
         select(CalendarConnection).order_by(
             case(
@@ -380,11 +441,12 @@ async def list_connections(session: DBSession):
             CalendarConnection.google_email,
         )
     )
+    rows = list(found)
     problem = connections.setup_problem()
     return ConnectionsView(
         can_connect=problem is None,
         setup_problem=problem,
-        connections=[_connection_view(row) for row in rows],
+        connections=[_connection_view(row, rows) for row in rows],
     )
 
 
@@ -426,6 +488,14 @@ async def disconnect_connection(
     return await _connection_view_by_id(session, connection_id)
 
 
+@router.get("/calendar/candidates", response_model=calendar_candidates.CalendarCandidates)
+async def list_calendar_candidates(agent_id: int | None = None):
+    try:
+        return await calendar_candidates.candidates(agent_id, now=datetime.now(UTC))
+    except LookupError:
+        raise HTTPException(404, "No such showing agent.") from None
+
+
 # ---------------------------------------------------------------------------
 # The lead agent's switch
 # ---------------------------------------------------------------------------
@@ -440,8 +510,7 @@ class LeadAgentSwitch(BaseModel):
 class PublicBookingSwitch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # None goes back to the environment's default: off in production, on elsewhere.
-    public_booking_enabled: bool | None
+    public_booking_enabled: StrictBool
 
 
 @router.put("/settings/public-booking", response_model=SettingsView)
@@ -528,10 +597,6 @@ def _agent_view(record: ShowingAgentRecord, rows: list[CalendarConnection]) -> A
         reads_through=connection.google_email if connection is not None else None,
         **agents.as_agent(record).model_dump(),
     )
-
-
-async def _connection_rows(session: AsyncSession) -> list[CalendarConnection]:
-    return list(await session.scalars(select(CalendarConnection)))
 
 
 def _refused(invalid: agents.AgentInvalid) -> HTTPException:
@@ -660,10 +725,6 @@ class ShowingsView(BaseModel):
     # Scheduled showings from 3 days ago (so who came can be marked) to 14 days
     # out, earliest first.
     booked: list[BookedShowingView]
-    # Whether the Zillow lead agent offers these times (the switch in settings).
-    lead_agent_uses_open_times: bool
-    # The send mode, so a cancellation's confirmation can say what goes out.
-    send_mode: SendMode
 
 
 @router.get("/showings", response_model=ShowingsView)
@@ -718,11 +779,6 @@ async def list_showings(session: DBSession, now: datetime = Depends(clock)):
                     lead_conversation_id=person.lead_conversation_id,
                 )
             )
-    try:
-        settings = await read_settings(session)
-        switch, send_mode = settings.lead_agent_uses_open_times, settings.send_mode
-    except Exception:
-        switch, send_mode = False, "capture"
     return ShowingsView(
         open_times=found,
         booked=[
@@ -740,8 +796,6 @@ async def list_showings(session: DBSession, now: datetime = Depends(clock)):
             )
             for showing, name, count in showings
         ],
-        lead_agent_uses_open_times=switch,
-        send_mode=send_mode,
     )
 
 

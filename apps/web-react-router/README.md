@@ -25,7 +25,11 @@ The provisioner prints the assigned preview URL and configures the API proxy.
 - `/systems/leasing-leads`: Zillow Leads Agent architecture, listing-data flow, planned booking integration, and evaluation links. Public and server-rendered; verified Sernia users also see management links.
 - `/systems/leasing-leads/listings`: authenticated rental listing data tab; no conversation pane.
 - `/systems/leasing-leads/settings`: dedicated lead batching and email-approval settings.
-- `/systems/leasing-leads/bookings`: authenticated booking settings placeholder.
+- `/systems/leasing-leads/bookings`: authenticated Booking settings tab: who can book, what a
+  booking sends, captured messages and sending them by hand, the messages' history, calendar
+  connections, showing agents and showings (`app/components/showing-bookings/`; what it decides is
+  in `app/lib/showing-bookings.ts`, unit tested). Its loader says whether this environment serves
+  the public booking pages (`SERNIA_PUBLIC_PAGES_ENABLED`), which the API does not know.
 
 The public architecture and these operator pages share route-backed navigation
 tabs. `/sernia-rental-listings` redirects to the listing tab; the legacy
@@ -44,7 +48,7 @@ and inactive table metadata remain so this UI cleanup does not delete stored dat
 
 ## Sernia public pages
 
-Sernia Capital's public pages (issue #368) will be served on serniacapital.com by
+Sernia Capital's public pages (issue #368) are served on serniacapital.com by
 this same service. They need no sign-in, and they load no Clerk at all, because
 Clerk's production keys belong to eesposito.com.
 
@@ -67,8 +71,7 @@ Clerk's production keys belong to eesposito.com.
   `true`; elsewhere they are on unless it is `false`. While they are off, their
   paths on other hosts answer exactly as an unknown URL does (the app's path
   through Clerk, then the personal 404), and a Sernia host answers the Sernia 404
-  for every path. It is not set anywhere: turning the pages on in production
-  waits for Emilio to approve their wording.
+  for every path.
 - Hosts: `serniacapital.com`, `www.serniacapital.com` and `serniacapital.localhost`.
   `SERNIA_PUBLIC_HOSTS` (comma separated) replaces that list on a deployed server.
   The managed dev launcher passes only allowlisted variables, so neither variable
@@ -89,24 +92,52 @@ Clerk's production keys belong to eesposito.com.
 To check locally, open `http://serniacapital.localhost:<web port>/` or `/privacy`.
 Browsers resolve `*.localhost` to this machine without any hosts-file change.
 
+### The shell
+
+`app/components/sernia-public/shell.tsx` is the header and footer of every Sernia
+page, the 404 included. The wordmark links to `/` only where `/` is the Sernia
+home page: the server says so in the root loader's data, or in the 404 it throws
+(`homeAtRoot`, read by `app/lib/sernia-root.ts`). The `sernia-public` class it sets
+carries the brand colors and the font (`app/app.css`), and changes the theme's text
+and line colors for these pages, in light and dark. Sky (`#5bbdee`) is for drawings
+and underlines, never for text.
+
+The root layout gives these pages their own icons (`public/images/sernia/`) and
+loads Figtree from Google Fonts; the other pages keep theirs, Inter and the install
+manifest. `Figtree fallback` in `app.css` is Arial with Figtree's measurements, so
+the text does not move when the font arrives.
+
 ### The home page and the units list
 
-The Sernia home page has three links, Resident sign-in first (to the residents'
-Buildium portal, since residents type the domain to reach it), then Book a
-showing (`/showings`) and Apply (`/apply`, which stays a Cloudflare redirect, so
-it has no page here and 404s on previews and localhost). Below them is the call
-line; the footer carries the Equal Housing Opportunity line and the policy links.
-The page never waits on the units list: its loader reads only
+Resident sign-in (the residents' Buildium portal) is in the home page's header,
+since residents type the domain to reach it. The page has Book a showing
+(`/showings`), Apply (`/apply`, which stays a Cloudflare redirect, so it has no page
+here and 404s on previews and localhost), the call line, the street drawing
+(`drawings.tsx`, static and decorative), one photo and a section for residents. The
+photo is in `public/images/sernia/` at two widths, as WebP with a JPEG fallback;
+`og.png` there is the link preview.
+The page never waits on the units list: its loader waits only for
 `GET /api/showing-bookings/public/call-line` (the Turnstile site key, no listings
 or calendars) with a 3-second timeout (`readCallLine` in
 `app/lib/showing-units.server.ts`). Off, slow or failing, the page renders at
-once without the call line.
+once without the call line. The footer links to the SMS terms on the other pages
+only.
 
 `/showings` lists the units on offer from `GET /api/showing-bookings/public/units`,
 read on the server (`app/lib/showing-units.server.ts`): address, unit, asking
 rent and lease start, each row a link to the unit's booking page, in address
 order. The lease start comes worded by the API, by the same rule as the booking
 form's tick. The page is indexable, with its canonical on serniacapital.com.
+
+The API takes a second or two to answer with the units, so nothing a visitor
+clicks waits for it. A line across the top shows from the click until the next page
+opens (`OpeningLine` in `shell.tsx`), and the list page opens before its list is
+read: the list follows in the same response, after a placeholder (a bot gets the
+whole page at once). Each page also starts the read for the next one
+(`app/lib/read-ahead.server.ts`): the home page the list, the list its first six
+booking pages. A navigation inside the site uses an answer up to a minute old; a
+page load always asks the API. A booking is checked again when it is made, so an
+answer a minute old cannot book a time that has gone.
 
 While public booking is off the API answers 404: `/showings` says no units are
 open for online booking right now, and the home page leaves out the call line,
@@ -122,22 +153,43 @@ does), so a unit not on offer, or booking switched off, is a 404 page. The
 booking, a corrected mobile and the team's number go from the browser straight
 to `/api/showing-bookings/public/...`, so the API sees the person's own IP
 address, user agent and `Signature-Agent` header. The ticks' wording and the
-small print come from the API. The page is `noindex` for now. Pure logic
+small print come from the API. With a lead's own link (`?t=`), the loader also
+asks the API for the place booked in their email thread: the page then asks only
+for their details, or, once they are in, says "You're booked" with when and
+where, and shows the call line for someone the text never reached. It holds no
+cancel link, since a lead's link can be forwarded. That link works for a unit that
+is no longer open to others: the unit answers 404, and the loader reads what the
+page shows from `lead-booking/unit`. The page says "We texted" a number only once
+the API says the text went (`texted`), and "We'll text" while it is captured or
+waiting. The page
+is `noindex` for now. Pure logic
 (times in the unit's time zone, refusals) is in `app/lib/showing-booking-page.ts`
 and tested in `test/lib/showing-booking-page.test.ts`.
 
-Turnstile runs on demand (`app/components/sernia-public/turnstile.tsx`): each
-booking and each "Show phone number" gets a fresh token. Outside production the
-API uses Cloudflare's test keys and answers the test secret itself.
+### Turnstile
+
+Each booking and each "Show phone number" sends its own Turnstile token, since a
+token works once. The check takes a few seconds, so one runs ahead of time, once
+the page is idle or at the first sign of use, and its token is held for the click
+that needs it (`app/components/sernia-public/turnstile.tsx`, and
+`app/lib/turnstile-tokens.ts` for the holder, which the call line and the form
+share). A held token counts as expired after 4 of its 5 minutes. A check ahead of
+time runs in an element no one can see or focus, fails silently, and is dropped if
+it would ask the person something; their own check then runs beside what they
+pressed. Outside production the API uses Cloudflare's test keys and answers the
+test secret itself.
 
 ### Browser test
 
 `test/e2e/` holds the repository's browser test (Playwright, Chromium only): book a
 showing, miss a tick, correct the mobile, cancel from the confirmation screen, an
 unknown unit, the way from the Sernia home page through the units list to a
-booking page, and a lead adding their details to a showing the lead agent
-booked by email (the script's `lead-booking` command books it). It builds the app,
-starts the API and `node server.js` with a clean environment (`test/e2e/setup.ts`:
+booking page, a lead adding their details to a showing the lead agent booked by
+email (the script's `lead-booking` command books it), and their link saying
+they are booked afterwards, at the new time once a reply moves it (`lead-move`),
+and working for a unit closed to others (`close-units`), and the bot check ahead of time
+(the number without a new check, a check that needs the person, a blocked one).
+It builds the app, starts the API and `node server.js` with a clean environment (`test/e2e/setup.ts`:
 made-up keys only, no secret, capture mode), opens the page on
 `serniacapital.localhost`, answers Turnstile's script in the browser and blocks
 every other request that would leave the machine. Before each test
