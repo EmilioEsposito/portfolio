@@ -110,8 +110,9 @@ async def test_clickup_reads_every_page_of_the_maintenance_list_and_only_open_ta
             200, json={"tasks": [clickup_raw(f"86p{page}")], "last_page": page == 1}
         )
 
-    tasks = await sources.clickup_open(fake(handler, "https://api.clickup.com/api/v2"))
+    tasks, complete = await sources.clickup_open(fake(handler, "https://api.clickup.com/api/v2"))
     assert [task.id for task in tasks] == ["86p0", "86p1"]
+    assert complete is True
     assert asked[0] == {"include_closed": "false", "subtasks": "true", "page": "0"}
 
 
@@ -137,9 +138,36 @@ async def test_quo_leaves_out_completed_and_deleted_tasks_and_names_the_assignee
             },
         )
 
-    tasks = await sources.quo_open(fake(handler, "https://api.openphone.com"))
+    tasks, complete = await sources.quo_open(fake(handler, "https://api.openphone.com"))
     assert [task.id for task in tasks] == ["TKone", "TKthree"]
     assert tasks[0].assignees == ["Blake Example"]
+    assert complete is True
+
+
+@pytest.mark.asyncio
+async def test_a_reader_that_runs_out_of_pages_says_its_list_is_cut_short(monkeypatch):
+    """Quo's pages hold completed tasks too, so open ones can sit behind any number of them."""
+    monkeypatch.setattr(sources, "QUO_MAX_PAGES", 3)
+    monkeypatch.setattr(sources, "CLICKUP_MAX_PAGES", 2)
+    quo_pages = 0
+
+    def quo(request: httpx.Request) -> httpx.Response:
+        nonlocal quo_pages
+        if request.url.path == "/v1/users":
+            return httpx.Response(200, json={"data": []})
+        quo_pages += 1
+        return httpx.Response(
+            200,
+            json={"data": [quo_raw(f"TKold{quo_pages}", completed=True)], "nextPageToken": "more"},
+        )
+
+    def clickup(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"tasks": [clickup_raw()], "last_page": False})
+
+    tasks, complete = await sources.quo_open(fake(quo, "https://api.openphone.com"))
+    assert (tasks, complete, quo_pages) == ([], False, 3)
+    tasks, complete = await sources.clickup_open(fake(clickup, "https://api.clickup.com/api/v2"))
+    assert (len(tasks), complete) == (2, False)
 
 
 def clickup_writes(task_list=LIST_ID, lookup=200):
@@ -226,6 +254,20 @@ async def test_completing_and_reopening_a_quo_task():
 
 
 @pytest.mark.asyncio
+async def test_a_quo_change_that_went_through_is_not_reported_as_failed_when_names_cannot_be_read():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/users":
+            return httpx.Response(503, json={})
+        return httpx.Response(200, json={"data": quo_raw(completed=True)})
+
+    task = await sources.quo_set_completed(
+        "TKone", True, client=fake(handler, "https://api.openphone.com")
+    )
+    assert task.completed is True
+    assert task.assignees == ["Someone"]
+
+
+@pytest.mark.asyncio
 async def test_a_source_without_its_key_is_unavailable(monkeypatch):
     monkeypatch.delenv("CLICKUP_API_KEY", raising=False)
     monkeypatch.delenv("QUO_API_KEY_PORTFOLIO", raising=False)
@@ -270,19 +312,21 @@ def browser(allowed=True):
 @pytest.mark.asyncio
 async def test_the_list_is_both_sources_soonest_first_with_undated_tasks_last(monkeypatch):
     async def clickup():
-        return [
-            task("clickup", "later", datetime(2026, 12, 1, tzinfo=UTC)),
-            task("clickup", "undated", None),
-        ]
+        return sources.Listing(
+            [
+                task("clickup", "later", datetime(2026, 12, 1, tzinfo=UTC)),
+                task("clickup", "undated", None),
+            ]
+        )
 
     async def quo():
-        return [task("quo", "sooner", datetime(2026, 11, 24, tzinfo=UTC))]
+        return sources.Listing([task("quo", "sooner", datetime(2026, 11, 24, tzinfo=UTC))])
 
     monkeypatch.setattr(sources, "READERS", {"clickup": clickup, "quo": quo})
     async with browser() as client:
         body = (await client.get("/team-tasks")).json()
     assert [item["id"] for item in body["tasks"]] == ["sooner", "later", "undated"]
-    assert body["unavailable"] == []
+    assert (body["unavailable"], body["incomplete"]) == ([], [])
 
 
 @pytest.mark.asyncio
@@ -291,13 +335,15 @@ async def test_one_source_failing_still_shows_the_other(monkeypatch):
         raise httpx.ConnectError("no route")
 
     async def quo():
-        return [task("quo", "TKone", None)]
+        return sources.Listing([task("quo", "TKone", None)], complete=False)
 
     monkeypatch.setattr(sources, "READERS", {"clickup": clickup, "quo": quo})
     async with browser() as client:
         response = await client.get("/team-tasks")
     assert response.status_code == 200
     assert response.json()["unavailable"] == ["clickup"]
+    # A list cut short is shown, and named so the page can say tasks may be missing.
+    assert response.json()["incomplete"] == ["quo"]
     assert [item["id"] for item in response.json()["tasks"]] == ["TKone"]
 
 

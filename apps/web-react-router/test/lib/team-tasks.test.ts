@@ -6,6 +6,7 @@ import {
   dueLabel,
   statusText,
   taskKey,
+  withStatus,
   type TeamTask,
 } from "../../app/sites/team/lib/team-tasks.ts";
 
@@ -51,4 +52,11 @@ test("tasks are told apart across sources and counted by source", () => {
   assert.notEqual(taskKey(task("clickup", "1")), taskKey(task("quo", "1")));
   assert.deepEqual(countBySource([task("clickup", "a"), task("quo", "b"), task("clickup", "c")]), { clickup: 2, quo: 1 });
   assert.deepEqual(countBySource([]), { clickup: 0, quo: 0 });
+});
+
+test("a status change takes only where the task stands from the API's answer", () => {
+  const row: TeamTask = { ...task("quo", "TKone"), title: "Call the plumber back", assignees: ["Blake Example"] };
+  // The answer's names can be missing when the name lookup failed after the change.
+  const answer: TeamTask = { ...row, assignees: ["Someone"], status: "complete", completed: true };
+  assert.deepEqual(withStatus(row, answer), { ...row, status: "complete", completed: true });
 });

@@ -13,7 +13,7 @@ Dropping a source means deleting its section here and its name from ``Source``.
 import os
 import re
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, NamedTuple
 
 import httpx
 from pydantic import AwareDatetime, BaseModel
@@ -23,8 +23,12 @@ from api.src.sernia_ai.config import CLICKUP_MAINTENANCE_LIST_ID
 
 Source = Literal["clickup", "quo"]
 
-# A reader stops after this many pages. Open tasks number in the tens.
-MAX_PAGES = 5
+# How many pages a reader follows before it stops and says its list is cut
+# short. ClickUp's pages hold open tasks only (100 a page). Quo's hold every
+# task ever made, completed and deleted ones too, and Quo has no filter for
+# them, so its reader follows far more.
+CLICKUP_MAX_PAGES = 10
+QUO_MAX_PAGES = 50
 QUO_PAGE_SIZE = 100
 
 
@@ -40,6 +44,14 @@ class Task(BaseModel):
     completed: bool
     # The task in its own app, where that app has an address for it.
     url: str | None
+
+
+class Listing(NamedTuple):
+    tasks: list[Task]
+    # False when the source had more pages than the reader follows, so open
+    # tasks may be missing. The page says so instead of showing a short list
+    # as if it were whole.
+    complete: bool = True
 
 
 class Unavailable(Exception):
@@ -88,11 +100,11 @@ def clickup_task(raw: dict) -> Task:
     )
 
 
-async def clickup_open(client: httpx.AsyncClient | None = None) -> list[Task]:
+async def clickup_open(client: httpx.AsyncClient | None = None) -> Listing:
     """Every task in the maintenance list that is not closed."""
     async with client or _clickup_client() as http:
         found: list[Task] = []
-        for page in range(MAX_PAGES):
+        for page in range(CLICKUP_MAX_PAGES):
             response = await http.get(
                 f"/list/{CLICKUP_MAINTENANCE_LIST_ID}/task",
                 params={"include_closed": "false", "subtasks": "true", "page": str(page)},
@@ -101,8 +113,8 @@ async def clickup_open(client: httpx.AsyncClient | None = None) -> list[Task]:
             body = response.json()
             found.extend(clickup_task(raw) for raw in body.get("tasks") or [])
             if body.get("last_page", True):
-                break
-        return found
+                return Listing(found)
+        return Listing(found, complete=False)
 
 
 async def clickup_set_completed(
@@ -192,13 +204,13 @@ async def _quo_names(http: httpx.AsyncClient) -> dict[str, str]:
     }
 
 
-async def quo_open(client: httpx.AsyncClient | None = None) -> list[Task]:
+async def quo_open(client: httpx.AsyncClient | None = None) -> Listing:
     """Every Quo task that is neither completed nor deleted."""
     async with client or _quo_client() as http:
         names = await _quo_names(http)
         found: list[Task] = []
         token: str | None = None
-        for _ in range(MAX_PAGES):
+        for _ in range(QUO_MAX_PAGES):
             body = await quo_tasks.list_tasks(http, QUO_PAGE_SIZE, token)
             found.extend(
                 quo_task(raw, names)
@@ -207,8 +219,8 @@ async def quo_open(client: httpx.AsyncClient | None = None) -> list[Task]:
             )
             token = body.get("nextPageToken")
             if not token:
-                break
-        return found
+                return Listing(found)
+        return Listing(found, complete=False)
 
 
 async def quo_set_completed(
@@ -229,7 +241,13 @@ async def quo_set_completed(
             if failure.response.status_code == 404:
                 raise NotFound(task_id) from None
             raise
-        return quo_task(raw, await _quo_names(http))
+        try:
+            names = await _quo_names(http)
+        except (httpx.HTTPError, ValueError, KeyError):
+            # The task has changed already. A failed lookup of people's names
+            # must not be reported as the change failing.
+            names = {}
+        return quo_task(raw, names)
 
 
 READERS = {"clickup": clickup_open, "quo": quo_open}

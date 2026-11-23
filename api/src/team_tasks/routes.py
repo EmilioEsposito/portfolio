@@ -2,7 +2,8 @@
 
 - ``GET /team-tasks``: the open tasks of both sources, soonest due first. A
   source that cannot be read is named in ``unavailable`` and the other is
-  still shown.
+  still shown. A source with more tasks than its reader follows is named in
+  ``incomplete``.
 - ``POST /team-tasks/{source}/{task_id}/status``: complete a task, or reopen
   one just completed (the page's Undo).
 
@@ -35,6 +36,8 @@ class TasksView(BaseModel):
     tasks: list[Task]
     # Sources that could not be read just now; their tasks are missing from the list.
     unavailable: list[Source]
+    # Sources with more tasks than a reader follows; some of their open tasks may be missing.
+    incomplete: list[Source]
 
 
 def soonest_first(tasks: list[Task]) -> list[Task]:
@@ -51,13 +54,17 @@ async def list_open_tasks():
     )
     tasks: list[Task] = []
     unavailable: list[Source] = []
+    incomplete: list[Source] = []
     for source, result in zip(order, results, strict=True):
         if isinstance(result, BaseException):
             logfire.error("team tasks: source could not be read", source=source, _exc_info=result)
             unavailable.append(source)
-        else:
-            tasks.extend(result)
-    return TasksView(tasks=soonest_first(tasks), unavailable=unavailable)
+            continue
+        tasks.extend(result.tasks)
+        if not result.complete:
+            logfire.warn("team tasks: source has more pages than are read", source=source)
+            incomplete.append(source)
+    return TasksView(tasks=soonest_first(tasks), unavailable=unavailable, incomplete=incomplete)
 
 
 class StatusChange(BaseModel):

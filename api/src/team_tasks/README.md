@@ -20,8 +20,13 @@ Both need a verified `@serniacapital.com` user.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/team-tasks` | Open tasks of both sources, soonest due first, undated last. A source that cannot be read is named in `unavailable`; the other is still returned |
+| `GET /api/team-tasks` | Open tasks of both sources, soonest due first, undated last. A source that cannot be read is named in `unavailable`; the other is still returned. A source with more pages than its reader follows is named in `incomplete`, and the page says some tasks may be missing |
 | `POST /api/team-tasks/{source}/{task_id}/status` | `{"completed": true}` completes a task. `{"completed": false, "restore": "waiting"}` reopens it, in ClickUp to the status it had before when the list still has it |
+
+Quo lists every task ever made, completed and deleted ones included, and has
+no filter for them, so the Quo reader pages through all of them (up to
+`QUO_MAX_PAGES` pages of 100) and keeps the open ones. The page gets slower as
+that history grows.
 
 Completing a ClickUp task moves it to the list's own closed status, read from
 the list each time. Only tasks of the maintenance list can be changed, though

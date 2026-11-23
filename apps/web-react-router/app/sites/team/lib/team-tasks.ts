@@ -24,7 +24,18 @@ export type TasksView = {
   tasks: TeamTask[];
   /** Sources that could not be read just now; their tasks are missing. */
   unavailable: TaskSource[];
+  /** Sources with more tasks than the API reads; some of their open tasks may be missing. */
+  incomplete: TaskSource[];
 };
+
+/**
+ * A row after its status was changed. Only where the task stands is taken
+ * from the answer: nothing else about it changed, and the answer's other
+ * fields are filled in separately (a name lookup can fail on its own).
+ */
+export function withStatus(task: TeamTask, answer: Pick<TeamTask, "completed" | "status">): TeamTask {
+  return { ...task, completed: answer.completed, status: answer.status };
+}
 
 export const SOURCE_NAME: Record<TaskSource, string> = { clickup: "ClickUp", quo: "Quo" };
 

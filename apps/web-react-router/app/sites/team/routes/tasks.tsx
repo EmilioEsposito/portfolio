@@ -13,6 +13,7 @@ import {
   SOURCE_NAME,
   statusText,
   taskKey,
+  withStatus,
   type TaskSource,
   type TasksView,
   type TeamTask,
@@ -81,7 +82,10 @@ function useTasks() {
           current.state === "loaded"
             ? {
                 state: "loaded",
-                view: { ...current.view, tasks: current.view.tasks.map((item) => (taskKey(item) === key ? changed : item)) },
+                view: {
+                  ...current.view,
+                  tasks: current.view.tasks.map((item) => (taskKey(item) === key ? withStatus(item, changed) : item)),
+                },
               }
             : current,
         );
@@ -251,6 +255,13 @@ export default function TeamTasks() {
             <p key={source} role="alert" className="rounded-lg border border-amber-500/50 p-4 text-sm">
               {SOURCE_NAME[source]} could not be read just now, so its tasks are missing from this list. Refresh to try
               again.
+            </p>
+          ))}
+
+          {loaded.view.incomplete.map((source) => (
+            <p key={source} role="alert" className="rounded-lg border border-amber-500/50 p-4 text-sm">
+              {SOURCE_NAME[source]} has more tasks than this page reads, so some open ones may be missing. Check{" "}
+              {SOURCE_NAME[source]} for the rest.
             </p>
           ))}
 
