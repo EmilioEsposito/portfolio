@@ -1,13 +1,13 @@
 """Manual persisted SMS-agent demo; can perform real inference and approved sends.
 
 Run only with intentional development credentials and recipients:
-python -m api.src.ai_demos.hitl_agents.offline_examples.hitl_sms_demo
+python -m api.src.hitl_agents.offline_examples.hitl_sms_demo
 """
 
 import asyncio
 import uuid
 
-from api.src.ai_demos.hitl_agents.hitl_sms_agent import (
+from api.src.hitl_agents.hitl_sms_agent import (
     ApprovalDecision,
     HITLAgentContext,
     extract_pending_approvals,

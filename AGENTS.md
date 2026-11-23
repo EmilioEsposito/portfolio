@@ -49,6 +49,8 @@ and the README nearest the code you are changing.
   `HTTPException` for expected API errors. Prefer absolute imports.
 - Mount each top-level API module directly in `api/index.py` at `/api/<module>`,
   replacing underscores with hyphens. Sub-routers use relative prefixes.
+  `api/src/portfolio/` (eesposito.com only) and `hitl_agents/` keep their
+  `/api/ai-demos` URLs; the [API guide](api/README.md) lists every package.
 - Web: functional React components, Tailwind, loaders/actions for route data,
   and `~/` for app imports. Keep responsive and accessible behavior intact.
 - APScheduler is active; DBOS workflows remain disabled. See

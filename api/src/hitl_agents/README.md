@@ -1,5 +1,10 @@
 # HITL (Human-in-the-Loop) Agents
 
+A Sernia staff demo, not part of the public portfolio: every route requires a
+Sernia sign-in (`SerniaUser`), and approved messages go out as real SMS through
+Quo. It keeps its `/api/ai-demos/hitl-agent/*` URLs; `api/index.py` mounts it.
+The public eesposito.com demos are in [`../portfolio/`](../portfolio/README.md).
+
 Agents with tools that require user approval before execution.
 
 ## How It Works
@@ -12,11 +17,12 @@ Agents with tools that require user approval before execution.
 
 - `hitl_sms_agent.py` - SMS agent with `send_sms` tool (`requires_approval=True`)
 - `routes.py` - API endpoints for chat, approval, and history
+- `agent_run_patching.py` - Saves each `hitl_sms_agent.run()` result to the conversation store
 
 ## Key Exports
 
 ```python
-from api.src.ai_demos.hitl_agents.hitl_sms_agent import (
+from api.src.hitl_agents.hitl_sms_agent import (
     hitl_sms_agent,       # The agent (already has persistence patch applied)
     HITLAgentContext,     # Context dataclass with clerk_user_id, conversation_id
     resume_with_approvals, # Resume agent after user approves/denies
@@ -60,7 +66,7 @@ if pending:
 The persisted SMS example is separate from the service implementation:
 
 ```bash
-python -m api.src.ai_demos.hitl_agents.offline_examples.hitl_sms_demo
+python -m api.src.hitl_agents.offline_examples.hitl_sms_demo
 ```
 
 It uses real inference, persists a conversation, and approves proposed actions.
