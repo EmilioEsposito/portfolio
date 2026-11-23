@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+from urllib.parse import urlsplit
 
 import logfire
 from py_vapid import Vapid
@@ -117,6 +118,47 @@ async def remove_subscription(
         deleted = result.rowcount > 0  # type: ignore[union-attr]
         logfire.info("web push subscription removed", deleted=deleted, clerk_user_id=clerk_user_id)
         return deleted
+
+
+# What an iPhone or iPad says it is. An iPad asking for desktop sites (the
+# default) says "Macintosh" instead, exactly as Safari on a Mac does.
+_IOS_DEVICE_MARKERS = ("iPhone", "iPad", "iPod")
+
+
+def is_ios_app_subscription(endpoint: str, user_agent: str | None) -> bool:
+    """Whether a saved subscription is the Home Screen app of an iPhone or iPad.
+
+    iOS gives push only to a web app on the Home Screen, so a subscription whose
+    user agent names an iPhone, iPad or iPod comes from that app. It must also
+    go through Apple's push service (``web.push.apple.com``): a desktop browser
+    posing as an iPhone in its developer tools subscribes through its own
+    vendor. An iPad that reports a Mac user agent cannot be told apart from
+    Safari or a Dock web app on a Mac (both also push through Apple), so it is
+    not counted.
+    """
+    if not user_agent or not any(marker in user_agent for marker in _IOS_DEVICE_MARKERS):
+        return False
+    try:
+        host = (urlsplit(endpoint).hostname or "").lower()
+    except ValueError:
+        return False
+    return host.endswith(".push.apple.com")
+
+
+async def has_ios_app_subscription(
+    clerk_user_id: str,
+    session: AsyncSession | None = None,
+) -> bool:
+    """Whether this user has the Home Screen app of an iPhone or iPad subscribed."""
+    async with provide_session(session) as s:
+        result = await s.execute(
+            select(WebPushSubscription.endpoint, WebPushSubscription.user_agent).where(
+                WebPushSubscription.clerk_user_id == clerk_user_id
+            )
+        )
+        return any(
+            is_ios_app_subscription(endpoint, user_agent) for endpoint, user_agent in result.all()
+        )
 
 
 # Push-service responses that mean a stored subscription can never succeed

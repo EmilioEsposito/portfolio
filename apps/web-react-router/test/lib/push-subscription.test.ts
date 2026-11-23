@@ -4,6 +4,7 @@ import {
   ensureCurrentPushSubscription,
   PUSH_USER_STORAGE_KEY,
   revokeTeamPush,
+  tellWorkerAppOpened,
   TEAM_SERVICE_WORKER_SCOPE,
   whenActive,
 } from "../../app/sites/team/lib/push-subscription.ts";
@@ -149,4 +150,22 @@ test("ending notifications on a browser without them only forgets the owner", as
     assert.equal(await revokeTeamPush(b.serviceWorker, b.storage), false);
     assert.deepEqual(b.events.slice(1), [`forget ${PUSH_USER_STORAGE_KEY}`]);
   }
+});
+
+test("an open team page tells the team's worker, and a browser with no worker is left alone", async () => {
+  const told: unknown[] = [];
+  const scopes: string[] = [];
+  await tellWorkerAppOpened({
+    getRegistration: async (scope) => {
+      scopes.push(scope);
+      return { active: { postMessage: (message) => told.push(message) } };
+    },
+  });
+  assert.deepEqual(scopes, [TEAM_SERVICE_WORKER_SCOPE]);
+  assert.deepEqual(told, [{ type: "app-opened" }]);
+
+  // Not registered yet, or registered and still installing: nothing to tell.
+  await tellWorkerAppOpened({ getRegistration: async () => undefined });
+  await tellWorkerAppOpened({ getRegistration: async () => ({ active: null }) });
+  assert.equal(told.length, 1);
 });

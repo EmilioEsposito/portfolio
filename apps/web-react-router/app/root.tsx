@@ -132,8 +132,8 @@ function SerniaPublicHead() {
 
 /**
  * The team's pages: Sernia's icons, the app's font, the install manifest and
- * the home-screen app tags (an installed app opens /team/chat), and no
- * search engines.
+ * the home-screen app tags (an installed app opens the team home, /team), and
+ * no search engines.
  */
 function TeamHead() {
   return (
