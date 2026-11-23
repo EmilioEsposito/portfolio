@@ -40,7 +40,10 @@ production telemetry.
 
 The web app uses React, TypeScript, Tailwind, shadcn/ui, and Clerk. The API uses
 PydanticAI, SQLAlchemy, PostgreSQL, and APScheduler, with OpenRouter for inference
-and Logfire for observability. Production runs on Railway with Neon Postgres.
+and Logfire for observability. Production runs on Railway with Neon Postgres. The
+API runs in Railway's `us-west2` because the Neon project is in AWS `us-west-2`
+(Oregon): a database trip takes about 24 ms there and 75 ms from the East Coast.
+Move the two together. The web app and MCP service stay in `us-east4`.
 
 ## Development and verification
 
