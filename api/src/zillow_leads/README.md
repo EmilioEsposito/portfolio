@@ -148,7 +148,10 @@ works out what sending would do before it reserves anything
   no time to check.
 - **Ticked, and it may go.** The showing is booked just before the send, as for
   an approval, and before the send is reserved: a refused time leaves the draft
-  on its card for a person, with the reason. Once the send's result is known the
+  on its card for a person, with the reason. So does a booking that turns out
+  to be another kind of change than the one planned (the lead booked or
+  cancelled through their own link in between) when that kind is not ticked:
+  what was booked is undone, and the card says what sending would do now. Once the send's result is known the
   booking is settled as an approved one is (`lead_bookings.after_send`). If
   Gmail refuses the reply, or its result is unknown, the note goes on the
   inspect-only card the automatic send leaves ("The reply was not sent, so the

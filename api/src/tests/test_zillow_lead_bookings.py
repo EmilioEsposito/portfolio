@@ -1636,6 +1636,96 @@ async def test_a_refused_time_leaves_a_ticked_reply_with_a_person(lead):
     assert [a.status for a in attendees] == ["booked"]
 
 
+def books_five_meanwhile(lead: Lead, conversation_id_of: list[str]):
+    """A stand-in for the Gmail headers lookup, which runs between the plan and
+    the booking: while it runs, the lead books 5 PM for the thread, as through
+    their own link, and is told."""
+
+    async def lookup(*_args, **_kwargs):
+        five = outcome(start=at(17))
+        other = await lead_bookings.prepare_reply(
+            conversation_id="test-lead-earlier",
+            thread_id=THREAD,
+            lead=five.lead,
+            tour=five.tour,
+            listed_units=[UNIT],
+            now=lead.world.now,
+        )
+        await lead_bookings.after_send(other, "sent", now=lead.world.now)
+        return {"in_reply_to": f"<{conversation_id_of[0]}@zillow.example>", "thread_id": "T"}
+
+    return lookup
+
+
+async def decide_while_the_lead_books_five(lead: Lead, monkeypatch, settings: LeadSettings) -> str:
+    """Handle a reply confirming 4 PM whose plan is a new booking, with the
+    thread's showings changing before the booking is made."""
+    decided = outcome(reply_body=AT_FOUR)
+    conversation_id = f"test-lead-{uuid.uuid4().hex}"
+    lead.conversations.append(conversation_id)
+    monkeypatch.setattr(handle, "respond", AsyncMock(return_value=decided))
+    monkeypatch.setattr(handle, "load_lead_thread", AsyncMock(return_value=lead_thread(THREAD)))
+    monkeypatch.setattr(
+        handle, "_get_threading_headers", books_five_meanwhile(lead, [conversation_id])
+    )
+    monkeypatch.setattr(auto_reply, "effective_settings", AsyncMock(return_value=settings))
+    await handle.handle_thread(THREAD, conversation_id=conversation_id, metadata={})
+    return conversation_id
+
+
+@pytest.mark.asyncio
+async def test_a_booking_that_became_a_move_waits_when_moves_are_not_ticked(lead, monkeypatch):
+    conversation_id = await decide_while_the_lead_books_five(
+        lead, monkeypatch, ticked(auto_send_new_booking=True)
+    )
+
+    handle.send_reply.assert_not_called()
+    assert await claims(conversation_id) == 0
+    showings, attendees, _ = await rows()
+    # The lead's own 5 PM stands; the 4 PM this attempt booked is undone.
+    assert sorted((s.starts_at, s.status) for s in showings) == [
+        (at(16), "cancelled"),
+        (at(17), "scheduled"),
+    ]
+    assert sorted((a.status, a.cancel_reason or "") for a in attendees) == [
+        ("booked", ""),
+        ("cancelled", "reply_not_sent"),
+    ]
+    (card,) = await pending_cards(conversation_id)
+    assert card["tool_name"] == handle.SEND_REPLY
+    assert card["args"]["team_notes"] == [
+        BOOK_NOTE,
+        lead_bookings.PLAN_CHANGED,
+        "Sending this moves their showing of 320-03 from Wed, Apr 14 at 5:00 PM "
+        "to Wed, Apr 14 at 4:00 PM.",
+        "This reply moves a showing, so a person sends it.",
+    ]
+
+    # A person approving the card now moves the showing, as the card says.
+    assert (await lead.decide_on(conversation_id))["status"] == "completed"
+    showings, _, _ = await rows()
+    assert sorted((s.starts_at, s.status) for s in showings if s.status == "scheduled") == [
+        (at(16), "scheduled")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_booking_that_became_a_move_goes_when_moves_are_ticked_too(lead, monkeypatch):
+    conversation_id = await decide_while_the_lead_books_five(
+        lead, monkeypatch, ticked(auto_send_new_booking=True, auto_send_reschedule=True)
+    )
+
+    handle.send_reply.assert_awaited_once()
+    assert await pending_cards(conversation_id) == []
+    showings, _, _ = await rows()
+    assert sorted((s.starts_at, s.status) for s in showings) == [
+        (at(16), "scheduled"),
+        (at(17), "cancelled"),
+    ]
+    row, _ = await stored(conversation_id)
+    assert row.metadata_["showing_booking"]["action"] == "moved"
+
+
 @pytest.mark.asyncio
 async def test_gmail_refusing_a_ticked_booking_reply_cancels_the_booking(lead, monkeypatch):
     monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=gmail_refused()))

@@ -184,6 +184,23 @@ class Prepared:
     def refused(self) -> bool:
         return self.action == "refused"
 
+    @property
+    def change(self) -> Literal["book", "move", "cancel"] | None:
+        """What sending this reply does to the thread's showings, in a plan's
+        words (``Plan.action``); None when it changes nothing.
+
+        Worked out from the places found while preparing, which may differ from
+        the plan made a moment earlier: the lead can book or cancel through
+        their own link in between.
+        """
+        if self.action == "cancel":
+            return "cancel" if self.to_cancel else None
+        if self.action in ("booked", "moved", "already_booked"):
+            if self.to_cancel:
+                return "move"
+            return "book" if self.action == "booked" else None
+        return None
+
     def problem(self) -> str:
         """The line for the reply's card when the time was refused."""
         return f"Not sent: the showing could not be booked. {self.refusal_message}".strip()

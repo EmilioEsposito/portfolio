@@ -17,7 +17,10 @@ booking.
 
 One that may go is booked just before the send, as an approved one is
 (``lead_bookings.prepare_reply``), before anything is reserved: a refused time
-leaves the draft with a person. Once the send's result is known the booking is
+leaves the draft with a person. So does a booking that turns out to be another
+kind of change than the one planned, when that kind is not switched on (the
+lead booked or cancelled through their own link in between): what was booked
+is undone and the card says what sending would do now. Once the send's result is known the booking is
 settled the same way (``lead_bookings.after_send``): sent, it stands and its
 held notices go; refused by Gmail, it is cancelled; unknown, it stands, marked
 for the team.
@@ -256,6 +259,32 @@ async def maybe_send_reply(conversation_id: str, case: LeadCase, reply: Reply) -
                         booking=refused.record(),
                     )
                     return
+                change = prepared.change if prepared is not None else None
+                if prepared is not None and change is not None and change != plan.action:
+                    # The thread's showings changed between the plan and the
+                    # booking (the lead used their own link), so sending would
+                    # now do another kind of thing. That kind needs its own
+                    # setting; without it, undo what was booked and hold.
+                    hold = booking_hold(
+                        settings,
+                        lead_bookings.Plan(change, prepared.unit, prepared.start),
+                        case,
+                        reply,
+                    )
+                    if hold is not None:
+                        booked, prepared = prepared, None
+                        if not booked.recovered:
+                            await lead_bookings.after_send(booked, "failed", now=datetime.now(UTC))
+                        fresh = await lead_bookings.plan_reply(**booking, now=datetime.now(UTC))
+                        stated = [fresh.note(case.timezone)] if fresh is not None else []
+                        await _hold(
+                            session,
+                            conversation_id,
+                            messages,
+                            card,
+                            [lead_bookings.PLAN_CHANGED, *stated, hold],
+                        )
+                        return
             claimed = await claim_auto_approved_send(
                 original, tool_name=handle.SEND_REPLY, conversation_id=conversation_id
             )
