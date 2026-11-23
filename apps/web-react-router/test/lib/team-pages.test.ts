@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -164,6 +164,19 @@ test("the installed app and its service worker belong to /team", () => {
     const png = readFileSync(new URL(icon.src.slice(1), PUBLIC));
     assert.equal(png.readUInt32BE(16), size);
     assert.equal(png.readUInt32BE(20), size);
+  }
+});
+
+test("each team page with its own sidebar places the notifications banner itself", () => {
+  // The team layout places it for every other page; these fill the screen
+  // with their own shell, so the layout leaves it to them.
+  const routes = new URL("../../app/sites/team/routes/", import.meta.url);
+  const own = readdirSync(routes, { recursive: true, encoding: "utf8" })
+    .filter((file) => file.endsWith(".tsx"))
+    .filter((file) => readFileSync(new URL(file, routes), "utf8").includes("ownSidebar: true"));
+  assert.deepEqual(own.sort(), ["admin.tsx", "chat.tsx", "settings.tsx"]);
+  for (const file of own) {
+    assert.ok(readFileSync(new URL(file, routes), "utf8").includes("<TeamDeviceBanner />"), file);
   }
 });
 

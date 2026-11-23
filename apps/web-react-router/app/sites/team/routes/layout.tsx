@@ -84,7 +84,9 @@ function TeamPages({ banner, ownSidebar }: { banner: React.ReactNode; ownSidebar
         {ownSidebar ? (
           <>
             {banner}
-            {/* A page with its own sidebar fills the screen, so it places TeamDeviceBanner itself. */}
+            {/* A page with its own sidebar fills the screen, so it places TeamDeviceBanner
+                itself, under its header (the chat, its settings, All conversations);
+                test/lib/team-pages.test.ts checks that each does. */}
             <Outlet />
           </>
         ) : (

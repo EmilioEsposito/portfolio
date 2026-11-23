@@ -73,7 +73,9 @@ export function notificationStatus(
   if (!device.pushSupported) return "unavailable";
   if (push.permission === "denied") return "blocked";
   if (!push.checked) return "checking";
-  return push.subscribed ? "on" : "off";
+  // A subscription the browser no longer allows delivers nothing: resetting
+  // the site's permission ends it, whatever this page last knew.
+  return push.subscribed && push.permission === "granted" ? "on" : "off";
 }
 
 /** The word shown next to the bell. */

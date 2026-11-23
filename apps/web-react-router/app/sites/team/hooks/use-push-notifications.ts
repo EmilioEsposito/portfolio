@@ -83,8 +83,19 @@ export function usePushNotifications(): PushNotificationState {
     return task;
   }, []);
 
+  // The permission the page last saw. A different one means it was changed
+  // in the browser's settings, which can end the subscription as well, so the
+  // subscription is checked again (the effect below) and not assumed.
+  const seenPermission = useRef<NotificationPermission | null>(null);
+  const [permissionChanges, setPermissionChanges] = useState(0);
   const recheckPermission = useCallback(() => {
-    if (typeof Notification !== "undefined") setPermission(Notification.permission);
+    if (typeof Notification === "undefined") return;
+    const current = Notification.permission;
+    if (seenPermission.current !== null && seenPermission.current !== current) {
+      setPermissionChanges((count) => count + 1);
+    }
+    seenPermission.current = current;
+    setPermission(current);
   }, []);
 
   // What the browser can do, read once the page is open in it. Whose the
@@ -195,7 +206,7 @@ export function usePushNotifications(): PushNotificationState {
     return () => {
       cancelled = true;
     };
-  }, [enqueuePushOperation, getToken, isSignedIn, usable, userId]);
+  }, [enqueuePushOperation, getToken, isSignedIn, permissionChanges, usable, userId]);
 
   const subscribe = useCallback(async () => {
     if (!usable || busy || !isSignedIn || !userId) return false;
@@ -206,6 +217,9 @@ export function usePushNotifications(): PushNotificationState {
       // Asked first, straight from the click: iOS shows its prompt only while
       // handling a tap, and the queue below may wait on an earlier check.
       const perm = await Notification.requestPermission();
+      // The page's own request, followed by its own subscription below: not
+      // a change made behind its back.
+      seenPermission.current = perm;
       setPermission(perm);
       if (perm !== "granted") return false;
 

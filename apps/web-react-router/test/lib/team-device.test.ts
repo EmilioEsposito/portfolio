@@ -80,6 +80,8 @@ test("where notifications stand on a device", () => {
   // Allowed in the browser but not subscribed for this user is still off.
   assert.equal(notificationStatus(android, push("granted", false)), "off");
   assert.equal(notificationStatus(android, push("granted", true)), "on");
+  // A subscription whose permission was reset in the browser's settings is not on.
+  assert.equal(notificationStatus(android, push("default", true)), "off");
   assert.equal(notificationStatus(android, push("denied", false)), "blocked");
   // Blocked is known at once; on or off only after the subscription is checked.
   assert.equal(notificationStatus(android, push("denied", false, false)), "blocked");

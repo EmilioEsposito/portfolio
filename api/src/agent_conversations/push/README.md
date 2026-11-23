@@ -107,6 +107,10 @@ Every team page carries a bell with a dot and a word: green "On", red "Off" or
 switches anything. It opens a panel whose buttons are named for what they do
 ("Turn on notifications", "Send a test", "Turn off", "Install app").
 
+"On" needs both a subscription for the signed-in user and the browser's
+permission; when the permission is changed in the browser's settings, the
+subscription is checked again.
+
 Until notifications are on, a banner on every team page asks: on Android and
 desktop its button brings up the browser's own permission prompt; on an iPhone
 or iPad in a browser tab it opens the Add to Home Screen steps; where the
