@@ -36,8 +36,8 @@ export function CallLine({
 }) {
   const call = !lead || /[?.!]$/.test(lead) ? "Call" : "call";
   const [phone, setPhone] = useState<TeamPhone | null>(null);
-  const turnstile = useTurnstile(siteKey, { needed: phone === null });
   const [busy, setBusy] = useState(false);
+  const turnstile = useTurnstile(siteKey, { needed: phone === null && !busy });
   const [problem, setProblem] = useState<string | null>(null);
 
   async function reveal() {

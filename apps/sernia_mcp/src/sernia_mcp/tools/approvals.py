@@ -1,4 +1,4 @@
-"""Apps-based approval flow for the two external-write tools.
+"""Apps-based approval flows for external writes.
 
 Pattern (deterministic server-side enforcement via tool-visibility split):
 
@@ -33,6 +33,7 @@ from collections.abc import Sequence
 
 from fastmcp import FastMCPApp
 from fastmcp.exceptions import ToolError
+from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.providers.addressing import is_app_tool_with_identity
 from fastmcp.tools import Tool
 from fastmcp.utilities.versions import VersionSpec
@@ -53,9 +54,10 @@ from prefab_ui.components import (
 )
 from prefab_ui.rx import Rx
 
-from sernia_mcp.config import INTERNAL_EMAIL_DOMAIN
+from sernia_mcp.config import INTERNAL_EMAIL_DOMAIN, local_auth_bypass_enabled
 from sernia_mcp.core.errors import CoreError, NotFoundError, ValidationError
 from sernia_mcp.core.google.gmail import send_email_core
+from sernia_mcp.core.quo import tasks
 from sernia_mcp.core.quo.send_sms import (
     resolve_group_sms_routing_core,
     resolve_sms_routing_core,
@@ -63,15 +65,15 @@ from sernia_mcp.core.quo.send_sms import (
     send_sms_core,
 )
 from sernia_mcp.identity import resolve_user_email_for_request
+from sernia_mcp.tools.quo import task_client
 
-# Pending sends, keyed by short UUID.
-# Row shape: {"type": "sms"|"email", "created_at": float, ...params}
+# Single-use pending actions shared by the approval tools, keyed by UUID.
 _PENDING: dict[str, dict] = {}
 _PENDING_TTL_SECONDS = 600  # 10 minutes
 
 
 # =============================================================================
-# Single FastMCPApp holding both approval flows.
+# Single FastMCPApp holding the approval flows.
 # =============================================================================
 def _is_app_only(tool: Tool) -> bool:
     ui = (tool.meta or {}).get("ui", {})
@@ -381,3 +383,74 @@ async def _confirm_send_email(pending_id: str, decision: str) -> str:
     except CoreError as e:
         return f"Send failed: {e}"
     return f"Email sent to {', '.join(result.to)} (message_id={result.message_id})."
+
+
+def _task_approver() -> str:
+    token = get_access_token()
+    if token is None and local_auth_bypass_enabled():
+        return "local"
+    if token and (email := token.claims.get("email")):
+        return email.strip().lower()
+    raise ToolError("Sign in to approve a Quo task deletion.")
+
+
+@approvals_app.ui()
+async def quo_delete_task(task_id: tasks.TaskId) -> PrefabApp:
+    """Request approval to delete a Quo task. The card shows its current title and TK ID."""
+    owner = _task_approver()
+    async with task_client() as client:
+        task = await tasks.get_task(client, task_id)
+    pid = uuid.uuid4().hex
+    _PENDING[pid] = {
+        "type": "quo_delete_task",
+        "task_id": task_id,
+        "owner": owner,
+        "created_at": time.time(),
+    }
+    with Card(css_class="max-w-xl") as view:
+        with CardHeader():
+            CardTitle("Delete this Quo task?")
+        with CardContent():
+            with Column(gap=2):
+                Text(task.get("title") or "(Untitled task)")
+                Text(task_id)
+        with CardFooter():
+            with Row(gap=2):
+                for decision, label, variant, message in (
+                    ("approve", "Delete task", "destructive", "Task deleted"),
+                    ("reject", "Cancel", "secondary", "Cancelled"),
+                ):
+                    Button(
+                        label,
+                        variant=variant,
+                        disabled=Rx("decided"),
+                        on_click=[
+                            SetState("decided", True),
+                            CallTool(
+                                "_confirm_delete_quo_task",
+                                arguments={"pending_id": pid, "decision": decision},
+                                on_success=ShowToast(message),
+                                on_error=ShowToast(
+                                    "Check the task and request a new approval.", variant="error"
+                                ),
+                            ),
+                        ],
+                    )
+    return PrefabApp(view=view, state={"decided": False})
+
+
+@approvals_app.tool()
+async def _confirm_delete_quo_task(pending_id: str, decision: str) -> str:
+    """Apply the decision from a Quo task approval card once."""
+    record = _PENDING.get(pending_id)
+    if not record or record["type"] != "quo_delete_task":
+        raise ToolError("Unknown or already decided Quo task deletion.")
+    if record["owner"] != _task_approver():
+        raise ToolError("This deletion was requested by another user.")
+    del _PENDING[pending_id]
+    if time.time() - record["created_at"] > _PENDING_TTL_SECONDS:
+        raise ToolError("Quo task deletion approval expired.")
+    if decision != "approve":
+        return "Quo task deletion cancelled."
+    async with task_client() as client:
+        return await tasks.delete_task(client, record["task_id"])
