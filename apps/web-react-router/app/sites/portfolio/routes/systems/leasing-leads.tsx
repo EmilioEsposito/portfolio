@@ -47,6 +47,8 @@ export default function ZillowLeadsPage() {
           <a href="https://github.com/EmilioEsposito/portfolio/tree/main/api/src/rental_listings" className="underline underline-offset-4">Listing data &amp; tools</a>
         </div>
         <p className="text-xs text-muted-foreground">
+          Prospects book showings on{" "}
+          <a href="https://serniacapital.com/showings" className="underline underline-offset-4">serniacapital.com</a>.
           Sernia Capital staff manage listings, settings and bookings on the{" "}
           <a href={TEAM_HOME_URL} className="underline underline-offset-4">team site</a>.
         </p>
