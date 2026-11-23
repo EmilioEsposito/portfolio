@@ -11,6 +11,7 @@ import requests
 
 from api.src.contact.service import get_contact_by_slug
 from api.src.open_phone.service import send_message
+from api.src.schedulers.job_info import JobInfo
 from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
 
 # DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
@@ -113,6 +114,27 @@ async def get_peppino_view_tasks():
 
 # --- APScheduler Job Registration ---
 
+# Shown on the team's Scheduler page (api/src/schedulers/job_info.py).
+TASK_REMINDER_JOB_INFO = JobInfo(
+    name="ClickUp tasks: text the due list",
+    summary="Texts the maintenance contact the ClickUp tasks that are due today or overdue.",
+    description=(
+        "Reads the tasks in one saved ClickUp view, the maintenance contact's, and keeps "
+        "those due today or earlier that are not complete. A task with no due date counts "
+        "as overdue, and a low-priority task is included only on Fridays."
+        "\n\n"
+        "In production, when at least one task is left, it texts the list from the Sernia "
+        'AI line in Quo to the maintenance contact, headed "Sernia Task Reminder - Reply '
+        "with updates\": each task's name and due date, plus a "
+        "ClickUp link for tasks from the maintenance requests list. With nothing due, "
+        "production sends nothing. Outside production the text goes to the developer's "
+        "own contact instead, marked with the environment's name, even when the list is "
+        "empty. It only reads ClickUp and changes nothing there."
+        "\n\n"
+        "Paused or removed, these reminder texts stop."
+    ),
+)
+
 
 def register_clickup_apscheduler_jobs():
     """Register ClickUp scheduled jobs with APScheduler.
@@ -126,13 +148,13 @@ def register_clickup_apscheduler_jobs():
     scheduler = get_scheduler()
     upsert_job(
         scheduler,
+        info=TASK_REMINDER_JOB_INFO,
         func=get_peppino_view_tasks,
         trigger="cron",
         hour="8,17",
         minute=0,
         timezone=ZoneInfo("America/New_York"),
         id="clickup_peppino_tasks_scheduled",
-        name="ClickUp Peppino Tasks Reminder",
     )
     logfire.info("ClickUp APScheduler jobs registered.")
 

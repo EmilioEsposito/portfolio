@@ -7,15 +7,15 @@ export function meta({}: Route.MetaArgs) {
     { title: teamTitle("Scheduler") },
     {
       name: "description",
-      content: "Manage scheduled jobs and tasks",
+      content: "What each scheduled job does and when it runs next; run or delete one.",
     },
   ];
 }
 
 export default function SchedulerPage() {
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <h2 className="text-2xl font-bold mb-4">Scheduler Admin</h2>
+    // The team layout's SidebarInset is the page's <main>.
+    <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
       <Scheduler apiBaseUrl="/api" />
     </div>
   );

@@ -48,8 +48,8 @@ def test_registration_replaces_the_existing_job_without_changing_its_schedule(mo
     queue.register_zillow_email_queue()
     upsert.assert_called_once_with(
         scheduler,
+        info=queue.JOB_INFO,
         id="zillow-email-queue",
-        name="Sernia AI: Zillow email queue",
         func=queue.process_zillow_email_queue,
         trigger="interval",
         seconds=30,

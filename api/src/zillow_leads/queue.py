@@ -71,6 +71,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from api.src.agent_conversations.models import get_agent_conversation
 from api.src.database.database import AsyncSessionFactory
+from api.src.schedulers.job_info import JobInfo
 from api.src.utils.automation import is_sernia_ai_enabled
 from api.src.zillow_leads.handle import handle_thread
 from api.src.zillow_leads.models import ZillowEmailJob
@@ -574,14 +575,46 @@ async def process_zillow_email_queue() -> None:
             await process_thread(claim)
 
 
+# Shown on the team's Scheduler page (api/src/schedulers/job_info.py). Not part
+# of the lead agent's prompt.
+JOB_INFO = JobInfo(
+    name="Zillow lead emails: process the queue",
+    summary=(
+        "Runs the Zillow lead agent on lead emails once their wait is over, one lead "
+        "thread at a time, and retries runs that failed."
+    ),
+    description=(
+        "Gmail Pub/Sub delivers each Zillow lead email as it arrives, and the webhook only "
+        "records it in the zillow_email_jobs table, due after the batching wait set on the "
+        "lead Agent settings tab. This job is the worker that does the rest. Recording "
+        "first and working later means a deploy or crash during the wait loses no lead."
+        "\n\n"
+        "Each run, while Sernia AI's automated runs are on, it takes up to 10 lead threads "
+        "whose emails are due, one at a time: a thread's due emails go together, a thread "
+        "already being worked on waits, and emails more than 24 hours old are dropped. For "
+        "each thread it finds the copy in the shared mailbox and runs the Zillow lead "
+        "agent once. The agent's reply waits for a person's approval, which sends a push "
+        "notification, unless automatic replies are on in the lead agent's settings, in "
+        "which case it is sent to the lead; a question for the team also waits for a "
+        "person, and a lead that needs no reply gets none. A failed run is retried after 2 "
+        "minutes, then 4; after three tries the emails are left as failed and logged as an "
+        "error for a person."
+        "\n\n"
+        "It looks every 30 seconds, so a thread usually starts within 30 seconds of its "
+        "wait ending. Paused or removed, emails are still recorded as they arrive, but no "
+        "lead is answered or escalated, and emails left waiting more than 24 hours expire."
+    ),
+)
+
+
 def register_zillow_email_queue() -> None:
     """Schedule the worker. Called at startup when background automation is on."""
     from api.src.apscheduler_service.service import get_scheduler, upsert_job
 
     upsert_job(
         get_scheduler(),
+        info=JOB_INFO,
         id=JOB_ID,
-        name="Sernia AI: Zillow email queue",
         func=process_zillow_email_queue,
         trigger="interval",
         seconds=POLL_SECONDS,
