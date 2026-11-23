@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
 import { useAuth } from "@clerk/react-router";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
@@ -9,11 +9,13 @@ import { Badge } from "~/components/ui/badge";
 import {
   Sidebar,
   SidebarContent,
+  SidebarGroup,
   SidebarHeader,
   SidebarFooter,
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
+  SidebarSeparator,
   useSidebar,
 } from "~/components/ui/sidebar";
 import {
@@ -163,6 +165,42 @@ function setCachedConversations(convos: ConversationSummary[]) {
   cacheTimestamp = Date.now();
 }
 
+// ---- Whether the team's pages are open ----
+
+// Open at first, on a phone too; the person's choice is kept in this browser.
+// Read through useSyncExternalStore so a later page opens it as left, and the
+// server (which has no storage) renders it open.
+const TEAM_PAGES_OPEN_KEY = "sernia-team-pages-open";
+let teamPagesChoice: boolean | null = null;
+const teamPagesListeners = new Set<() => void>();
+
+function teamPagesOpen(): boolean {
+  // This page's own choice first, for a browser whose storage is blocked.
+  if (teamPagesChoice !== null) return teamPagesChoice;
+  try {
+    return localStorage.getItem(TEAM_PAGES_OPEN_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function setTeamPagesOpen(open: boolean) {
+  teamPagesChoice = open;
+  try {
+    localStorage.setItem(TEAM_PAGES_OPEN_KEY, String(open));
+  } catch {
+    // Storage is blocked: the choice lasts until the page is reloaded.
+  }
+  teamPagesListeners.forEach((listener) => listener());
+}
+
+function subscribeToTeamPagesOpen(listener: () => void) {
+  teamPagesListeners.add(listener);
+  return () => {
+    teamPagesListeners.delete(listener);
+  };
+}
+
 // ---- Main component ----
 
 interface ConversationSidebarProps {
@@ -180,9 +218,12 @@ export function ConversationSidebar({
 }: ConversationSidebarProps) {
   const { isSignedIn, getToken } = useAuth();
   const { state: sidebarState, toggleSidebar, isMobile } = useSidebar();
-  // The team's pages, under the conversations. Open on a computer; on a phone
-  // they start closed so the conversations keep the room.
-  const [teamPagesOpen, setTeamPagesOpen] = useState<boolean | null>(null);
+  // The team's pages, above the conversations as on every other team page.
+  const pagesOpen = useSyncExternalStore(
+    subscribeToTeamPagesOpen,
+    teamPagesOpen,
+    () => true,
+  );
 
   const [conversations, setConversations] = useState<ConversationSummary[]>(
     () => getCachedConversations() || [],
@@ -363,7 +404,8 @@ export function ConversationSidebar({
     if (isMobile) toggleSidebar();
   };
 
-  const isCollapsed = sidebarState === "collapsed";
+  // Icons only on a computer; a phone's sidebar always opens in full.
+  const isCollapsed = sidebarState === "collapsed" && !isMobile;
 
   return (
     <Sidebar collapsible="icon" className="border-r">
@@ -385,8 +427,36 @@ export function ConversationSidebar({
       </SidebarHeader>
 
       <SidebarContent>
-        {/* New conversation button */}
-        <div className={cn("px-2 pt-2", isCollapsed && "px-1")}>
+        {/* The team's pages, where every other team page has them */}
+        <SidebarGroup className="pb-0">
+          {isCollapsed ? (
+            <TeamNavItems />
+          ) : (
+            <Collapsible open={pagesOpen} onOpenChange={setTeamPagesOpen}>
+              <CollapsibleTrigger className="flex h-8 w-full items-center gap-1 rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 outline-none ring-sidebar-ring hover:text-sidebar-foreground focus-visible:ring-2">
+                {pagesOpen ? (
+                  <ChevronDown className="w-3 h-3 shrink-0" />
+                ) : (
+                  <ChevronRight className="w-3 h-3 shrink-0" />
+                )}
+                Team pages
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <TeamNavItems />
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+        </SidebarGroup>
+
+        <SidebarSeparator />
+
+        {/* The conversations: a new one, then the list */}
+        <div className={cn("px-2", isCollapsed && "px-1")}>
+          {!isCollapsed && (
+            <p className="flex h-8 items-center px-2 text-xs font-medium text-sidebar-foreground/70">
+              Conversations
+            </p>
+          )}
           <Button
             variant="outline"
             className={cn(
@@ -441,8 +511,14 @@ export function ConversationSidebar({
           </div>
         )}
 
-        {/* Conversation list */}
-        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pt-1">
+        {/* Conversation list. It keeps some height when the team's pages
+            are open on a short screen; the sidebar then scrolls as a whole. */}
+        <div
+          className={cn(
+            "flex-1 overflow-y-auto overflow-x-hidden px-2 pt-1",
+            isCollapsed ? "min-h-0" : "min-h-48",
+          )}
+        >
           {isLoading && conversations.length === 0 ? (
             <div className="flex justify-center py-8">
               <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
@@ -589,28 +665,8 @@ export function ConversationSidebar({
         </div>
       </SidebarContent>
 
-      {/* The team's navigation and the account */}
+      {/* Notifications, the public site and the account */}
       <SidebarFooter className="border-t border-sidebar-border">
-        {isCollapsed ? (
-          <TeamNavItems />
-        ) : (
-          <Collapsible
-            open={teamPagesOpen ?? !isMobile}
-            onOpenChange={setTeamPagesOpen}
-          >
-            <CollapsibleTrigger className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
-              {teamPagesOpen ?? !isMobile ? (
-                <ChevronDown className="w-3 h-3 shrink-0" />
-              ) : (
-                <ChevronRight className="w-3 h-3 shrink-0" />
-              )}
-              Team pages
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <TeamNavItems />
-            </CollapsibleContent>
-          </Collapsible>
-        )}
         <TeamAccount />
       </SidebarFooter>
     </Sidebar>

@@ -46,6 +46,28 @@ export interface PushNotificationState {
   recheckPermission: () => void;
   /** Sends a test notification to the signed-in user's own devices. */
   sendTest: () => Promise<boolean>;
+  /**
+   * In an iPhone or iPad browser tab only: whether this account already gets
+   * notifications in the Home Screen app. Null when not asked, while asking,
+   * or when asking failed.
+   */
+  iosApp: boolean | null;
+  /** The answer above is still on its way; the page waits for it before asking anything. */
+  iosAppPending: boolean;
+}
+
+/** Whether the signed-in account has the Home Screen app of an iPhone or iPad subscribed. */
+async function fetchIosApp(token: string): Promise<boolean> {
+  const response = await fetch(`${API_BASE}/push/devices`, {
+    headers: { Authorization: `Bearer ${token}` },
+    // A stalled answer counts as no answer, so the banner does not wait for good.
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to load notification devices (${response.status})`);
+  }
+  const { ios_app: iosApp } = await response.json();
+  return iosApp === true;
 }
 
 /** Push works in this browser as it is opened now (on iOS, only from the Home Screen). */
@@ -69,6 +91,14 @@ export function usePushNotifications(): PushNotificationState {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<PushFailure | null>(null);
   const usable = canPush(device);
+  // An iPhone or iPad tab cannot push, and cannot see the Home Screen app's
+  // storage either; the API knows whether that app is subscribed. The answer
+  // is kept with the user it is for, so it is pending from the first render
+  // that needs it (no Home Screen banner for a moment before it arrives).
+  const asksForIosApp = device !== null && device.ios && !device.standalone && device.iosCanPush;
+  const [iosAppAnswer, setIosAppAnswer] = useState<{ userId: string; iosApp: boolean | null } | null>(null);
+  const iosAppPending = asksForIosApp && !!isSignedIn && !!userId && iosAppAnswer?.userId !== userId;
+  const iosApp = asksForIosApp && !iosAppPending ? (iosAppAnswer?.iosApp ?? null) : null;
   // Clerk can transition directly between identities. Serialize subscription
   // ownership updates so an older user's request cannot finish last and take
   // the endpoint back from the current user.
@@ -118,6 +148,27 @@ export function usePushNotifications(): PushNotificationState {
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [recheckPermission]);
+
+  // Asked once per signed-in user. A failure leaves it unknown, which reads
+  // as before: the tab is asked to use the Home Screen.
+  useEffect(() => {
+    if (!asksForIosApp || !isSignedIn || !userId) return;
+    let cancelled = false;
+    void (async () => {
+      let answer: boolean | null = null;
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        answer = await fetchIosApp(token);
+      } catch (err) {
+        console.error("Notification devices check error:", err);
+      }
+      if (!cancelled) setIosAppAnswer({ userId, iosApp: answer });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [asksForIosApp, getToken, isSignedIn, userId]);
 
   // A PushSubscription belongs to the signed-in Clerk identity, not merely to
   // the browser profile. Re-assert that mapping on mount/account changes and
@@ -374,5 +425,7 @@ export function usePushNotifications(): PushNotificationState {
     unsubscribe,
     recheckPermission,
     sendTest,
+    iosApp,
+    iosAppPending,
   };
 }

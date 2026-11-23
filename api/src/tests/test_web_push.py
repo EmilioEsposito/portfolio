@@ -60,6 +60,86 @@ class TestSmoke:
         paths = {route.path for route in router.routes}
         assert "/push/test" in paths
 
+    def test_devices_endpoint_is_mounted_behind_the_sernia_gate(self):
+        from api.src.sernia_ai.routes import router as sernia_router
+
+        paths = {route.path for route in sernia_router.routes if hasattr(route, "path")}
+        assert "/sernia-ai/push/devices" in paths
+
+
+_APPLE = "https://web.push.apple.com/QGuQyavXutnMH"
+_FCM = "https://fcm.googleapis.com/fcm/send/abc"
+# A Home Screen web app leaves "Version/… Safari/…" out of its user agent.
+_IPHONE_APP = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+_IPAD_MOBILE_APP = "Mozilla/5.0 (iPad; CPU OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+_IPAD_AS_MAC = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"
+)
+_MAC_SAFARI = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15"
+_ANDROID = "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "user_agent", "ios_app"),
+    [
+        (_APPLE, _IPHONE_APP, True),
+        (_APPLE, _IPAD_MOBILE_APP, True),
+        # A desktop browser posing as an iPhone pushes through its own vendor.
+        (_FCM, _IPHONE_APP, False),
+        # An iPad with a Mac user agent looks like Safari on a Mac: not counted.
+        (_APPLE, _IPAD_AS_MAC, False),
+        (_APPLE, _MAC_SAFARI, False),
+        (_FCM, _ANDROID, False),
+        (_APPLE, None, False),
+        (_APPLE, "", False),
+        ("https://web.push.apple.com.example.test/x", _IPHONE_APP, False),
+        ("not a url", _IPHONE_APP, False),
+        ("https://[bad/x", _IPHONE_APP, False),
+    ],
+)
+def test_is_ios_app_subscription(endpoint, user_agent, ios_app):
+    from api.src.agent_conversations.push.service import is_ios_app_subscription
+
+    assert is_ios_app_subscription(endpoint, user_agent) is ios_app
+
+
+@pytest.mark.asyncio
+async def test_ios_app_is_decided_from_the_callers_own_subscriptions():
+    from api.src.agent_conversations.push import service
+
+    def session_with(rows):
+        query_result = MagicMock()
+        query_result.all.return_value = rows
+        session = AsyncMock()
+        session.execute.return_value = query_result
+        return session
+
+    session = session_with([(_FCM, _ANDROID), (_APPLE, _IPHONE_APP)])
+    assert await service.has_ios_app_subscription("user-456", session=session) is True
+    statement = session.execute.await_args.args[0]
+    # Only the caller's rows are read.
+    assert statement.compile().params == {"clerk_user_id_1": "user-456"}
+
+    assert (
+        await service.has_ios_app_subscription("user-456", session=session_with([(_FCM, _ANDROID)]))
+        is False
+    )
+    assert await service.has_ios_app_subscription("user-456", session=session_with([])) is False
+
+
+@pytest.mark.asyncio
+async def test_devices_route_answers_for_the_caller(monkeypatch):
+    from api.src.agent_conversations.push import routes
+
+    has_ios_app = AsyncMock(return_value=True)
+    monkeypatch.setattr(routes, "has_ios_app_subscription", has_ios_app)
+    user = MagicMock()
+    user.id = "user-456"
+    session = object()
+
+    assert await routes.get_devices(user=user, session=session) == {"ios_app": True}
+    has_ios_app.assert_awaited_once_with(clerk_user_id="user-456", session=session)
+
 
 @pytest.mark.asyncio
 async def test_test_notification_goes_only_to_the_person_who_asked(monkeypatch):

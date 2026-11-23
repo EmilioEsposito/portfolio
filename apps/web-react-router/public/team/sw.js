@@ -1,6 +1,6 @@
 // Minimal service worker for the Sernia team's pages (scope /team/): push
-// notifications only, no caching. The team pages register it from
-// /team/sw.js, so it controls nothing outside /team/.
+// notifications and the app icon's badge only, no caching. The team pages
+// register it from /team/sw.js, so it controls nothing outside /team/.
 
 const CHAT_PATH = "/team/chat";
 
@@ -11,6 +11,28 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
+
+// The app icon's badge counts this app's notifications still showing, that
+// is, not yet opened; opening the app clears it (the team pages do that).
+// The Badging API is in Home Screen apps on iOS 16.4+ and installed apps in
+// desktop Chrome and Edge; elsewhere (Chrome on Android shows its own dot)
+// this does nothing.
+async function syncBadge() {
+  try {
+    const badging = self.navigator;
+    if (!badging || typeof badging.setAppBadge !== "function") return;
+    const showing = await self.registration.getNotifications();
+    if (showing.length > 0) {
+      await badging.setAppBadge(showing.length);
+    } else if (typeof badging.clearAppBadge === "function") {
+      await badging.clearAppBadge();
+    } else {
+      await badging.setAppBadge(0);
+    }
+  } catch {
+    // No badge here, or the browser refused one: nothing to show.
+  }
+}
 
 async function shouldShowNotification(data) {
   if (data.type !== "response") return true;
@@ -79,6 +101,7 @@ self.addEventListener("push", (event) => {
         data,
         requireInteraction: isApproval,
       });
+      await syncBadge();
     })()
   );
 });
@@ -97,21 +120,30 @@ self.addEventListener("notificationclick", (event) => {
   const url = event.notification.data?.url || CHAT_PATH;
 
   event.waitUntil(
-    clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
-      // Focus an existing chat tab if one exists.
-      for (const client of windowClients) {
-        if (isChat(client.url) && "focus" in client) {
-          // Tell the page to refresh conversation data before navigating.
-          client.postMessage({
-            type: "notification-click",
-            url,
-            data: event.notification.data,
-          });
-          client.navigate(url);
-          return client.focus();
+    Promise.all([
+      clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
+        // Focus an existing chat tab if one exists.
+        for (const client of windowClients) {
+          if (isChat(client.url) && "focus" in client) {
+            // Tell the page to refresh conversation data before navigating.
+            client.postMessage({
+              type: "notification-click",
+              url,
+              data: event.notification.data,
+            });
+            client.navigate(url);
+            return client.focus();
+          }
         }
-      }
-      return clients.openWindow(url);
-    })
+        return clients.openWindow(url);
+      }),
+      // The one clicked is closed above; count the rest.
+      syncBadge(),
+    ])
   );
+});
+
+// Dismissed without opening it (where the browser says so): count the rest.
+self.addEventListener("notificationclose", (event) => {
+  event.waitUntil(syncBadge());
 });

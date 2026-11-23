@@ -9,6 +9,7 @@ import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { useScrollToBottom } from "~/sites/team/hooks/use-scroll-to-bottom";
 import { NotificationsButton, TeamDeviceBanner } from "~/sites/team/components/team-device";
+import { TeamHomeButton } from "~/sites/team/components/team-nav";
 import { useVisualViewportHeight } from "~/sites/team/hooks/use-visual-viewport-height";
 import {
   usePullToRefresh,
@@ -2046,7 +2047,8 @@ function SystemInstructionsView({
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Chat header with sidebar toggle, admin tabs, the notifications bell
+// Chat header: sidebar toggle, team home (phone), admin tabs, notifications
+// (only when they need attention), new conversation
 // ---------------------------------------------------------------------------
 
 function ChatHeader({
@@ -2070,6 +2072,7 @@ function ChatHeader({
         >
           <Menu className="w-4 h-4" />
         </Button>
+        <TeamHomeButton />
 
         {isAdmin && (
           <TabsList>

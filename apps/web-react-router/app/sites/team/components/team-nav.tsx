@@ -136,7 +136,24 @@ export function TeamSidebar() {
   );
 }
 
-/** The bar above a team page: on a phone, the menu button, the wordmark and the notifications bell. */
+/**
+ * On a phone, where the sidebar is closed, the way back to the team home from
+ * a page that brings its own header (the chat, its settings, All conversations).
+ */
+export function TeamHomeButton() {
+  return (
+    <Button asChild variant="ghost" size="icon" className="h-8 w-8 shrink-0 md:hidden">
+      <Link to={TEAM_HOME.url} aria-label="Team home" title="Team home">
+        <TEAM_HOME.icon className="h-4 w-4" aria-hidden="true" />
+      </Link>
+    </Button>
+  );
+}
+
+/**
+ * The bar above a team page: on a phone, the menu button, the wordmark, and
+ * the notifications button when notifications need attention.
+ */
 export function TeamTopBar() {
   const { toggleSidebar } = useSidebar();
   return (
@@ -146,7 +163,7 @@ export function TeamTopBar() {
         <span className="sr-only">Open the team menu</span>
       </Button>
       <TeamWordmark linked className="text-sm [&_svg]:size-6" />
-      <NotificationsButton word className="ml-auto" />
+      <NotificationsButton className="ml-auto" />
     </div>
   );
 }

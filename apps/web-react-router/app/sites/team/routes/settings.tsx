@@ -17,6 +17,7 @@ import {
 import { SidebarProvider, SidebarInset, useSidebar } from "~/components/ui/sidebar";
 import { ConversationSidebar } from "~/sites/team/components/conversation-sidebar";
 import { TeamDeviceBanner } from "~/sites/team/components/team-device";
+import { TeamHomeButton } from "~/sites/team/components/team-nav";
 import { teamTitle } from "~/sites/team/lib/team-meta";
 import type { TeamPageHandle } from "./layout";
 
@@ -261,8 +262,9 @@ export default function SerniaSettingsPage() {
         <SidebarInset className="min-w-0 overflow-x-hidden">
       <div className="flex flex-col h-chat-viewport bg-background">
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b">
+        <div className="flex items-center gap-1.5 px-2 py-3 border-b sm:gap-3 sm:px-4">
           <SettingsMobileSidebarToggle />
+          <TeamHomeButton />
           <Button
             variant="ghost"
             size="icon"
@@ -272,7 +274,7 @@ export default function SerniaSettingsPage() {
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-lg font-semibold">Settings</h1>
+            <h1 className="truncate text-lg font-semibold">Settings</h1>
           </div>
           <div className="flex items-center gap-2">
             {isDirty && (

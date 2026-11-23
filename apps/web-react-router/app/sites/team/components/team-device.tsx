@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Bell, BellOff, Download, Loader2, Share, X } from "lucide-react";
+import { Bell, BellOff, Check, Download, Loader2, Share, X } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "~/components/ui/dialog";
@@ -15,7 +15,9 @@ import {
 } from "~/sites/team/lib/install-prompt";
 import {
   bannerFor,
+  clearAppBadge,
   isLastOffer,
+  needsAttention,
   NO_REMINDERS,
   notificationStatus,
   parseReminders,
@@ -31,11 +33,15 @@ import {
 } from "~/sites/team/lib/team-device";
 
 // Notifications and installing, the same on every team page:
-// - the bell says where notifications stand on this device (a dot and a
-//   word; it never switches anything by itself) and opens the panel;
+// - the sidebar's Notifications row says where notifications stand on this
+//   device (a word; it never switches anything by itself) and opens the panel;
+// - a phone's top bar and the chat's header show a button only while
+//   notifications are off or blocked; when all is well they show nothing;
 // - the panel says it in a sentence and holds the buttons, each named for
 //   what it does;
 // - the banner asks, until the person acts or puts it away.
+// Opening a team page also clears the app icon's badge, which counts the
+// notifications not yet opened (public/team/sw.js sets it).
 
 type TestSend = "idle" | "sending" | "sent" | "failed";
 
@@ -101,8 +107,23 @@ export function TeamDeviceProvider({ children }: { children: React.ReactNode }) 
     setNow(Date.now());
   }, []);
 
+  // Opening the app is opening its notifications: the badge goes.
+  useEffect(() => {
+    const clear = () => {
+      if (document.visibilityState === "visible") clearAppBadge(navigator);
+    };
+    clear();
+    document.addEventListener("visibilitychange", clear);
+    return () => document.removeEventListener("visibilitychange", clear);
+  }, []);
+
   const status: NotificationStatus = push.device
-    ? notificationStatus(push.device, { checked: push.checked, permission: push.permission, subscribed: push.isSubscribed })
+    ? notificationStatus(push.device, {
+        checked: push.checked,
+        permission: push.permission,
+        subscribed: push.isSubscribed,
+        iosApp: push.iosApp,
+      })
     : "checking";
 
   const remember = useCallback((topic: keyof Reminders, change: (reminder: Reminders[keyof Reminders], now: number) => Reminders[keyof Reminders]) => {
@@ -148,8 +169,10 @@ export function TeamDeviceProvider({ children }: { children: React.ReactNode }) 
     return () => clearTimeout(timer);
   }, [turnedOn, test]);
 
+  // An iPhone tab waits for the API's answer, so that a tab whose account has
+  // the app does not show the Home Screen banner for a moment on every page.
   const banner =
-    reminders && push.device
+    reminders && push.device && !push.iosAppPending
       ? bannerFor({ status, installable: offer.available, device: push.device, reminders, now })
       : null;
   const topic = banner === "install" ? "install" : "notifications";
@@ -207,60 +230,96 @@ export function TeamDeviceProvider({ children }: { children: React.ReactNode }) 
 }
 
 // ---------------------------------------------------------------------------
-// The bell: where notifications stand, never a switch
+// Where notifications stand, never a switch
 // ---------------------------------------------------------------------------
 
+/** The status light in the panel, beside the word. */
 const DOT: Record<ReturnType<typeof statusTone>, string> = {
   on: "bg-emerald-500",
-  off: "bg-red-500",
+  off: "bg-amber-500",
+  blocked: "bg-red-500",
   neutral: "bg-muted-foreground/50",
 };
 
-/** A bell with a dot at its corner: green when on, red when not, grey when there is nothing to do. */
+/** The word's colour where it needs attention, in both themes. */
+const ATTENTION_TEXT: Record<"off" | "blocked", string> = {
+  off: "text-amber-700 dark:text-amber-400",
+  blocked: "text-red-600 dark:text-red-400",
+};
+
+const ATTENTION_PILL: Record<"off" | "blocked", string> = {
+  off: "border-amber-300 hover:bg-amber-50 hover:text-amber-800 dark:border-amber-700/70 dark:hover:bg-amber-950/40 dark:hover:text-amber-300",
+  blocked: "border-red-300 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:hover:bg-red-950/40 dark:hover:text-red-300",
+};
+
+/**
+ * A bell with no dot (a dot would read as a notification waiting): a crossed
+ * bell when off or blocked, muted while checking or where it cannot work.
+ */
 export function StatusBell({ status, className }: { status: NotificationStatus; className?: string }) {
   const tone = statusTone(status);
-  const Icon = tone === "off" ? BellOff : Bell;
+  const Icon = tone === "off" || tone === "blocked" ? BellOff : Bell;
   return (
-    <span className={cn("relative inline-flex size-4 shrink-0", className)} data-status={status}>
-      <Icon className={cn("size-full", tone !== "on" && "text-muted-foreground")} aria-hidden="true" />
-      <span
-        className={cn("absolute -right-1 -top-1 size-2.5 rounded-full ring-2 ring-background", DOT[tone])}
-        aria-hidden="true"
-      />
-    </span>
+    <Icon
+      className={cn("size-4 shrink-0", tone === "neutral" && "text-muted-foreground", className)}
+      data-status={status}
+      aria-hidden="true"
+    />
   );
 }
 
-/** What a screen reader and a tooltip say for the bell. */
+/** What a screen reader and a tooltip say for the notifications button and row. */
 export function bellLabel(status: NotificationStatus): string {
   return `Notifications on this device: ${STATUS_WORD[status].toLowerCase()}. Open notification settings`;
 }
 
 /**
- * The bell for a page's top bar. With `word`, the status is spelled out next
- * to it; without, the dot and the bell's shape carry it.
+ * The button in a page's top bar, shown only while notifications are off or
+ * blocked: the crossed bell and the word, in amber or red. When they are on,
+ * being checked, on in the app, or cannot work here, it renders nothing; the
+ * sidebar's Notifications row is always there.
  */
-export function NotificationsButton({ word = false, className }: { word?: boolean; className?: string }) {
+export function NotificationsButton({ className }: { className?: string }) {
   const { status, openPanel } = useTeamDevice();
-  const spelled = word && status !== "checking" && status !== "unavailable";
+  return <NotificationsButtonView status={status} onOpen={openPanel} className={className} />;
+}
+
+/** The needs-attention button as it looks, from plain values. */
+export function NotificationsButtonView({
+  status,
+  onOpen,
+  className,
+}: {
+  status: NotificationStatus;
+  onOpen: () => void;
+  className?: string;
+}) {
+  if (!needsAttention(status)) return null;
+  const tone = statusTone(status) === "blocked" ? "blocked" : "off";
   return (
     <Button
-      variant="ghost"
-      size={spelled ? "sm" : "icon"}
-      className={cn("shrink-0", spelled ? "h-9 gap-2 px-2.5" : "h-8 w-8", className)}
-      onClick={openPanel}
+      variant="outline"
+      size="sm"
+      className={cn(
+        "h-8 shrink-0 gap-1.5 rounded-full px-2.5 text-xs font-medium",
+        ATTENTION_TEXT[tone],
+        ATTENTION_PILL[tone],
+        className,
+      )}
+      onClick={onOpen}
       title={bellLabel(status)}
       aria-label={bellLabel(status)}
     >
-      <StatusBell status={status} />
-      {spelled && <span className="text-xs font-medium">{STATUS_WORD[status]}</span>}
+      <BellOff className="size-3.5 shrink-0" aria-hidden="true" />
+      {STATUS_WORD[status]}
     </Button>
   );
 }
 
-/** The same bell as a row of the sidebar, with the status spelled out. */
+/** The sidebar's row: always there, the place to see and change notifications. */
 export function NotificationsSidebarItem({ onOpen }: { onOpen?: () => void }) {
   const { status, openPanel } = useTeamDevice();
+  const tone = statusTone(status);
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
@@ -273,7 +332,13 @@ export function NotificationsSidebarItem({ onOpen }: { onOpen?: () => void }) {
       >
         <StatusBell status={status} />
         <span>Notifications</span>
-        <span className="ml-auto text-xs text-muted-foreground" aria-hidden="true">
+        <span
+          className={cn(
+            "ml-auto text-xs",
+            tone === "off" || tone === "blocked" ? cn("font-medium", ATTENTION_TEXT[tone]) : "text-muted-foreground",
+          )}
+          aria-hidden="true"
+        >
           {STATUS_WORD[status]}
         </span>
       </SidebarMenuButton>
@@ -325,7 +390,7 @@ export function DeviceBannerView(props: {
         {props.kind === "install" ? (
           <Download className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         ) : (
-          <StatusBell status={props.kind === "blocked" ? "blocked" : "off"} className="mt-0.5" />
+          <BellOff className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         )}
         <span>
           {copy.text}
@@ -357,7 +422,7 @@ export function TurnedOnBannerView(props: { test: TestSend; onSendTest: () => vo
       className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b bg-muted/50 px-4 py-2.5 text-sm sm:px-6"
     >
       <p role="status" className="flex min-w-0 flex-1 basis-64 items-start gap-2.5">
-        <StatusBell status="on" className="mt-0.5" />
+        <Check className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
         <span>
           Notifications are on for this device.
           <TestResult test={props.test} />
@@ -430,6 +495,11 @@ const PANEL: Record<NotificationStatus, { headline: string; detail: string }> = 
   "needs-home-screen": {
     headline: "Off",
     detail: "An iPhone or iPad shows notifications only from an app on its Home Screen. Add these pages to it:",
+  },
+  "in-app": {
+    headline: "On in the app",
+    detail:
+      "This account gets notifications in the Sernia app on the Home Screen. A browser tab on an iPhone or iPad cannot show them; the app does.",
   },
   unavailable: { headline: "Not available here", detail: "" },
 };

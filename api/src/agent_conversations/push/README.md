@@ -81,11 +81,11 @@ Output is in `.env`-ready format — copy directly into local `.env` and Railway
 |------|---------|
 | `models.py` | `WebPushSubscription` SQLAlchemy model — stores browser push endpoints |
 | `service.py` | Subscription CRUD + targeted response push, and team-wide approval/alert push |
-| `routes.py` | 4 endpoints: `GET /push/vapid-public-key`, `POST /push/subscribe`, `POST /push/unsubscribe`, `POST /push/test` |
-| `apps/web-react-router/public/team/sw.js` | Service worker — handles focus-aware push display and notification deeplinks (no caching) |
-| `apps/web-react-router/public/team/manifest.json` | PWA manifest and its 192 and 512 pixel icons — lets a browser offer installing, and "Add to Home Screen" on iOS |
+| `routes.py` | 5 endpoints: `GET /push/vapid-public-key`, `POST /push/subscribe`, `POST /push/unsubscribe`, `POST /push/test`, `GET /push/devices` |
+| `apps/web-react-router/public/team/sw.js` | Service worker — handles focus-aware push display, the app icon's badge, and notification deeplinks (no caching) |
+| `apps/web-react-router/public/team/manifest.json` | PWA manifest and its 192 and 512 pixel icons — lets a browser offer installing, and "Add to Home Screen" on iOS. The installed app opens the team home (`/team`); `launch_handler` makes a link the system hands to the installed app reuse its open window |
 | `apps/web-react-router/app/sites/team/hooks/use-push-notifications.ts` | React hook for SW registration, permission, subscribe/unsubscribe. One instance for all team pages |
-| `apps/web-react-router/app/sites/team/components/team-device.tsx` | What every team page shows: the bell with its status, the panel with the buttons, and the banner that asks |
+| `apps/web-react-router/app/sites/team/components/team-device.tsx` | What every team page shows: the sidebar's Notifications row, the top-bar button while notifications need attention, the panel with the buttons, and the banner that asks; also clears the app icon's badge |
 | `apps/web-react-router/app/sites/team/lib/team-device.ts` | What the device can do, where notifications stand on it, and which reminder to show (no React) |
 | `apps/web-react-router/app/sites/team/lib/install-prompt.ts` | Keeps the browser's own install prompt (Chrome, Edge) until a page offers it |
 
@@ -99,13 +99,22 @@ All under `/api/sernia-ai/push/`, gated by `_sernia_gate` (requires `@serniacapi
 | `/push/subscribe` | POST | Saves browser push subscription to DB |
 | `/push/unsubscribe` | POST | Removes subscription |
 | `/push/test` | POST | Sends a test notification to the caller's own devices, nobody else's |
+| `/push/devices` | GET | `{"ios_app": bool}`: whether the caller has the Home Screen app of an iPhone or iPad subscribed (their own rows only) |
 
 ## What a team page shows
 
-Every team page carries a bell with a dot and a word: green "On", red "Off" or
-"Blocked", grey where the browser cannot notify. The bell reports; it never
-switches anything. It opens a panel whose buttons are named for what they do
-("Turn on notifications", "Send a test", "Turn off", "Install app").
+The sidebar of every team page has a Notifications row with a word: "On",
+"Off", "Blocked", "On in the app" (below), or "Not available" where the browser
+cannot notify. "Off" is amber and "Blocked" red; the rest are muted. The row
+reports; it never switches anything. It opens a panel that says it in a
+sentence, with a status light beside the word, and whose buttons are named for
+what they do ("Turn on notifications", "Send a test", "Turn off", "Install
+app").
+
+When notifications are on there is nothing else: no dot, which would read as a
+notification waiting. Only while they are off or blocked does a phone's top bar
+(and the chat's header) show a small amber or red "Off" / "Blocked" button
+with a crossed-out bell, which opens the same panel.
 
 "On" needs both a subscription for the signed-in user and the browser's
 permission; when the permission is changed in the browser's settings, the
@@ -120,6 +129,30 @@ are on, a phone whose browser offers installing gets an "Install app" banner
 second time for good. Turning notifications off in the panel puts it away at
 once. The choice is kept in the browser (`sernia-team-reminders`).
 
+An iPhone or iPad browser tab cannot tell whether the Home Screen app is
+installed (the app has its own storage), so it asks the API once after
+sign-in (`GET /push/devices`). When the account has the Home Screen app
+subscribed, the tab reads "On in the app": no banner, no top-bar button, and
+the panel says that the app gets the notifications and a browser tab cannot.
+Until the answer arrives the banner waits; if asking fails, the tab is asked
+to use the Home Screen as before. `ios_app` counts a subscription whose user
+agent names an iPhone, iPad or iPod and whose endpoint is on Apple's push
+service. An iPad set to request desktop sites (the default) reports a Mac user
+agent, indistinguishable from Safari on a Mac, so its app is not counted and
+its browser tab still shows the Home Screen steps. Android needs none of this:
+the installed app and Chrome share storage, so a tab already reads as on.
+
+### The app icon's badge
+
+The badge counts the notifications not yet opened; opening the app clears it.
+The service worker sets it to the number of this app's notifications still
+showing (`registration.getNotifications()`) after showing one, after a click,
+and on `notificationclose` where the browser fires it. A team page clears it
+whenever it becomes visible. The Badging API exists in Home Screen apps on
+iOS/iPadOS 16.4+ and installed apps in desktop Chrome and Edge; Chrome on
+Android has none and shows its own dot while a notification is unread. Every
+call is feature-detected and never throws.
+
 ## iOS Notes
 
 - Web Push only works on **iOS Safari 16.4+** when installed as a **standalone PWA** (Add to Home Screen)
@@ -127,12 +160,14 @@ once. The choice is kept in the browser (`sernia-team-reminders`).
 - An iPhone's browser tab has no `PushManager` at all, so iOS in a tab is checked for before push support: it is asked to use the Home Screen, never told its browser cannot notify
 - iOS shows its permission prompt only while handling a tap, so the hook asks for permission first thing in the click
 - An iPad's desktop-style user agent is recognized by its touch screen; iOS before 16.4 is told it cannot notify
+- An iPhone or iPad keeps the address a Home Screen app was added with, so an app added before the start address became `/team` still opens the chat until it is removed and added again. Android and desktop installs pick up the new start address through the manifest's unchanged `id`
+- iOS has no documented way to send links to a Home Screen web app, so links to serniacapital.com open in Safari there
 
 ## Debugging
 
 - **Chrome DevTools** → Application → Service Workers: verify `/team/sw.js` registered
 - **Chrome DevTools** → Application → Manifest: verify `/team/manifest.json` detected and installable
-- **"Send a test"** in the notifications panel pushes to the signed-in user's devices only
+- **"Send a test"** in the notifications panel (sidebar → Notifications) pushes to the signed-in user's devices only
 - **DB check**: `SELECT * FROM web_push_subscriptions;` to see active subscriptions
 - **Push not arriving?**: Check `VAPID_PRIVATE_KEY` is set, check Logfire for `web push send error`
 - **404/410, or VAPID key mismatch after a key rotation**: subscription can never succeed again — auto-cleaned by `notify_all_sernia_users` / `notify_user_push` (logged as `web push subscription expired` with a `reason`)
