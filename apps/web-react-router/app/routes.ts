@@ -2,12 +2,14 @@ import { type RouteConfig, index, layout, prefix, route } from "@react-router/de
 
 // Every URL the app serves. One build answers both eesposito.com and
 // serniacapital.com; app/sites/site.ts decides per request which site a
-// request is for. Paths are relative to app/.
+// request is for, and only the team's pages run Clerk. Paths are relative to
+// app/.
 
 export default [
   // Both sites: these answer by host (app/sites/site.ts).
   index("sites/home.tsx"),
   route("*", "sites/not-found.tsx"),
+  route("robots.txt", "sites/robots.txt.ts"),
 
   // Portfolio (eesposito.com): public pages, AI demos and write-ups.
   route("calendly", "sites/portfolio/routes/calendly.tsx"),
@@ -17,14 +19,13 @@ export default [
   route("systems/emergency-routing", "sites/portfolio/routes/systems/emergency-routing.tsx"),
   route("systems/leasing-evals", "sites/portfolio/routes/systems/leasing-evals.tsx"),
   route("systems/sernia-ai", "sites/portfolio/routes/systems/sernia-ai.tsx"),
-  // /systems/leasing-leads is the index of the team's tab layout, below.
+  route("systems/leasing-leads", "sites/portfolio/routes/systems/leasing-leads.tsx"),
   route("chat-emilio", "sites/portfolio/routes/chat-emilio.tsx"),
   route("chat-weather", "sites/portfolio/routes/chat-weather.tsx"),
   ...prefix("ai-email-responder", [
     index("sites/portfolio/routes/ai-email-responder.tsx"),
     route("architecture", "sites/portfolio/routes/ai-email-responder/architecture.tsx"),
   ]),
-  route("robots.txt", "sites/portfolio/routes/robots.txt.ts"),
   route("sitemap.xml", "sites/portfolio/routes/sitemap.xml.ts"),
 
   // Sernia public (serniacapital.com): no sign-in and no Clerk. Each page sits
@@ -39,20 +40,26 @@ export default [
     ]),
   ]),
 
-  // Sernia team (signed-in staff tools): still at these URLs until they move to
-  // serniacapital.com/team.
-  route("sernia-chat", "sites/team/routes/sernia-chat.tsx"),
-  route("sernia-settings", "sites/team/routes/sernia-settings.tsx"),
-  route("sernia-admin", "sites/team/routes/sernia-admin.tsx"),
-  route("message-tenants", "sites/team/routes/message-tenants.tsx"),
-  route("scheduler", "sites/team/routes/scheduler.tsx"),
-  route("hitl-agent-chat", "sites/team/routes/hitl-agent-chat.tsx"),
-  route("hitl-agent-workflow", "sites/team/routes/hitl-agent-workflow.tsx"),
-  route("systems/leasing-leads", "sites/team/routes/leasing-leads/layout.tsx", [
-    // The public Architecture tab is the portfolio's page.
-    index("sites/portfolio/routes/systems/leasing-leads.tsx"),
-    route("listings", "sites/team/routes/leasing-leads/listings.tsx"),
-    route("settings", "sites/team/routes/leasing-leads/settings.tsx"),
-    route("bookings", "sites/team/routes/leasing-leads/bookings.tsx"),
+  // Sernia team: the signed-in staff pages, at serniacapital.com/team, and at
+  // /team on any host outside production (local, dev.eesposito.com, PR
+  // previews). The only pages that run Clerk; the layout's guard lets in a
+  // verified @serniacapital.com account.
+  ...prefix("team", [
+    layout("sites/team/routes/layout.tsx", [
+      index("sites/team/routes/home.tsx"),
+      route("chat", "sites/team/routes/chat.tsx"),
+      route("settings", "sites/team/routes/settings.tsx"),
+      route("admin", "sites/team/routes/admin.tsx"),
+      route("tenants", "sites/team/routes/tenants.tsx"),
+      route("scheduler", "sites/team/routes/scheduler.tsx"),
+      route("hitl-chat", "sites/team/routes/hitl-chat.tsx"),
+      route("hitl-queue", "sites/team/routes/hitl-queue.tsx"),
+      route("leads", "sites/team/routes/leads/layout.tsx", [
+        index("sites/team/routes/leads/overview.tsx"),
+        route("listings", "sites/team/routes/leads/listings.tsx"),
+        route("settings", "sites/team/routes/leads/settings.tsx"),
+        route("bookings", "sites/team/routes/leads/bookings.tsx"),
+      ]),
+    ]),
   ]),
 ] satisfies RouteConfig;

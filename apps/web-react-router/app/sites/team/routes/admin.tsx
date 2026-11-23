@@ -1,4 +1,4 @@
-import type { Route } from "./+types/sernia-admin";
+import type { Route } from "./+types/admin";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "@clerk/react-router";
@@ -18,7 +18,6 @@ import {
   getFacetedUniqueValues,
   flexRender,
 } from "@tanstack/react-table";
-import { AuthGuard } from "~/sites/team/components/auth-guard";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Badge } from "~/components/ui/badge";
@@ -77,13 +76,18 @@ import {
 } from "lucide-react";
 import { SidebarProvider, SidebarInset, useSidebar } from "~/components/ui/sidebar";
 import { ConversationSidebar } from "~/sites/team/components/conversation-sidebar";
+import { teamTitle } from "~/sites/team/lib/team-meta";
+import type { TeamPageHandle } from "./layout";
 
 const API_BASE = "/api/sernia-ai";
 const PAGE_SIZE = 30;
 
+// This page brings its own sidebar: the conversations, with the team's navigation.
+export const handle: TeamPageHandle = { ownSidebar: true };
+
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "Sernia Admin — Conversations" },
+    { title: teamTitle("All conversations") },
     {
       name: "description",
       content: "Browse and inspect all Sernia AI conversations.",
@@ -272,7 +276,7 @@ function ConversationDetail({
           variant="outline"
           size="sm"
           className="gap-1.5"
-          onClick={() => navigate(`/sernia-chat?id=${conversationId}`)}
+          onClick={() => navigate(`/team/chat?id=${conversationId}`)}
         >
           <ExternalLink className="w-3.5 h-3.5" />
           Open in Chat
@@ -594,22 +598,17 @@ export default function SerniaAdminPage() {
 
   const handleSelectConversation = useCallback(
     (convId: string) => {
-      navigate(`/sernia-chat?id=${convId}`);
+      navigate(`/team/chat?id=${convId}`);
     },
     [navigate]
   );
 
   const handleNewConversation = useCallback(() => {
-    navigate("/sernia-chat");
+    navigate("/team/chat");
   }, [navigate]);
 
   return (
-    <AuthGuard
-      requireDomain="serniacapital.com"
-      message="Admin access required"
-      icon={<Building className="w-16 h-16 text-muted-foreground" />}
-    >
-      <SidebarProvider>
+    <SidebarProvider>
         <ConversationSidebar
           onSelectConversation={handleSelectConversation}
           onNewConversation={handleNewConversation}
@@ -623,7 +622,7 @@ export default function SerniaAdminPage() {
             variant="ghost"
             size="icon"
             className="h-8 w-8 shrink-0"
-            onClick={() => navigate("/sernia-chat")}
+            onClick={() => navigate("/team/chat")}
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>
@@ -810,8 +809,7 @@ export default function SerniaAdminPage() {
         </SheetContent>
       </Sheet>
         </SidebarInset>
-      </SidebarProvider>
-    </AuthGuard>
+    </SidebarProvider>
   );
 }
 

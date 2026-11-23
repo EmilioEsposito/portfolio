@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
-import { useAuth, useUser } from "@clerk/react-router";
+import { useAuth } from "@clerk/react-router";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -15,11 +14,15 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-  SidebarGroup,
-  SidebarGroupLabel,
-  SidebarGroupContent,
   useSidebar,
 } from "~/components/ui/sidebar";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "~/components/ui/collapsible";
+import { TeamAccount, TeamNavItems } from "~/sites/team/components/team-nav";
+import { TeamWordmark } from "~/sites/team/components/team-wordmark";
 import {
   Plus,
   Search,
@@ -29,11 +32,6 @@ import {
   Clock,
   Trash2,
   Loader2,
-  Home,
-  Settings,
-  LayoutList,
-  Building,
-  KeyRound,
   X,
   Menu,
   ChevronDown,
@@ -181,11 +179,10 @@ export function ConversationSidebar({
   onDeleteConversation,
 }: ConversationSidebarProps) {
   const { isSignedIn, getToken } = useAuth();
-  const { user } = useUser();
-  const navigate = useNavigate();
   const { state: sidebarState, toggleSidebar, isMobile } = useSidebar();
-  const isAdmin =
-    user?.primaryEmailAddress?.emailAddress === "emilio@serniacapital.com";
+  // The team's pages, under the conversations. Open on a computer; on a phone
+  // they start closed so the conversations keep the room.
+  const [teamPagesOpen, setTeamPagesOpen] = useState<boolean | null>(null);
 
   const [conversations, setConversations] = useState<ConversationSummary[]>(
     () => getCachedConversations() || [],
@@ -373,13 +370,7 @@ export function ConversationSidebar({
       <SidebarHeader className="border-b border-sidebar-border">
         <div className="flex items-center justify-between gap-1 px-1">
           {!isCollapsed && (
-            <Link
-              to="/"
-              className="flex items-center gap-2 text-sm font-semibold hover:opacity-80 transition-opacity"
-            >
-              <Building className="w-4 h-4 text-primary" />
-              <span>Sernia AI</span>
-            </Link>
+            <TeamWordmark linked className="text-sm [&_svg]:size-6" />
           )}
           <Button
             variant="ghost"
@@ -598,58 +589,29 @@ export function ConversationSidebar({
         </div>
       </SidebarContent>
 
-      {/* Footer with nav links */}
+      {/* The team's navigation and the account */}
       <SidebarFooter className="border-t border-sidebar-border">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              tooltip="Rental Listings"
-              onClick={() => {
-                navigate("/systems/leasing-leads/listings");
-                if (isMobile) toggleSidebar();
-              }}
-            >
-              <KeyRound className="w-4 h-4" />
-              {!isCollapsed && <span>Rental Listings</span>}
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          {isAdmin && (
-            <>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="All Conversations"
-                  onClick={() => {
-                    navigate("/sernia-admin");
-                    if (isMobile) toggleSidebar();
-                  }}
-                >
-                  <LayoutList className="w-4 h-4" />
-                  {!isCollapsed && <span>All Conversations</span>}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="Settings"
-                  onClick={() => {
-                    navigate("/sernia-settings");
-                    if (isMobile) toggleSidebar();
-                  }}
-                >
-                  <Settings className="w-4 h-4" />
-                  {!isCollapsed && <span>Settings</span>}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </>
-          )}
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip="Home">
-              <Link to="/">
-                <Home className="w-4 h-4" />
-                {!isCollapsed && <span>Portfolio Home</span>}
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        {isCollapsed ? (
+          <TeamNavItems />
+        ) : (
+          <Collapsible
+            open={teamPagesOpen ?? !isMobile}
+            onOpenChange={setTeamPagesOpen}
+          >
+            <CollapsibleTrigger className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
+              {teamPagesOpen ?? !isMobile ? (
+                <ChevronDown className="w-3 h-3 shrink-0" />
+              ) : (
+                <ChevronRight className="w-3 h-3 shrink-0" />
+              )}
+              Team pages
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <TeamNavItems />
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+        <TeamAccount />
       </SidebarFooter>
     </Sidebar>
   );

@@ -1,5 +1,5 @@
 import { privateChatInput } from "~/sites/team/lib/private-chat-input";
-import type { Route } from "./+types/sernia-chat";
+import type { Route } from "./+types/chat";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router";
 import { useChat } from "@ai-sdk/react";
@@ -21,7 +21,6 @@ import {
   type PendingRequestMarker,
 } from "~/sites/team/lib/sernia-chat-recovery";
 import { Markdown } from "~/components/markdown";
-import { AuthGuard } from "~/sites/team/components/auth-guard";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "~/components/ui/tabs";
 import {
   AlertCircle,
@@ -60,6 +59,9 @@ import {
   useSidebar,
 } from "~/components/ui/sidebar";
 import { ConversationSidebar } from "~/sites/team/components/conversation-sidebar";
+import { isTeamAdmin } from "~/sites/team/lib/team-access";
+import { teamTitle } from "~/sites/team/lib/team-meta";
+import type { TeamPageHandle } from "./layout";
 
 import {
   conversationStarted,
@@ -120,9 +122,12 @@ function readPendingRequestMarker(
   }
 }
 
+// This page brings its own sidebar: the conversations, with the team's navigation.
+export const handle: TeamPageHandle = { ownSidebar: true };
+
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "Sernia AI" },
+    { title: teamTitle("Sernia AI") },
     {
       name: "description",
       content:
@@ -2138,8 +2143,7 @@ export default function SerniaChatPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const isAdmin =
-    user?.primaryEmailAddress?.emailAddress === "emilio@serniacapital.com";
+  const isAdmin = isTeamAdmin(user?.primaryEmailAddress?.emailAddress);
   const urlConversationId = searchParams.get("id");
   const [conversationId, setConversationId] = useState<string>(
     () => urlConversationId || crypto.randomUUID(),
@@ -2241,7 +2245,7 @@ export default function SerniaChatPage() {
         );
 
         if (opts?.updateUrl !== false) {
-          navigate(`/sernia-chat?id=${convId}`, { replace: true });
+          navigate(`/team/chat?id=${convId}`, { replace: true });
         }
         if (opts?.clearPendingMarkerOnSuccess) {
           clearPendingRequestMarkerStorage(convId);
@@ -2288,7 +2292,7 @@ export default function SerniaChatPage() {
       }
       loadConversation(urlConversationId, { updateUrl: false });
     } else if (!urlConversationId && isSignedIn) {
-      navigate(`/sernia-chat?id=${conversationId}`, { replace: true });
+      navigate(`/team/chat?id=${conversationId}`, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn, urlConversationId]);
@@ -2345,13 +2349,13 @@ export default function SerniaChatPage() {
     setLoadedPending(null);
     setLoadedAllPending([]);
     setConversationModality("web_chat");
-    navigate(`/sernia-chat?id=${newId}`, { replace: true });
+    navigate(`/team/chat?id=${newId}`, { replace: true });
   }, [navigate]);
 
   const handleSelectConversation = useCallback(
     (convId: string, modality?: string) => {
       if (convId === conversationId) return;
-      navigate(`/sernia-chat?id=${convId}`);
+      navigate(`/team/chat?id=${convId}`);
     },
     [conversationId, navigate],
   );
@@ -2369,96 +2373,91 @@ export default function SerniaChatPage() {
   const isLoading = loadedMessages === null;
 
   return (
-    <AuthGuard
-      message="Sernia AI assistant"
-      icon={<Building className="w-16 h-16 text-muted-foreground" />}
-    >
-      <SidebarProvider>
-        <ConversationSidebar
-          activeConversationId={conversationId}
-          onSelectConversation={handleSelectConversation}
-          onNewConversation={startNewConversation}
-          onDeleteConversation={handleDeleteConversation}
-        />
-        <SidebarInset className="min-w-0 overflow-x-hidden">
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center gap-4 h-chat-viewport">
-              {conversationLoadError ? (
-                <>
-                  <p role="alert" className="text-muted-foreground">
-                    {conversationLoadError}
-                  </p>
-                  <Button
-                    onClick={() =>
-                      loadConversation(intendedConversationIdRef.current, {
-                        updateUrl: false,
-                      })
-                    }
-                  >
-                    Try again
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                  <p className="text-muted-foreground">
-                    Loading conversation...
-                  </p>
-                </>
-              )}
-            </div>
-          ) : (
-            <Tabs
-              defaultValue="chat"
-              className="flex flex-col min-w-0 bg-background h-chat-viewport"
+    <SidebarProvider>
+      <ConversationSidebar
+        activeConversationId={conversationId}
+        onSelectConversation={handleSelectConversation}
+        onNewConversation={startNewConversation}
+        onDeleteConversation={handleDeleteConversation}
+      />
+      <SidebarInset className="min-w-0 overflow-x-hidden">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center gap-4 h-chat-viewport">
+            {conversationLoadError ? (
+              <>
+                <p role="alert" className="text-muted-foreground">
+                  {conversationLoadError}
+                </p>
+                <Button
+                  onClick={() =>
+                    loadConversation(intendedConversationIdRef.current, {
+                      updateUrl: false,
+                    })
+                  }
+                >
+                  Try again
+                </Button>
+              </>
+            ) : (
+              <>
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                <p className="text-muted-foreground">
+                  Loading conversation...
+                </p>
+              </>
+            )}
+          </div>
+        ) : (
+          <Tabs
+            defaultValue="chat"
+            className="flex flex-col min-w-0 bg-background h-chat-viewport"
+          >
+            <ChatHeader
+              isAdmin={isAdmin}
+              push={push}
+              onNewConversation={startNewConversation}
+            />
+
+            {/* iOS install banner */}
+            {push.needsInstall && (
+              <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/50 text-xs text-muted-foreground">
+                <Share className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {push.iosBrowser === "chrome"
+                    ? "For notifications: tap Share (top right) → Add to Home Screen"
+                    : "For notifications: tap Share (bottom center) → Add to Home Screen"}
+                </span>
+              </div>
+            )}
+
+            <TabsContent
+              value="chat"
+              className="flex-1 flex flex-col min-h-0 mt-0"
             >
-              <ChatHeader
-                isAdmin={isAdmin}
-                push={push}
-                onNewConversation={startNewConversation}
+              <ChatView
+                key={conversationId}
+                conversationId={conversationId}
+                initialMessages={loadedMessages}
+                initialRun={loadedRun}
+                initialPending={loadedPending}
+                initialAllPending={loadedAllPending}
+                getToken={getToken}
+                readOnly={conversationModality === "sms"}
+                onMountedChange={handleChatViewMountedChange}
               />
+            </TabsContent>
 
-              {/* iOS install banner */}
-              {push.needsInstall && (
-                <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/50 text-xs text-muted-foreground">
-                  <Share className="w-3.5 h-3.5 shrink-0" />
-                  <span>
-                    {push.iosBrowser === "chrome"
-                      ? "For notifications: tap Share (top right) → Add to Home Screen"
-                      : "For notifications: tap Share (bottom center) → Add to Home Screen"}
-                  </span>
-                </div>
-              )}
-
+            {isAdmin && (
               <TabsContent
-                value="chat"
+                value="context"
                 className="flex-1 flex flex-col min-h-0 mt-0"
               >
-                <ChatView
-                  key={conversationId}
-                  conversationId={conversationId}
-                  initialMessages={loadedMessages}
-                  initialRun={loadedRun}
-                  initialPending={loadedPending}
-                  initialAllPending={loadedAllPending}
-                  getToken={getToken}
-                  readOnly={conversationModality === "sms"}
-                  onMountedChange={handleChatViewMountedChange}
-                />
+                <SystemInstructionsView getToken={getToken} />
               </TabsContent>
-
-              {isAdmin && (
-                <TabsContent
-                  value="context"
-                  className="flex-1 flex flex-col min-h-0 mt-0"
-                >
-                  <SystemInstructionsView getToken={getToken} />
-                </TabsContent>
-              )}
-            </Tabs>
-          )}
-        </SidebarInset>
-      </SidebarProvider>
-    </AuthGuard>
+            )}
+          </Tabs>
+        )}
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

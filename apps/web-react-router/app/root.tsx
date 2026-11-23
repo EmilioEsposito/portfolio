@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   isRouteErrorResponse,
   Links,
@@ -5,14 +6,11 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-  useLocation,
   useRouteError,
   useRouteLoaderData,
   type ShouldRevalidateFunctionArgs,
 } from "react-router";
-import {
-  ClerkProvider,
-} from "@clerk/react-router";
+import { ClerkProvider } from "@clerk/react-router";
 import { clerkMiddleware, rootAuthLoader } from "@clerk/react-router/server";
 import { ThemeProvider } from "next-themes";
 
@@ -25,23 +23,33 @@ import { AppSidebar } from "~/sites/portfolio/components/app-sidebar";
 import { Toaster } from "~/components/ui/toaster";
 import { cn } from "~/lib/utils";
 import { EnvBanner } from "~/components/env-banner";
+import { retireRootServiceWorkerOnce } from "~/lib/retire-root-service-worker";
 import { SerniaPublicError, SerniaPublicShell } from "~/sites/sernia-public/components/shell";
+import { TeamError } from "~/sites/team/components/team-error";
+import { teamTitle } from "~/sites/team/lib/team-meta";
 import { createRootMiddleware, loadRoot } from "~/sites/root-request.server";
-import { isSerniaPublicPath } from "~/sites/site";
+import { isSerniaPublicPath, isTeamPath } from "~/sites/site";
 import { SERNIA_NAME, serniaErrorMeta } from "~/sites/sernia-public/lib/seo";
-import { serniaRoot } from "~/sites/sernia-root";
+import { rootSite, serniaRoot } from "~/sites/sernia-root";
 
-// Sernia Capital's public pages (serniacapital.com, and their paths on any
-// host while they are switched on) load no Clerk at all and use their own
-// layout, icons and font. ~/sites/site decides which requests those
-// are; the server tells the browser through the root loader data or the 404 it
-// throws, which ~/sites/sernia-root reads.
+// Three sites share this root (~/sites/site decides which one a request is):
+// the portfolio, Sernia Capital's public pages and the Sernia team's pages
+// under /team. Only the team's pages run Clerk: its middleware, its root
+// loader and <ClerkProvider>. The portfolio and the Sernia public pages load
+// no Clerk script and make no Clerk request. The server tells the browser
+// which site a page is through the root loader data (`site`) or the Sernia
+// 404 it throws, which ~/sites/sernia-root reads.
 
 export function meta({ error, loaderData }: Route.MetaArgs) {
   if (serniaRoot(error, loaderData)) {
     if (error) return serniaErrorMeta(isRouteErrorResponse(error) ? error.status : undefined);
     // Sernia pages set their own meta; this keeps the personal site's out if one does not.
     return [{ title: SERNIA_NAME }];
+  }
+  if (rootSite(loaderData) === "team") {
+    // Team pages set their own title; this is for the team's error page.
+    const notFound = isRouteErrorResponse(error) && error.status === 404;
+    return [{ title: teamTitle(error ? (notFound ? "Page not found" : "Something went wrong") : undefined) }];
   }
   return [
     { title: SITE_OWNER },
@@ -56,25 +64,22 @@ export function meta({ error, loaderData }: Route.MetaArgs) {
 
 export const middleware: Route.MiddlewareFunction[] = [createRootMiddleware(clerkMiddleware())];
 
+// Railway sets RAILWAY_ENVIRONMENT_NAME for every deployed environment. The
+// root loader passes it on, so the banner does not depend on which custom
+// domain reached the deployment.
 export const loader = (args: Route.LoaderArgs) =>
-  loadRoot(args, () =>
-    rootAuthLoader(args, () => ({
-      // Railway sets this for every deployed environment. Passing it through the
-      // root loader makes banner behavior independent of whichever custom domain
-      // happens to route to that deployment.
-      railwayEnvironmentName: process.env.RAILWAY_ENVIRONMENT_NAME,
-    })),
-  );
+  loadRoot(args, (team) => rootAuthLoader(args, () => team));
 
 export function shouldRevalidate({
   currentUrl,
   nextUrl,
   defaultShouldRevalidate,
 }: ShouldRevalidateFunctionArgs) {
-  // Moving between a Sernia public path and the rest of the app can switch the
-  // root between its Clerk and no-Clerk shapes, and only the server knows
-  // whether the pages are switched on, so its loader has to run.
+  // Moving between sites switches the root between its shapes (only the team
+  // runs Clerk), and only the server knows whether the Sernia public pages are
+  // switched on, so its loader has to run.
   if (isSerniaPublicPath(currentUrl.pathname) !== isSerniaPublicPath(nextUrl.pathname)) return true;
+  if (isTeamPath(currentUrl.pathname) !== isTeamPath(nextUrl.pathname)) return true;
   return defaultShouldRevalidate;
 }
 
@@ -87,28 +92,36 @@ export const links: Route.LinksFunction = () => [
   },
 ];
 
-/** The app's icons, install manifest and font. Not in `links`, which every page gets. */
-function AppLinks() {
+const INTER =
+  "https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap";
+
+/** The portfolio's icons and font. Not in `links`, which every page gets. */
+function PortfolioHead() {
   return (
     <>
-      <link rel="manifest" href="/manifest.json" />
       <link rel="icon" href="/favicon.png" type="image/png" />
       <link rel="apple-touch-icon" href="/favicon.png" />
-      <link
-        rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap"
-      />
+      <link rel="stylesheet" href={INTER} />
     </>
   );
 }
 
-/** The Sernia public pages' icons and font. The app's manifest opens /sernia-chat, so it stays out. */
-function SerniaLinks() {
+/** Sernia's icons, which the public pages and the team's share. */
+function SerniaIcons() {
   return (
     <>
       <link rel="icon" href="/images/sernia/icon.png" type="image/png" sizes="96x96" />
       <link rel="icon" href="/images/sernia/icon.svg" type="image/svg+xml" sizes="any" />
       <link rel="apple-touch-icon" href="/images/sernia/apple-touch-icon.png" />
+    </>
+  );
+}
+
+/** The Sernia public pages' icons and font. */
+function SerniaPublicHead() {
+  return (
+    <>
+      <SerniaIcons />
       <link
         rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=Figtree:wght@400..700&display=swap"
@@ -117,19 +130,38 @@ function SerniaLinks() {
   );
 }
 
+/**
+ * The team's pages: Sernia's icons, the app's font, the install manifest and
+ * the home-screen app tags (an installed app opens /team/chat), and no
+ * search engines.
+ */
+function TeamHead() {
+  return (
+    <>
+      <meta name="robots" content="noindex, nofollow" />
+      <meta name="apple-mobile-web-app-capable" content="yes" />
+      <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+      <meta name="apple-mobile-web-app-title" content="Sernia" />
+      <link rel="manifest" href="/team/manifest.json" />
+      <SerniaIcons />
+      <link rel="stylesheet" href={INTER} />
+    </>
+  );
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
-  const sernia = serniaRoot(useRouteError(), useRouteLoaderData("root"));
+  const error = useRouteError();
+  const rootData = useRouteLoaderData("root");
+  const sernia = serniaRoot(error, rootData);
+  const team = !sernia && rootSite(rootData) === "team";
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Sernia" />
         <Meta />
         <Links />
-        {sernia ? <SerniaLinks /> : <AppLinks />}
+        {sernia ? <SerniaPublicHead /> : team ? <TeamHead /> : <PortfolioHead />}
       </head>
       <body className={cn("antialiased overflow-x-hidden")}>
         {children}
@@ -140,40 +172,33 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const SERNIA_ROUTE_PREFIXES = ["/sernia-chat", "/sernia-admin", "/sernia-settings"];
-
-function isSerniaRoute(pathname: string) {
-  return SERNIA_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
-}
-
 export default function App({ loaderData }: Route.ComponentProps) {
-  const location = useLocation();
-
-  if ("serniaPublic" in loaderData) {
-    // No ClerkProvider, so no Clerk script or request. The Sernia layout
-    // route supplies the header and footer.
-    return (
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-        <Toaster />
-        <EnvBanner railwayEnvironmentName={loaderData.railwayEnvironmentName} />
-        <Outlet />
-      </ThemeProvider>
-    );
-  }
-
-  const isSernia = isSerniaRoute(location.pathname);
-
-  return (
-    <ClerkProvider loaderData={loaderData}>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-        <Toaster />
-        {isSernia ? (
-          // Sernia routes provide their own sidebar — render Outlet directly
-          <>
-            <EnvBanner railwayEnvironmentName={loaderData.railwayEnvironmentName} />
+  switch (loaderData.site) {
+    case "team":
+      // The only Clerk on the site. The team layout supplies the guard, the
+      // navigation and the banner. Signing out keeps the person on /team.
+      return (
+        <ClerkProvider loaderData={loaderData} afterSignOutUrl="/team">
+          <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+            <Toaster />
             <Outlet />
-          </>
-        ) : (
+          </ThemeProvider>
+        </ClerkProvider>
+      );
+    case "sernia-public":
+      // The Sernia layout route supplies the header and footer.
+      return (
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <Toaster />
+          <EnvBanner railwayEnvironmentName={loaderData.railwayEnvironmentName} />
+          <Outlet />
+        </ThemeProvider>
+      );
+    case "portfolio":
+      return (
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <RetireStaffServiceWorker />
+          <Toaster />
           <SidebarProvider>
             <AppSidebar />
             <SidebarInset className="min-w-0 overflow-x-clip">
@@ -182,10 +207,15 @@ export default function App({ loaderData }: Route.ComponentProps) {
               <Outlet />
             </SidebarInset>
           </SidebarProvider>
-        )}
-      </ThemeProvider>
-    </ClerkProvider>
-  );
+        </ThemeProvider>
+      );
+  }
+}
+
+/** Removes the service worker the staff app left here before it moved to /team. */
+function RetireStaffServiceWorker() {
+  useEffect(retireRootServiceWorkerOnce, []);
+  return null;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
@@ -196,6 +226,13 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
         <SerniaPublicShell>
           <SerniaPublicError error={error} />
         </SerniaPublicShell>
+      </ThemeProvider>
+    );
+  }
+  if (rootSite(rootData) === "team") {
+    return (
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <TeamError error={error} />
       </ThemeProvider>
     );
   }

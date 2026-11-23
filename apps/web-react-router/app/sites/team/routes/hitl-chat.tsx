@@ -1,5 +1,5 @@
 import { privateChatInput } from "~/sites/team/lib/private-chat-input";
-import type { Route } from "./+types/hitl-agent-chat";
+import type { Route } from "./+types/hitl-chat";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router";
 import { useChat } from "@ai-sdk/react";
@@ -10,7 +10,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { useScrollToBottom } from "~/sites/team/hooks/use-scroll-to-bottom";
 import { cn } from "~/lib/utils";
 import { Markdown } from "~/components/markdown";
-import { AuthGuard } from "~/sites/team/components/auth-guard";
+import { teamTitle } from "~/sites/team/lib/team-meta";
 import {
   MessageSquare,
   Zap,
@@ -42,9 +42,14 @@ import {
   SheetTrigger,
 } from "~/components/ui/sheet";
 
+// The page fills the window below the team's bar (shown on a phone) and the
+// environment banner (shown outside production).
+const PAGE_HEIGHT =
+  "h-[calc(100dvh-52px-var(--env-banner-h,0px))] md:h-[calc(100dvh-var(--env-banner-h,0px))]";
+
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "HITL Agent Chat | Human-in-the-Loop Demo" },
+    { title: teamTitle("HITL demo chat") },
     {
       name: "description",
       content: "Chat with an AI agent that requires approval for sensitive actions",
@@ -464,7 +469,7 @@ export default function HITLAgentChatPage() {
       if (!res.ok) {
         console.error("Failed to load conversation from URL");
         // Clear invalid conversation ID from URL
-        navigate("/hitl-agent-chat", { replace: true });
+        navigate("/team/hitl-chat", { replace: true });
         setIsLoadingConversation(false);
         return;
       }
@@ -479,7 +484,7 @@ export default function HITLAgentChatPage() {
       pendingApprovalRef.current = convertPendingFromApi(data.pending);
     } catch (err) {
       console.error("Failed to load conversation:", err);
-      navigate("/hitl-agent-chat", { replace: true });
+      navigate("/team/hitl-chat", { replace: true });
       setIsLoadingConversation(false);
     }
     // Note: Don't set isLoadingConversation=false here - it's set when messages are applied
@@ -828,7 +833,7 @@ export default function HITLAgentChatPage() {
     // Reset the loaded conversation tracker
     loadedConversationIdRef.current = null;
     // Update URL without the id param for new conversations
-    navigate("/hitl-agent-chat", { replace: true });
+    navigate("/team/hitl-chat", { replace: true });
   };
 
   const loadConversation = useCallback(async (convId: string) => {
@@ -850,7 +855,7 @@ export default function HITLAgentChatPage() {
       const data = await res.json();
 
       // Update URL with conversation ID
-      navigate(`/hitl-agent-chat?id=${convId}`, { replace: true });
+      navigate(`/team/hitl-chat?id=${convId}`, { replace: true });
 
       // Mark this conversation as loaded to prevent the URL effect from re-triggering
       loadedConversationIdRef.current = convId;
@@ -871,29 +876,18 @@ export default function HITLAgentChatPage() {
     // Note: isLoadingConversation is set to false when messages are applied in the effect
   }, [isSignedIn, getToken, navigate]);
 
-  // Loading conversation state (shown inside AuthGuard)
+  // Loading a conversation from the URL
   if (isLoadingConversation) {
     return (
-      <AuthGuard
-        requireDomain="serniacapital.com"
-        message="Chat with an AI agent that requires approval for sensitive actions"
-        icon={<MessageSquare className="w-16 h-16 text-muted-foreground" />}
-      >
-        <div className="flex flex-col items-center justify-center h-[calc(100dvh-52px)] gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-          <p className="text-muted-foreground">Loading conversation...</p>
-        </div>
-      </AuthGuard>
+      <div className={cn("flex flex-col items-center justify-center gap-4", PAGE_HEIGHT)}>
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        <p className="text-muted-foreground">Loading conversation...</p>
+      </div>
     );
   }
 
   return (
-    <AuthGuard
-      requireDomain="serniacapital.com"
-      message="Chat with an AI agent that requires approval for sensitive actions"
-      icon={<MessageSquare className="w-16 h-16 text-muted-foreground" />}
-    >
-    <div className="flex flex-col min-w-0 h-[calc(100dvh-52px)] bg-background">
+    <div className={cn("flex flex-col min-w-0 bg-background", PAGE_HEIGHT)}>
       {/* Header with history */}
       <div className="flex items-center justify-between px-4 py-2 border-b">
         <div className="flex items-center gap-2">
@@ -1164,6 +1158,5 @@ export default function HITLAgentChatPage() {
         )}
       </form>
     </div>
-    </AuthGuard>
   );
 }

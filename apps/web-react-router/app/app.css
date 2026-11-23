@@ -131,7 +131,7 @@
   --color-sidebar-border: hsl(var(--sidebar-border));
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 
-  /* Set on .sernia-public, below */
+  /* Set on .sernia-public and .sernia-brand, below */
   --color-sernia-ink: var(--sernia-ink);
   --color-sernia-sky: var(--sernia-sky);
   --color-sernia-band: var(--sernia-band);
@@ -166,6 +166,15 @@
     --border: 208 21% 88%;
     --ring: 220 6% 19%;
     font-family: "Figtree", "Figtree fallback", ui-sans-serif, system-ui, sans-serif;
+  }
+  /* The logo's colors on the team's pages (app/sites/team), which keep the
+   * app's own theme and font. */
+  .sernia-brand {
+    --sernia-ink: #4b4c4e;
+    --sernia-sky: #5bbdee;
+  }
+  .dark .sernia-brand {
+    --sernia-ink: #cfd3d8;
   }
   .dark .sernia-public {
     --sernia-ink: #cfd3d8;

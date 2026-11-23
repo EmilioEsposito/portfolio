@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import type { Route } from "./+types/hitl-agent-workflow";
+import type { Route } from "./+types/hitl-queue";
 import { useAuth } from "@clerk/react-router";
 import { Button } from "~/components/ui/button";
 import {
@@ -14,7 +14,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Label } from "~/components/ui/label";
-import { AuthGuard } from "~/sites/team/components/auth-guard";
+import { teamTitle } from "~/sites/team/lib/team-meta";
 import {
   RefreshCw,
   Play,
@@ -29,7 +29,7 @@ import {
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "HITL Agent Workflows | Approval Queue" },
+    { title: teamTitle("HITL approval queue") },
     {
       name: "description",
       content: "Review and approve pending HITL agent workflows",
@@ -223,11 +223,6 @@ export default function HITLAgentWorkflowPage() {
   const pendingCount = conversations.length;
 
   return (
-    <AuthGuard
-      requireDomain="serniacapital.com"
-      message="Sign in to review and approve pending agent actions"
-      icon={<MessageSquare className="w-16 h-16 text-muted-foreground" />}
-    >
     <div className="container mx-auto py-10 px-4 md:px-8 max-w-4xl">
       <div className="flex items-center gap-3 mb-2">
         <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -510,6 +505,5 @@ export default function HITLAgentWorkflowPage() {
         </CardContent>
       </Card>
     </div>
-    </AuthGuard>
   );
 }

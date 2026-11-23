@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { loader } from "~/sites/team/routes/leasing-leads/bookings";
+import { loader } from "~/sites/team/routes/leads/bookings";
 
 // The Booking settings tab says when public booking is on but this environment
 // does not serve the booking pages, which only the web app knows.

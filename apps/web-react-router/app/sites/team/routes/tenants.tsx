@@ -1,9 +1,9 @@
-import type { Route } from "./+types/message-tenants";
+import type { Route } from "./+types/tenants";
 import { useState, useEffect, useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Separator } from "~/components/ui/separator";
-import { AuthGuard } from "~/sites/team/components/auth-guard";
+import { teamTitle } from "~/sites/team/lib/team-meta";
 import {
   AlertCircle,
   Check,
@@ -12,7 +12,6 @@ import {
   ArrowUpDown,
   ArrowDown,
   ArrowUp,
-  MessageCircle,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { DataTable } from "~/sites/team/components/data-table";
@@ -54,7 +53,7 @@ import {
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "Message Tenants | Emilio Esposito" },
+    { title: teamTitle("Message tenants") },
     {
       name: "description",
       content: "Send SMS messages to selected tenants",
@@ -112,15 +111,7 @@ const COLUMN_CONFIG: Record<string, { priority: number; mobile: boolean; size: n
 };
 
 export default function MessageTenantsPage() {
-  return (
-    <AuthGuard
-      requireDomain="serniacapital.com"
-      message="Sign in with a Sernia Capital account to send SMS messages to tenants"
-      icon={<MessageCircle className="w-16 h-16 text-muted-foreground" />}
-    >
-      <MessageTenantsContent />
-    </AuthGuard>
-  );
+  return <MessageTenantsContent />;
 }
 
 function MessageTenantsContent() {

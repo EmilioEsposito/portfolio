@@ -10,6 +10,7 @@ import {
   type DeploymentEnvironment,
   getDeploymentEnvironment,
 } from "~/lib/deployment-env";
+import { isTeamPath } from "~/sites/site";
 
 type EnvInfo = {
   name: string;
@@ -73,11 +74,16 @@ export function EnvBanner({ railwayEnvironmentName }: { railwayEnvironmentName?:
         onValueChange={(value) => {
           const target = ENVS[value];
           if (!target) return;
+          // Production serves the team's pages on serniacapital.com only.
+          const origin =
+            value === "prod" && isTeamPath(window.location.pathname)
+              ? "https://serniacapital.com"
+              : target.origin;
           // Preserve current path/query/hash so switching envs keeps you on
           // the same page instead of bouncing to the homepage.
           const suffix =
             window.location.pathname + window.location.search + window.location.hash;
-          window.location.href = target.origin + suffix;
+          window.location.href = origin + suffix;
         }}
       >
         <SelectTrigger className="h-5 w-auto gap-1 border-none bg-transparent px-1.5 text-xs font-medium shadow-none focus:ring-0 [&>svg]:h-3 [&>svg]:w-3">
