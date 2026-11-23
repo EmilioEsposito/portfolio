@@ -12,13 +12,13 @@ from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 
-from api.src.ai_demos.multi_agent_chat.graph import (
+from api.src.portfolio.input_sanitization import sanitize_request_json
+from api.src.portfolio.multi_agent_chat.graph import (
     MultiAgentInput,
     MultiAgentState,
     multi_agent_graph,
 )
-from api.src.utils.input_sanitization import sanitize_request_json
-from api.src.utils.swagger_schema import expand_json_schema
+from api.src.portfolio.swagger_schema import expand_json_schema
 
 router = APIRouter(prefix="/multi-agent-chat", tags=["ai"])
 

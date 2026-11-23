@@ -16,11 +16,11 @@ from pydantic_graph.step import StepContext
 from starlette.requests import Request
 from starlette.responses import Response
 
-from api.src.ai_demos.chat_emilio.agent import PortfolioContext as EmilioContext
-from api.src.ai_demos.chat_emilio.agent import agent as emilio_agent
-from api.src.ai_demos.chat_weather.agent import ChatContext as WeatherContext
-from api.src.ai_demos.chat_weather.agent import agent as weather_agent
-from api.src.ai_demos.multi_agent_chat.decision_agent import AgentName, router_agent
+from api.src.portfolio.chat_emilio.agent import PortfolioContext as EmilioContext
+from api.src.portfolio.chat_emilio.agent import agent as emilio_agent
+from api.src.portfolio.chat_weather.agent import ChatContext as WeatherContext
+from api.src.portfolio.chat_weather.agent import agent as weather_agent
+from api.src.portfolio.multi_agent_chat.decision_agent import AgentName, router_agent
 from api.src.utils.llm import demo_model_settings, demo_usage_limits
 
 load_dotenv(".env")

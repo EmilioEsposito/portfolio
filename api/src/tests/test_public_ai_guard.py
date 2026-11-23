@@ -6,7 +6,7 @@ import httpx
 import pytest
 from starlette.responses import JSONResponse
 
-from api.src.utils.public_ai_guard import PublicAIGuard, validate_public_body
+from api.src.portfolio.public_ai_guard import PublicAIGuard, validate_public_body
 
 
 @pytest.fixture(autouse=True)

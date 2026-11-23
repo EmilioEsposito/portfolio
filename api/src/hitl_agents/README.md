@@ -16,7 +16,7 @@ Agents with tools that require user approval before execution.
 ## Key Exports
 
 ```python
-from api.src.ai_demos.hitl_agents.hitl_sms_agent import (
+from api.src.hitl_agents.hitl_sms_agent import (
     hitl_sms_agent,       # The agent (already has persistence patch applied)
     HITLAgentContext,     # Context dataclass with clerk_user_id, conversation_id
     resume_with_approvals, # Resume agent after user approves/denies
@@ -60,7 +60,7 @@ if pending:
 The persisted SMS example is separate from the service implementation:
 
 ```bash
-python -m api.src.ai_demos.hitl_agents.offline_examples.hitl_sms_demo
+python -m api.src.hitl_agents.offline_examples.hitl_sms_demo
 ```
 
 It uses real inference, persists a conversation, and approves proposed actions.

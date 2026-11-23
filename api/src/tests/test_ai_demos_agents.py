@@ -1,5 +1,5 @@
 """
-Live agent tests moved from their service modules under ``api/src/ai_demos/``.
+Live agent tests moved from their service modules under ``api/src/portfolio/`` and ``api/src/hitl_agents/``.
 
 These tests hit real LLM APIs (and, for the graph tests, real downstream
 tools), so they are marked ``live`` and only run when explicitly requested:
@@ -15,23 +15,23 @@ from pydantic_ai import Agent
 from starlette.requests import Request
 from starlette.responses import Response
 
-from api.src.ai_demos.agent_run_patching import patch_run_with_persistence
-from api.src.ai_demos.chat_emilio.agent import agent as emilio_agent
-from api.src.ai_demos.chat_weather.agent import ChatContext
-from api.src.ai_demos.chat_weather.agent import agent as weather_agent
-from api.src.ai_demos.multi_agent_chat.decision_agent import (
+from api.src.hitl_agents.agent_run_patching import patch_run_with_persistence
+from api.src.portfolio.chat_emilio.agent import agent as emilio_agent
+from api.src.portfolio.chat_weather.agent import ChatContext
+from api.src.portfolio.chat_weather.agent import agent as weather_agent
+from api.src.portfolio.multi_agent_chat.decision_agent import (
     AgentName,
     RoutingDecision,
     router_agent,
 )
-from api.src.ai_demos.multi_agent_chat.graph import (
+from api.src.portfolio.multi_agent_chat.graph import (
     MultiAgentInput,
     MultiAgentState,
     multi_agent_graph,
 )
 
 # ---------------------------------------------------------------------------
-# From api/src/ai_demos/agent_run_patching.py
+# From api/src/hitl_agents/agent_run_patching.py
 # ---------------------------------------------------------------------------
 
 
@@ -53,7 +53,7 @@ async def test_agent_run_with_persistence():
 
 
 # ---------------------------------------------------------------------------
-# From api/src/ai_demos/chat_emilio/agent.py (was ``test_agent``)
+# From api/src/portfolio/chat_emilio/agent.py (was ``test_agent``)
 # ---------------------------------------------------------------------------
 
 
@@ -66,7 +66,7 @@ async def test_chat_emilio_agent():
 
 
 # ---------------------------------------------------------------------------
-# From api/src/ai_demos/chat_weather/agent.py (was ``test_agent``)
+# From api/src/portfolio/chat_weather/agent.py (was ``test_agent``)
 # ---------------------------------------------------------------------------
 
 
@@ -81,7 +81,7 @@ async def test_chat_weather_agent():
 
 
 # ---------------------------------------------------------------------------
-# From api/src/ai_demos/multi_agent_chat/decision_agent.py
+# From api/src/portfolio/multi_agent_chat/decision_agent.py
 # ---------------------------------------------------------------------------
 
 
@@ -100,7 +100,7 @@ async def test_router_agent_routes_to_weather():
 
 
 # ---------------------------------------------------------------------------
-# From api/src/ai_demos/multi_agent_chat/graph.py
+# From api/src/portfolio/multi_agent_chat/graph.py
 # ---------------------------------------------------------------------------
 
 
@@ -176,5 +176,5 @@ def build_test_vercel_request(payload: dict) -> Request:
 
 
 if __name__ == "__main__":
-    # Runner moved from api/src/ai_demos/agent_run_patching.py
+    # Runner moved from api/src/hitl_agents/agent_run_patching.py
     asyncio.run(test_agent_run_with_persistence())

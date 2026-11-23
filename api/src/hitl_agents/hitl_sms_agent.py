@@ -32,8 +32,8 @@ from api.src.agent_conversations.hitl import (
 from api.src.agent_conversations.hitl import (
     resume_with_approvals as _resume_with_approvals_generic,
 )
-from api.src.ai_demos.agent_run_patching import patch_run_with_persistence
 from api.src.contact.service import get_contact_by_slug
+from api.src.hitl_agents.agent_run_patching import patch_run_with_persistence
 from api.src.open_phone.service import send_message
 from api.src.utils.llm import OPERATIONS_MODEL, demo_model_settings
 
