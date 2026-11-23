@@ -74,7 +74,6 @@ and have no redirects.
 | Message tenants | `/team/tenants` |
 | Scheduler | `/team/scheduler` |
 | Lead agent: overview, listing data, agent settings, booking settings | `/team/leads`, `/team/leads/listings`, `/team/leads/settings`, `/team/leads/bookings` |
-| HITL demo chat and approval queue | `/team/hitl-chat`, `/team/hitl-queue` |
 
 - Where: on a Sernia host always, whether or not the public pages are switched
   on, and on any other host only outside production (`RAILWAY_ENVIRONMENT_NAME`
@@ -337,8 +336,8 @@ API (`/api/showing-bookings/public/`) and the paths the team's pages call
 (`TEAM_API_PATHS`: `/api/sernia-ai/`, `/api/showing-bookings/` including the
 calendar callback Google sends the browser to, `/api/rental-listings`,
 `/api/zillow-leads/settings`, `/api/contacts/slug/sernia`,
-`/api/open_phone/tenants`, `/api/open_phone/send_message`, `/api/schedulers/`
-and `/api/ai-demos/hitl-agent/`), checked as received and after resolving `..`;
+`/api/open_phone/tenants`, `/api/open_phone/send_message` and
+`/api/schedulers/`), checked as received and after resolving `..`;
 anything else answers 404. A new API call from a team page needs its path added
 there. `server.js` imports the rule as TypeScript, which Node 22.18+ strips at
 load, and the Dockerfile copies it into the image. `server.js` serves

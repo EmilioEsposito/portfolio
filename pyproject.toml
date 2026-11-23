@@ -26,8 +26,8 @@ dependencies = [
     "openai>=2.45.0",
     "pydantic>=2.11.2",
     # v2 line. A bare `pydantic-ai` no longer bundles every integration, so the
-    # extras name what this repo imports: `dbos` (durable HITL demo), `openrouter`
-    # (Sernia AI's provider) and `ui` (the Vercel AI adapter).
+    # extras are named: `dbos` (durable agent runs; no code uses it now),
+    # `openrouter` (Sernia AI's provider) and `ui` (the Vercel AI adapter).
     "pydantic-ai[dbos,openrouter,ui]>=2.68.0,<3",
     # First-party `Skills` capability for the Sernia AI workspace skills. Each
     # harness release pins one exact pydantic-ai-slim, so the two upgrade together.

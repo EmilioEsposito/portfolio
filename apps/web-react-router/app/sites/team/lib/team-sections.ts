@@ -1,13 +1,11 @@
 import {
   Bot,
   CalendarClock,
-  ClipboardCheck,
   Home,
   Inbox,
   LayoutList,
   MessagesSquare,
   Settings,
-  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -56,18 +54,6 @@ export const TEAM_SECTIONS: TeamSection[] = [
     description: "See, run and remove scheduled jobs.",
     url: "/team/scheduler",
     icon: CalendarClock,
-  },
-  {
-    title: "HITL demo chat",
-    description: "The human-in-the-loop demo agent, which asks before it sends.",
-    url: "/team/hitl-chat",
-    icon: ShieldCheck,
-  },
-  {
-    title: "HITL approval queue",
-    description: "Approve or reject what the demo agent is waiting to do.",
-    url: "/team/hitl-queue",
-    icon: ClipboardCheck,
   },
   {
     title: "General agent settings",

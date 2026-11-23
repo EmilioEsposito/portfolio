@@ -8,9 +8,6 @@ Hierarchical structure:
 - /api/ai-demos/chat-emilio      -> chat_emilio/routes.py
 - /api/ai-demos/chat-weather     -> chat_weather/routes.py
 - /api/ai-demos/multi-agent-chat -> multi_agent_chat/routes.py
-
-The Sernia staff HITL demo also lives under /api/ai-demos (/hitl-agent/*), but
-its code is in api/src/hitl_agents/ and api/index.py mounts it.
 """
 
 from fastapi import APIRouter
