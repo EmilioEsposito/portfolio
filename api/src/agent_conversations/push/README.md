@@ -32,7 +32,7 @@ When a browser subscribes, it returns an endpoint URL on its vendor's push servi
 The browser subscribes through the W3C Push API and saves its endpoint and keys
 through the authenticated API. `service.py` encrypts notifications with VAPID and
 sends them to the browser vendor's push service. The service worker displays the
-notification and opens `/sernia-chat?id=…` when it is clicked.
+notification and opens `/team/chat?id=…` (`team_links.chat_path`) when it is clicked.
 
 For web-chat completions, the service worker suppresses the OS notification
 when the matching conversation is already focused. Both agents use the same
@@ -84,7 +84,7 @@ Output is in `.env`-ready format — copy directly into local `.env` and Railway
 | `routes.py` | 3 endpoints: `GET /push/vapid-public-key`, `POST /push/subscribe`, `POST /push/unsubscribe` |
 | `apps/web-react-router/public/sw.js` | Service worker — handles focus-aware push display and notification deeplinks (no caching) |
 | `apps/web-react-router/public/manifest.json` | PWA manifest — enables "Add to Home Screen" on mobile |
-| `apps/web-react-router/app/hooks/use-push-notifications.ts` | React hook for SW registration, permission, subscribe/unsubscribe |
+| `apps/web-react-router/app/sites/team/hooks/use-push-notifications.ts` | React hook for SW registration, permission, subscribe/unsubscribe |
 
 ## Endpoints
 

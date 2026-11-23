@@ -73,15 +73,8 @@ DEFAULT_SCHEDULE_HOURS = [8, 11, 14, 17]  # 8am, 11am, 2pm, 5pm ET
 # Phone number is looked up at runtime via the API — not hardcoded.
 QUO_SHARED_TEAM_CONTACT_ID = "699b78b18371c26349b453ab"
 
-# Frontend base URL — environment-aware absolute URLs for deeplinks in SMS.
-_RAILWAY_ENV = os.getenv("RAILWAY_ENVIRONMENT_NAME", "")
-FRONTEND_BASE_URL = (
-    "https://eesposito.com"
-    if _RAILWAY_ENV == "production"
-    else "https://dev.eesposito.com"
-    if _RAILWAY_ENV == "development"
-    else "http://localhost:5173"
-)
+# Links to the team's web pages (SMS deeplinks, the chat link in the agent's
+# context) come from api/src/utils/team_links.py.
 
 # Quo (OpenPhone) phone IDs
 # Sernia AI: internal-only line for messaging the team and shared number.

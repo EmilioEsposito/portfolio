@@ -59,10 +59,8 @@ async def notify_team_sms(
     Failures are logged but never re-raised — SMS should not block trigger flow.
     """
     from api.src.open_phone.service import send_message
-    from api.src.sernia_ai.config import (
-        FRONTEND_BASE_URL,
-        QUO_SERNIA_AI_PHONE_ID,
-    )
+    from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
+    from api.src.utils import team_links
 
     try:
         to_phone = await _get_shared_team_phone()
@@ -74,7 +72,7 @@ async def notify_team_sms(
             env_label = _RAILWAY_ENV.upper() if _RAILWAY_ENV else "LOCAL"
             title = f"[{env_label}] {title}"
 
-        deeplink = f"{FRONTEND_BASE_URL}/sernia-chat?id={conversation_id}"
+        deeplink = team_links.team_url(team_links.chat_path(conversation_id))
         message = f"{title}\n{body}\n\n{deeplink}"
 
         await send_message(

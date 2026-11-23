@@ -74,4 +74,7 @@ authentication and public-demo attachment exclusion remain unchanged.
 stream handling, and billed-cost telemetry. Each agent owns its model choice.
 `automation.py` owns the environment opt-in and production automation gate;
 `background_tasks.py` records failures from tasks launched outside a request.
-These helpers have no dependency on either agent package.
+`team_links.py` owns the addresses of the team's signed-in pages under `/team`
+(serniacapital.com in production, dev.eesposito.com in development, the local
+web server elsewhere); every staff link the backend builds or mentions comes
+from it. These helpers have no dependency on either agent package.

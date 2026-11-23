@@ -123,12 +123,11 @@ class TestSmoke:
         assert "notify_user_id" not in inspect.getsource(runner)
 
     def test_config_has_shared_team_contact_id(self):
-        """Config should have QUO_SHARED_TEAM_CONTACT_ID and FRONTEND_BASE_URL."""
-        from api.src.sernia_ai.config import FRONTEND_BASE_URL, QUO_SHARED_TEAM_CONTACT_ID
+        """Config should have QUO_SHARED_TEAM_CONTACT_ID."""
+        from api.src.sernia_ai.config import QUO_SHARED_TEAM_CONTACT_ID
 
         assert isinstance(QUO_SHARED_TEAM_CONTACT_ID, str)
         assert len(QUO_SHARED_TEAM_CONTACT_ID) > 0
-        assert FRONTEND_BASE_URL.startswith("http")
 
     def test_app_setting_model_imports(self):
         """AppSetting model should import and have expected fields."""
@@ -514,7 +513,7 @@ class TestNotifyTeamSms:
             assert call_kwargs["to_phone_number"] == "+14125551234"
             assert call_kwargs["from_phone_number"] == "PNWvNqsFFy"
             assert "conv-abc-123" in call_kwargs["message"]
-            assert "/sernia-chat?id=conv-abc-123" in call_kwargs["message"]
+            assert "/team/chat?id=conv-abc-123" in call_kwargs["message"]
             assert "Approval Needed" in call_kwargs["message"]
 
     @pytest.mark.asyncio
@@ -1238,7 +1237,7 @@ class TestHandleAiSmsEvent:
 
             phone, prompt = mock_reply.await_args.args
             assert phone == "+14155550100"
-            assert "Review and decide" in prompt and "sernia-chat?id=" in prompt
+            assert "Review and decide" in prompt and "/team/chat?id=" in prompt
 
 
 # =========================================================================

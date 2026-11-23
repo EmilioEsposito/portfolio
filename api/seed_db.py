@@ -131,7 +131,7 @@ async def seed_contacts(dry_run: bool = False) -> None:
 
 
 async def seed_app_settings(dry_run: bool = False) -> None:
-    """Seed a default ``model_config`` app setting so /sernia-settings renders.
+    """Seed a default ``model_config`` app setting so /team/settings renders.
 
     Only writes when the row is missing — never overrides a real configuration.
     """

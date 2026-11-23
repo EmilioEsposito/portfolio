@@ -26,6 +26,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from api.src.showing_bookings import connections
+from api.src.utils import team_links
 
 # Mounted at /api in api/index.py beside the team router, which requires sign-in.
 callback_router = APIRouter(prefix="/showing-bookings/calendar", tags=["showing-bookings"])
@@ -33,7 +34,7 @@ callback_router = APIRouter(prefix="/showing-bookings/calendar", tags=["showing-
 # Request tracing would record the query, Google's one-time code and the state,
 # in full; api/index.py leaves URLs matching this out of request spans.
 CALLBACK_URL_PATTERN = "/api/showing-bookings/calendar/callback"
-TAB_PATH = "/systems/leasing-leads/bookings"
+TAB_PATH = team_links.LEAD_BOOKINGS_PATH
 SECTION_ID = "calendar-connections"
 _HEADERS = {
     "Cache-Control": "no-store",

@@ -3,7 +3,6 @@
 import asyncio
 import json
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlencode
 from uuid import uuid4
 
 import logfire
@@ -19,12 +18,12 @@ from api.src.agent_conversations.run_state import require_idle
 from api.src.contact.service import get_contact_by_slug
 from api.src.sernia_ai.config import (
     EMILIO_CONTACT_SLUG,
-    FRONTEND_BASE_URL,
     QUO_SERNIA_AI_PHONE_ID,
     SMS_SPLIT_THRESHOLD,
 )
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.tools.quo_tools import _build_quo_client, _fetch_group_messages
+from api.src.utils import team_links
 
 STATE_KEY = "sms_approval"
 RESUME_TIMEOUT_SECONDS = 15 * 60
@@ -35,7 +34,7 @@ def new_sms_approval(pending: list[dict]) -> dict:
 
 
 def review_link(conversation_id: str) -> str:
-    return f"{FRONTEND_BASE_URL}/sernia-chat?{urlencode({'id': conversation_id})}"
+    return team_links.team_url(team_links.chat_path(conversation_id))
 
 
 async def approval_prompt(
