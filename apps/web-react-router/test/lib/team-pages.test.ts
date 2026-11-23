@@ -153,10 +153,16 @@ test("the installed app and its service worker belong to /team", () => {
   assert.equal(existsSync(new URL("sw.js", PUBLIC)), false);
   assert.equal(existsSync(new URL("manifest.json", PUBLIC)), false);
   const manifest = JSON.parse(readFileSync(new URL("team/manifest.json", PUBLIC), "utf8"));
-  assert.equal(manifest.start_url, "/team/chat");
+  // The installed app opens the team home. Its id stays /team, so an app
+  // installed when it opened the chat (Android, desktop) takes the new address.
+  assert.equal(manifest.start_url, "/team");
+  assert.equal(manifest.id, "/team");
   // Without the trailing slash, so the installed app also counts the team home
   // at /team as its own page.
   assert.equal(manifest.scope, "/team");
+  // A link the system hands to the installed app (Android for links in scope;
+  // desktop Chrome and Edge when allowed) reuses the app's open window.
+  assert.deepEqual(manifest.launch_handler, { client_mode: ["navigate-existing", "auto"] });
   // A browser offers to install only with icons of the sizes it asks for,
   // and each is the size the manifest says it is (read from the PNG header).
   for (const size of [192, 512]) {
@@ -177,7 +183,10 @@ test("each team page with its own sidebar places the notifications banner itself
     .filter((file) => readFileSync(new URL(file, routes), "utf8").includes("ownSidebar: true"));
   assert.deepEqual(own.sort(), ["admin.tsx", "chat.tsx", "settings.tsx"]);
   for (const file of own) {
-    assert.ok(readFileSync(new URL(file, routes), "utf8").includes("<TeamDeviceBanner />"), file);
+    const source = readFileSync(new URL(file, routes), "utf8");
+    assert.ok(source.includes("<TeamDeviceBanner />"), file);
+    // On a phone, where their sidebar is closed, the header links to the team home.
+    assert.ok(source.includes("<TeamHomeButton />"), file);
   }
 });
 

@@ -1,6 +1,6 @@
 // Minimal service worker for the Sernia team's pages (scope /team/): push
-// notifications only, no caching. The team pages register it from
-// /team/sw.js, so it controls nothing outside /team/.
+// notifications and the app icon's badge only, no caching. The team pages
+// register it from /team/sw.js, so it controls nothing outside /team/.
 
 const CHAT_PATH = "/team/chat";
 
@@ -11,6 +11,57 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
+
+// The app icon's badge counts the notifications shown since the app was last
+// opened and still showing. Opening the app does not close its notifications,
+// so the moment it was opened is kept (a team page says so, see "message"
+// below) and only notifications shown after it count. Without that, putting
+// one old notification away, or the next push, would bring the others back
+// into the count.
+// The Badging API is in Home Screen apps on iOS 16.4+ and installed apps in
+// desktop Chrome and Edge; elsewhere (Chrome on Android shows its own dot)
+// this does nothing.
+const BADGE_STATE = "sernia-team-badge";
+const OPENED_AT = "/team/__app-opened-at";
+
+// Kept in Cache Storage, the one store a worker that keeps no pages has at
+// hand: the worker itself is stopped and restarted between pushes.
+async function appOpenedAt() {
+  try {
+    const kept = await (await caches.open(BADGE_STATE)).match(OPENED_AT);
+    return kept ? Number(await kept.text()) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function rememberAppOpened() {
+  try {
+    await (await caches.open(BADGE_STATE)).put(OPENED_AT, new Response(String(Date.now())));
+  } catch {
+    // Without the store every notification still showing counts, as before.
+  }
+}
+
+async function syncBadge() {
+  try {
+    const badging = self.navigator;
+    if (!badging || typeof badging.setAppBadge !== "function") return;
+    const openedAt = await appOpenedAt();
+    const showing = (await self.registration.getNotifications()).filter(
+      (notification) => (notification.data?.shownAt ?? 0) > openedAt
+    );
+    if (showing.length > 0) {
+      await badging.setAppBadge(showing.length);
+    } else if (typeof badging.clearAppBadge === "function") {
+      await badging.clearAppBadge();
+    } else {
+      await badging.setAppBadge(0);
+    }
+  } catch {
+    // No badge here, or the browser refused one: nothing to show.
+  }
+}
 
 async function shouldShowNotification(data) {
   if (data.type !== "response") return true;
@@ -76,9 +127,11 @@ self.addEventListener("push", (event) => {
         icon: "/favicon.png",
         badge: "/favicon.png",
         tag,
-        data,
+        // When it was shown, for the badge: see syncBadge.
+        data: { ...data, shownAt: Date.now() },
         requireInteraction: isApproval,
       });
+      await syncBadge();
     })()
   );
 });
@@ -97,21 +150,36 @@ self.addEventListener("notificationclick", (event) => {
   const url = event.notification.data?.url || CHAT_PATH;
 
   event.waitUntil(
-    clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
-      // Focus an existing chat tab if one exists.
-      for (const client of windowClients) {
-        if (isChat(client.url) && "focus" in client) {
-          // Tell the page to refresh conversation data before navigating.
-          client.postMessage({
-            type: "notification-click",
-            url,
-            data: event.notification.data,
-          });
-          client.navigate(url);
-          return client.focus();
+    Promise.all([
+      clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
+        // Focus an existing chat tab if one exists.
+        for (const client of windowClients) {
+          if (isChat(client.url) && "focus" in client) {
+            // Tell the page to refresh conversation data before navigating.
+            client.postMessage({
+              type: "notification-click",
+              url,
+              data: event.notification.data,
+            });
+            client.navigate(url);
+            return client.focus();
+          }
         }
-      }
-      return clients.openWindow(url);
-    })
+        return clients.openWindow(url);
+      }),
+      // The one clicked is closed above; count the rest.
+      syncBadge(),
+    ])
   );
+});
+
+// Dismissed without opening it (where the browser says so): count the rest.
+self.addEventListener("notificationclose", (event) => {
+  event.waitUntil(syncBadge());
+});
+
+// A team page is open and visible: what was shown until now has been seen.
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "app-opened") return;
+  event.waitUntil(rememberAppOpened().then(syncBadge));
 });

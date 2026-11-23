@@ -3,9 +3,10 @@
   "name": "Sernia Capital",
   "short_name": "Sernia",
   "description": "The Sernia Capital team's pages.",
-  "start_url": "/team/chat",
+  "start_url": "/team",
   "scope": "/team",
   "display": "standalone",
+  "launch_handler": { "client_mode": ["navigate-existing", "auto"] },
   "background_color": "#ffffff",
   "theme_color": "#000000",
   "icons": [

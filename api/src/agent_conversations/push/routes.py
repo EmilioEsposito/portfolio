@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from api.src.agent_conversations.push.service import (
+    has_ios_app_subscription,
     notify_user_push,
     remove_subscription,
     save_subscription,
@@ -82,6 +83,20 @@ async def unsubscribe(
         session=session,
     )
     return {"status": "unsubscribed" if deleted else "not_found"}
+
+
+@router.get("/devices")
+async def get_devices(
+    user: User = Depends(_get_sernia_user),
+    session: DBSession = None,
+):
+    """What the caller's own saved subscriptions say about their devices.
+
+    ``ios_app``: the caller has the Home Screen app of an iPhone or iPad
+    subscribed. A browser tab on an iPhone or iPad cannot show notifications
+    or see the app's storage; with this answer it stops asking to add the app.
+    """
+    return {"ios_app": await has_ios_app_subscription(clerk_user_id=user.id, session=session)}
 
 
 @router.post("/test")

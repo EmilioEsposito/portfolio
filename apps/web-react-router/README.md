@@ -107,10 +107,12 @@ and have no redirects.
   (`/systems/leasing-leads`) render the same `app/components/leasing-overview.tsx`.
 - Installed app and notifications: the manifest and service worker are
   `public/team/manifest.json` and `public/team/sw.js`, so the worker's scope is
-  `/team/` and the installed app opens `/team/chat`. Only team pages link the
-  manifest and carry the home-screen app tags. Portfolio and team pages
-  unregister the worker the staff app used to register at the site root, and
-  drop its push subscription (`app/lib/retire-root-service-worker.ts`).
+  `/team/` and the installed app opens the team home, `/team`. A link the
+  system hands to the installed app reuses its open window
+  (`launch_handler`). Only team pages link the manifest and carry the
+  home-screen app tags. Portfolio and team pages unregister the worker the
+  staff app used to register at the site root, and drop its push subscription
+  (`app/lib/retire-root-service-worker.ts`).
 
 To open the team's pages locally, run `pnpm dev` (or `pnpm dev-with-fastapi`)
 and go to `http://localhost:<web port>/team` or
