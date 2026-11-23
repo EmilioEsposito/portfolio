@@ -265,12 +265,8 @@ async def maybe_send_reply(conversation_id: str, case: LeadCase, reply: Reply) -
                     # booking (the lead used their own link), so sending would
                     # now do another kind of thing. That kind needs its own
                     # setting; without it, undo what was booked and hold.
-                    hold = booking_hold(
-                        settings,
-                        lead_bookings.Plan(change, prepared.unit, prepared.start),
-                        case,
-                        reply,
-                    )
+                    plan = lead_bookings.Plan(change, prepared.unit, prepared.start)
+                    hold = booking_hold(settings, plan, case, reply)
                     if hold is not None:
                         booked, prepared = prepared, None
                         if not booked.recovered:
