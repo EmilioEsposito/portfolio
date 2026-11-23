@@ -242,6 +242,9 @@ export function isSerniaHomeRequest(url: URL | string, options: SiteOptions = {}
  * `www.` of a Sernia host goes to the same URL on the host without `www.`,
  * so sign-in, notifications and the calendar connection have one origin.
  * The Sernia public pages answer on `www.` as they are.
+ *
+ * The address has no scheme (`//serniacapital.com/team`), so the browser keeps
+ * the one it used: behind Railway's proxy the server sees plain http.
  */
 export function teamRedirect(url: URL | string, options: SiteOptions = {}): string | null {
   const parsed = typeof url === "string" ? new URL(url) : url;
@@ -253,7 +256,7 @@ export function teamRedirect(url: URL | string, options: SiteOptions = {}): stri
   if (!hosts.includes(host) || !hosts.includes(bare)) return null;
   const target = new URL(parsed.href);
   target.hostname = bare;
-  return target.href;
+  return `//${target.host}${target.pathname}${target.search}${target.hash}`;
 }
 
 function isSerniaApiPath(pathname: string): boolean {

@@ -190,7 +190,8 @@ function Notice({ children }: { children: React.ReactNode }) {
 export default function TeamHome() {
   const admin = useTeamAdmin();
   return (
-    <main className="mx-auto w-full max-w-3xl space-y-9 px-4 py-8 sm:px-6 sm:py-10">
+    // The team layout's SidebarInset is the page's <main>.
+    <div className="mx-auto w-full max-w-3xl space-y-9 px-4 py-8 sm:px-6 sm:py-10">
       <h1 className="text-2xl font-semibold tracking-tight">Sernia Capital team</h1>
       <WaitingSection />
       <NotificationsSection />
@@ -221,6 +222,6 @@ export default function TeamHome() {
           <span className="text-muted-foreground">: how leads become replies and showings, and who is told what.</span>
         </p>
       </section>
-    </main>
+    </div>
   );
 }

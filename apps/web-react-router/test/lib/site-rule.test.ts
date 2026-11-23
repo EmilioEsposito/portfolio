@@ -96,12 +96,14 @@ test("only team paths are the team site", () => {
 });
 
 test("a team path on www of a Sernia host moves to the host without www", () => {
-  assert.equal(teamRedirect("https://www.serniacapital.com/team"), "https://serniacapital.com/team");
+  // No scheme: the browser keeps https, though the server behind the proxy sees http.
+  assert.equal(teamRedirect("https://www.serniacapital.com/team"), "//serniacapital.com/team");
+  assert.equal(teamRedirect("http://www.serniacapital.com/team"), "//serniacapital.com/team");
   assert.equal(
     teamRedirect("https://www.serniacapital.com/team/chat?id=conversation-1#end"),
-    "https://serniacapital.com/team/chat?id=conversation-1#end",
+    "//serniacapital.com/team/chat?id=conversation-1#end",
   );
-  assert.equal(teamRedirect("https://WWW.SerniaCapital.com:8443/team/leads"), "https://serniacapital.com:8443/team/leads");
+  assert.equal(teamRedirect("https://WWW.SerniaCapital.com:8443/team/leads"), "//serniacapital.com:8443/team/leads");
   // The public pages answer on www as they are; the bare host and other hosts never move.
   for (const url of [
     "https://www.serniacapital.com/",
@@ -117,7 +119,7 @@ test("a team path on www of a Sernia host moves to the host without www", () => 
   assert.equal(teamRedirect("https://www.sernia.example.test/team", { hostsSetting: "www.sernia.example.test" }), null);
   assert.equal(
     teamRedirect("https://www.sernia.example.test/team", { hostsSetting: "sernia.example.test,www.sernia.example.test" }),
-    "https://sernia.example.test/team",
+    "//sernia.example.test/team",
   );
 });
 

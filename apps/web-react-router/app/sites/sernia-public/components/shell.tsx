@@ -38,7 +38,8 @@ export function SerniaPublicShell({
         >
           <Wordmark />
           <div className="flex items-center gap-x-5">
-            <TeamLink href={teamHref} className="py-2 text-[0.93rem] text-muted-foreground" />
+            {/* From a phone's width up; below it the header keeps to one line and the footer has the link. */}
+            <TeamLink href={teamHref} className="hidden py-2 text-[0.93rem] text-muted-foreground sm:inline-block" />
             {action}
           </div>
         </div>

@@ -8,7 +8,8 @@ import { LEAD_TABS } from "~/sites/team/lib/team-sections";
 
 export default function LeadAgentLayout() {
   return (
-    <main className="mx-auto w-full max-w-7xl px-5 py-9 sm:px-8 sm:py-12">
+    // The team layout's SidebarInset is the page's <main>.
+    <div className="mx-auto w-full max-w-7xl px-5 py-9 sm:px-8 sm:py-12">
       <header className="mb-6">
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Lead agent</h1>
       </header>
@@ -31,6 +32,6 @@ export default function LeadAgentLayout() {
         ))}
       </nav>
       <Outlet />
-    </main>
+    </div>
   );
 }

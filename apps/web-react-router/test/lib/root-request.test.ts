@@ -314,7 +314,7 @@ test("in production a team path on another host is the portfolio's 404, without 
 
 test("a team page on www.serniacapital.com moves to serniacapital.com before Clerk runs", async () => {
   const page = await request("https://www.serniacapital.com/team/chat?id=conversation-1");
-  assert.deepEqual([page.status, page.clerk, page.location], [308, false, "https://serniacapital.com/team/chat?id=conversation-1"]);
+  assert.deepEqual([page.status, page.clerk, page.location], [308, false, "//serniacapital.com/team/chat?id=conversation-1"]);
   const publicPage = await request("https://www.serniacapital.com/privacy");
   assert.deepEqual([publicPage.status, publicPage.clerk, publicPage.location], [200, false, null]);
 });
