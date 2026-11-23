@@ -84,7 +84,7 @@ Output is in `.env`-ready format — copy directly into local `.env` and Railway
 | `routes.py` | 3 endpoints: `GET /push/vapid-public-key`, `POST /push/subscribe`, `POST /push/unsubscribe` |
 | `apps/web-react-router/public/sw.js` | Service worker — handles focus-aware push display and notification deeplinks (no caching) |
 | `apps/web-react-router/public/manifest.json` | PWA manifest — enables "Add to Home Screen" on mobile |
-| `apps/web-react-router/app/hooks/use-push-notifications.ts` | React hook for SW registration, permission, subscribe/unsubscribe |
+| `apps/web-react-router/app/sites/team/hooks/use-push-notifications.ts` | React hook for SW registration, permission, subscribe/unsubscribe |
 
 ## Endpoints
 
