@@ -128,10 +128,14 @@ jobs:
       - run: .venv/bin/python trust/check_python_trust.py --require-certifi --require-uv
       - run: uv run pytest -q -m 'not live' --tb=short
 
-  pytest:
-    name: pytest (not live)
+  pytest-shard:
+    name: pytest (not live) / ${{ matrix.shard }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [general, booking]
 
     services:
       postgres:
@@ -195,6 +199,7 @@ jobs:
         run: .venv/bin/python apps/sernia_mcp/trust/check_python_trust.py --require-certifi --require-uv
 
       - name: Lint (ruff)
+        if: matrix.shard == 'general'
         run: |
           uv run ruff check .
           uv run ruff format --check .
@@ -206,4 +211,19 @@ jobs:
         run: uv run python api/seed_db.py
 
       - name: Run tests
-        run: uv run pytest -p no:cacheprovider --tb=short -q
+        env:
+          PYTEST_SHARD: ${{ matrix.shard }}
+        run: bash scripts/ci-pytest.sh "$PYTEST_SHARD" --durations=20
+
+  pytest:
+    # Keep the existing check name for branch protection and deploy gating.
+    name: pytest (not live)
+    needs: pytest-shard
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require both shards to pass
+        env:
+          SHARD_RESULT: ${{ needs.pytest-shard.result }}
+        run: test "$SHARD_RESULT" = success
