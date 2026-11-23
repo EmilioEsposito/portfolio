@@ -31,9 +31,9 @@ test("from the home page to the units list to a unit's booking page", async ({ p
   const main = page.getByRole("main");
   await expect(main.getByRole("heading", { level: 1 })).toHaveText("Apartments in Bloomfield and Shadyside");
   const links = main.getByRole("link");
-  await expect(links).toHaveText(["Book a showing", "Apply", "Read our Zillow reviews", "Resident sign-in"]);
-  await expect(links.nth(1)).toHaveAttribute("href", "/apply");
-  await expect(links.nth(2)).toHaveAttribute("href", "https://www.zillow.com/profile/Sernia%20Capital");
+  await expect(links).toHaveText(["Read our Zillow reviews", "Book a showing", "Apply", "Resident sign-in"]);
+  await expect(links.nth(0)).toHaveAttribute("href", "https://www.zillow.com/profile/Sernia%20Capital");
+  await expect(links.nth(2)).toHaveAttribute("href", "/apply");
   await expect(links.nth(3)).toHaveAttribute("href", PORTAL);
 
   // The photo loads as the page reaches it.
@@ -54,7 +54,7 @@ test("from the home page to the units list to a unit's booking page", async ({ p
   // No Clerk and nothing of the personal site.
   expect(await page.content()).not.toMatch(/clerk|Emilio Esposito/i);
 
-  await links.nth(0).click();
+  await links.nth(1).click();
   await expect(page).toHaveURL("/showings");
   await expect(page.getByRole("heading", { level: 1, name: "Book a showing" })).toBeVisible();
   await expect(policies).toHaveText(["Privacy", "SMS Terms"]);
