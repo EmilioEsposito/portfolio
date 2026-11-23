@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readdirSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -13,7 +12,9 @@ import {
   rootRequestMode,
   serniaPublicHosts,
   serniaPublicPagesEnabled,
-} from "~/lib/sernia-public";
+} from "~/sites/site";
+
+import { routeTable, sampleUrl } from "./route-table";
 
 // Outside production, with no overrides: the pages are on. Each test that
 // needs another environment sets it and restores this state.
@@ -315,38 +316,30 @@ test("on any other host the /api proxy forwards every path, as before", () => {
   }
 });
 
-// The URL a flat route file serves, with a sample value for each param.
-function routeFilePath(name: string): string {
-  const segments = name
-    .replace(/\.(tsx|ts|jsx|js)$/, "")
-    .split(".")
-    .filter((segment) => !segment.startsWith("_"))
-    .map((segment) => (segment.startsWith("$") ? "sample" : segment.replace(/^\((.*)\)$/, "$1")));
-  return `/${segments.join("/")}`;
-}
-
-const routeFiles = readdirSync(new URL("../../app/routes/", import.meta.url));
+// The routes as app/routes.ts declares them. The Sernia public pages are the
+// ones under this layout.
+const SERNIA_LAYOUT = "sites/sernia-public/routes/layout.tsx";
+const routes = routeTable();
 
 test("every page under the Sernia public layout is at a Sernia public path", () => {
-  const pages = routeFiles.filter((name) => name.startsWith("_sernia-public.") && name !== "_sernia-public.tsx");
+  const pages = routes.filter((route) => route.parents.includes(SERNIA_LAYOUT));
   assert.ok(pages.length >= 2, "expected the privacy and SMS terms pages");
-  for (const name of pages) {
-    const path = routeFilePath(name);
-    assert.equal(isSerniaPublicPath(path), true, `${name} is served at ${path}`);
+  for (const route of pages) {
+    assert.equal(isSerniaPublicPath(sampleUrl(route.path)), true, `${route.file} is served at ${route.path}`);
   }
 });
 
 test("the home page is the only route at /, so on a Sernia host / can serve nothing else", () => {
   // The Sernia layout is pathless, so it maps to / too; it renders no page of its own.
-  const atHome = routeFiles.filter((name) => routeFilePath(name) === "/" && name !== "_sernia-public.tsx");
-  assert.deepEqual(atHome, ["_index.tsx"]);
+  const atHome = routes.filter((route) => route.path === "/" && route.file !== SERNIA_LAYOUT);
+  assert.deepEqual(atHome.map((route) => route.file), ["sites/home.tsx"]);
 });
 
 test("every page at a Sernia public path is under the Sernia public layout", () => {
   // The layout's middleware is what keeps a page off while the switch is off.
-  for (const name of routeFiles) {
-    if (isSerniaPublicPath(routeFilePath(name))) {
-      assert.ok(name.startsWith("_sernia-public."), `${name} must be under the _sernia-public layout`);
+  for (const route of routes) {
+    if (isSerniaPublicPath(sampleUrl(route.path))) {
+      assert.ok(route.parents.includes(SERNIA_LAYOUT), `${route.file} must be under the Sernia public layout`);
     }
   }
 });

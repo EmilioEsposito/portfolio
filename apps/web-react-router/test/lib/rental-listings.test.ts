@@ -17,7 +17,7 @@ import {
   cancellationQuestion,
   cancellationsFrom,
   listingSaveBody,
-} from "../../app/lib/rental-listings.ts";
+} from "../../app/sites/team/lib/rental-listings.ts";
 
 const unit = (patch: Partial<RentalListing> = {}): RentalListing => ({ ...newListing("12-A"), ...patch });
 

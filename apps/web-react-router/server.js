@@ -7,12 +7,12 @@
  * - Local: http://127.0.0.1:${BACKEND_PORT} (default: 8000)
  *
  * On a Sernia host (serniacapital.com) the proxy forwards only the public
- * showing-bookings API; see app/lib/sernia-public.ts.
+ * showing-bookings API; see app/sites/site.ts.
  *
  * Environment variables:
  *   BACKEND_PORT - FastAPI backend port for local dev (default: 8000)
  *   SERNIA_PUBLIC_HOSTS - comma-separated hosts that replace the default Sernia hosts
- *   SERNIA_PUBLIC_PAGES_ENABLED - read by the app; see app/lib/sernia-public.ts
+ *   SERNIA_PUBLIC_PAGES_ENABLED - read by the app; see app/sites/site.ts
  *
  * See also: vite.config.ts (dev proxy), README.md, docker-compose.yml
  */
@@ -22,7 +22,7 @@ import compression from "compression";
 import { pathToFileURL } from "node:url";
 // Node strips this module's types at load time (Node 22.18+). The Dockerfile
 // copies it next to server.js.
-import { isApiProxyAllowed } from "./app/lib/sernia-public.ts";
+import { isApiProxyAllowed } from "./app/sites/site.ts";
 
 const app = express();
 

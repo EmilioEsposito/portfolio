@@ -29,7 +29,7 @@ import {
   textedLine,
   ticksMessage,
   unitSummary,
-} from "../../app/lib/showing-booking-page.ts";
+} from "../../app/sites/sernia-public/lib/showing-booking-page.ts";
 
 const NEW_YORK = "America/New_York";
 const CONFIRMATIONS = [{ key: "lease_start" }, { key: "pets" }, { key: "texts" }];

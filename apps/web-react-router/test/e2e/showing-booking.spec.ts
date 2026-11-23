@@ -7,7 +7,7 @@
  */
 import type { Page } from "@playwright/test";
 
-import { formatDay, formatWhen } from "../../app/lib/showing-booking-page.ts";
+import { formatDay, formatWhen } from "../../app/sites/sernia-public/lib/showing-booking-page.ts";
 import { expect, readRows, resetDatabase, sentTokens, test } from "./fixtures.ts";
 import { TEAM_PHONE, UNIT } from "./setup.ts";
 

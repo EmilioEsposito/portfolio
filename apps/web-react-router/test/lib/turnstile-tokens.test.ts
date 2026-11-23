@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 
-import { AHEAD_LIMIT_MS, TOKEN_MAX_AGE_MS, TokenHolder } from "~/lib/turnstile-tokens";
+import { AHEAD_LIMIT_MS, TOKEN_MAX_AGE_MS, TokenHolder } from "~/sites/sernia-public/lib/turnstile-tokens";
 
 // The holder of a token got ahead of time, with the checks answered by hand.
 
