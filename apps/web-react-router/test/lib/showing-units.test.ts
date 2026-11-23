@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { unitHeading, unitPath, unitTerms } from "~/lib/showing-units";
+import { unitHeading, unitPath, unitTerms } from "~/sites/sernia-public/lib/showing-units";
 
 test("a unit's row: the address, then the unit", () => {
   assert.deepEqual(unitHeading({ unit: "320-03", address: "320 Example St" }), {

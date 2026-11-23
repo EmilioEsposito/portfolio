@@ -53,7 +53,7 @@ import {
   tickUnit,
   unitTicks,
   untickedNote,
-} from "../../app/lib/showing-bookings.ts";
+} from "../../app/sites/team/lib/showing-bookings.ts";
 
 const settings = (patch: Partial<BookingSettings> = {}): BookingSettings => ({
   send_mode: "capture",

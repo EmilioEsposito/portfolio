@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { forgetReadAhead, readAhead, takeReadAhead } from "~/lib/read-ahead.server";
-import type { UnitsState } from "~/lib/showing-units";
-import { loader as homeLoader } from "~/routes/_index";
-import { loader as listLoader } from "~/routes/_sernia-public.showings._index";
-import { loader as unitLoader } from "~/routes/_sernia-public.showings.$unit";
+import { forgetReadAhead, readAhead, takeReadAhead } from "~/sites/sernia-public/lib/read-ahead.server";
+import type { UnitsState } from "~/sites/sernia-public/lib/showing-units";
+import { loader as homeLoader } from "~/sites/home";
+import { loader as listLoader } from "~/sites/sernia-public/routes/showings";
+import { loader as unitLoader } from "~/sites/sernia-public/routes/showings/unit";
 
 // The units list and the booking pages are read before they are opened: the
 // home page starts the list, the list starts its booking pages. Only a

@@ -15,7 +15,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, loadEnv } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
-import { isApiProxyAllowed } from "./app/lib/sernia-public";
+import { isApiProxyAllowed } from "./app/sites/site";
 
 export default defineConfig(({ mode }) => {
   // Load env from this directory (apps/web-react-router)

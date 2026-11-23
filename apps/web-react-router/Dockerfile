@@ -40,7 +40,7 @@ RUN pnpm install --filter web-react-router --prod --frozen-lockfile --ignore-scr
 COPY --from=build /app/apps/web-react-router/build ./build
 COPY apps/web-react-router/server.js ./server.js
 # server.js imports this helper; Node strips its types when loading it.
-COPY apps/web-react-router/app/lib/sernia-public.ts ./app/lib/sernia-public.ts
+COPY apps/web-react-router/app/sites/site.ts ./app/sites/site.ts
 ENV NODE_ENV=production
 ENV PORT=5173
 EXPOSE 5173

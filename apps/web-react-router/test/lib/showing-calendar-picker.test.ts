@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { newAgent } from "../../app/lib/showing-bookings.ts";
+import { newAgent } from "../../app/sites/team/lib/showing-bookings.ts";
 import {
   type AgentFormState,
   type CalendarCandidate,
@@ -17,7 +17,7 @@ import {
   unreadableLine,
   withCalendars,
   withTick,
-} from "../../app/lib/showing-calendar-picker.ts";
+} from "../../app/sites/team/lib/showing-calendar-picker.ts";
 
 const ACCOUNT = "team@example.com";
 const JANE = "jane.doe@example.com";

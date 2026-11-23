@@ -151,7 +151,7 @@
     @apply bg-background text-foreground;
   }
 
-  /* Sernia Capital's public pages (app/components/sernia-public): the brand
+  /* Sernia Capital's public pages (app/sites/sernia-public): the brand
    * colors and font. Sky is for drawings and underlines only; as text on a
    * light background it is too light to read. */
   .sernia-public {

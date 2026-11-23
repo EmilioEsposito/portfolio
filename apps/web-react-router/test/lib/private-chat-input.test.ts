@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { privateChatInput } from "../../app/lib/private-chat-input";
+import { privateChatInput } from "../../app/sites/team/lib/private-chat-input";
 
 test("old attachments stay in the UI but cannot exhaust the next request's size limit", () => {
   const history = [

@@ -10,7 +10,7 @@ import {
   stageIsRelated,
   stages,
   totals,
-} from "../../app/lib/evals-map";
+} from "../../app/sites/portfolio/lib/evals-map";
 
 test("every stage and split has one id, a term, and something to show", () => {
   const ids = items.map((item) => item.id);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { loader } from "~/routes/_sernia-public.showings.$unit";
+import { loader } from "~/sites/sernia-public/routes/showings/unit";
 
 // The booking page's loader: a unit that is not open is a 404, except for a lead
 // with a place there, whose own link shows it whatever the unit answers others.

@@ -5,7 +5,7 @@ import {
   serverHasResponseForRequest,
   userMessageFingerprint,
   requestHasSettled,
-} from "../../app/lib/sernia-chat-recovery.ts";
+} from "../../app/sites/team/lib/sernia-chat-recovery.ts";
 
 test("a checkpoint is not completion, and terminal failures release only the matching request", () => {
   const marker = { requestId: "current", fingerprint: "", occurrence: 1 };

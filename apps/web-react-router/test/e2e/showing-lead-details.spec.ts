@@ -8,7 +8,7 @@
  */
 import type { Page } from "@playwright/test";
 
-import { formatWhen } from "../../app/lib/showing-booking-page.ts";
+import { formatWhen } from "../../app/sites/sernia-public/lib/showing-booking-page.ts";
 import { bookByEmail, closeUnits, expect, moveByEmail, readRows, resetDatabase, test } from "./fixtures.ts";
 import { UNIT } from "./setup.ts";
 
