@@ -21,6 +21,7 @@ import logfire
 from sqlalchemy import select
 
 from api.src.apscheduler_service.service import get_scheduler, upsert_job
+from api.src.schedulers.job_info import JobInfo
 from api.src.sernia_ai.config import (
     DEFAULT_SCHEDULE_DAYS_OF_WEEK,
     DEFAULT_SCHEDULE_HOURS,
@@ -30,6 +31,31 @@ from api.src.utils.automation import _IS_PRODUCTION
 
 JOB_ID = "sernia_scheduled_checks"
 ET = ZoneInfo("America/New_York")
+
+# Shown on the team's Scheduler page (api/src/schedulers/job_info.py). Not part
+# of the agent's prompt.
+JOB_INFO = JobInfo(
+    name="Sernia AI: scheduled inbox check",
+    summary="Starts a run of the Sernia AI agent to check the inboxes, at the times set in Settings.",
+    description=(
+        "At each time set under Scheduled Checks on the Settings page (/team/settings), "
+        "it starts one run of the general Sernia AI agent, telling it to follow its "
+        "scheduled-checks skill. That skill is kept in the agent's private workspace, not "
+        "in this repository, so what a check covers is set there; the Sernia AI triggers "
+        "guide describes it as the email and SMS inbox checks."
+        "\n\n"
+        "The run has the agent's usual tools and approval rules. Its conversation is "
+        "saved, and a push notification goes to the team only when something waits for a "
+        "person's approval."
+        "\n\n"
+        "It runs only in production, and only while Triggers is on in Settings (the "
+        "switch for all automated agent runs). Saving the schedule in Settings "
+        "re-registers this job, and saving it with no days or no hours removes it; with no "
+        "schedule saved it runs Monday to Friday at 8 am, 11 am, 2 pm and 5 pm Eastern. "
+        "Paused or removed, the agent stops checking the inboxes on its own; texts to its "
+        "number still start their own runs."
+    ),
+)
 
 
 async def run_scheduled_checks() -> None:
@@ -71,6 +97,7 @@ def _apply_schedule(days_of_week: list[int], hours: list[int]) -> None:
 
     upsert_job(
         scheduler,
+        info=JOB_INFO,
         func=run_scheduled_checks,
         trigger="cron",
         day_of_week=day_expr,
@@ -78,7 +105,6 @@ def _apply_schedule(days_of_week: list[int], hours: list[int]) -> None:
         minute=0,
         timezone=ET,
         id=JOB_ID,
-        name="Sernia AI: Scheduled Checks",
     )
     logfire.info(
         "Sernia AI scheduled trigger registered",

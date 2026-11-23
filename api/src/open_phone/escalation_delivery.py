@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.src.contact.service import get_contact_by_slug
 from api.src.database.database import AsyncSessionFactory
 from api.src.open_phone.models import EscalationAttempt, EscalationDelivery, EscalationRequest
+from api.src.schedulers.job_info import JobInfo
 
 MAX_SEND_ATTEMPTS = 5
 LEASE_SECONDS = 120
@@ -586,11 +587,39 @@ async def recover_escalations() -> None:
     await asyncio.gather(process_deliveries(), *(process_request(i) for i in ids))
 
 
+# Shown on the team's Scheduler page (api/src/schedulers/job_info.py).
+RECOVERY_JOB_INFO = JobInfo(
+    name="Emergency escalations: retry checks and calls",
+    summary=(
+        "Finishes the emergency check on texts to the team line, and the emergency phone "
+        "calls, when the first attempt did not complete."
+    ),
+    description=(
+        "When a text arrives on the team's shared Quo line, the webhook saves it and at "
+        "once asks the escalation model whether it is an emergency. If it is, a Twilio "
+        "Studio flow phones each escalation contact from the escalation caller ID."
+        "\n\n"
+        "This job finishes that work when the first attempt did not. Each run takes up to "
+        "10 texts whose check is still waiting or was cut off, and up to 20 calls Twilio "
+        "has not yet accepted. It asks the model again (at most three tries per text), "
+        "starts the calls that are due, waits while a contact already has a call from the "
+        "flow in progress, and looks up calls whose outcome is uncertain in Twilio instead "
+        "of placing them a second time. Anything still not done ten minutes after the text "
+        "arrived, or out of tries, is left for a person and logged as an error."
+        "\n\n"
+        "A retry waits at least 15 seconds, and the job looks every 15 seconds. Paused or "
+        "removed, the first attempt still happens when a text arrives, but nothing is "
+        "retried after a crash, a deploy or a Twilio error."
+    ),
+)
+
+
 def register_escalation_recovery() -> None:
     from api.src.apscheduler_service.service import get_scheduler, upsert_job
 
     upsert_job(
         get_scheduler(),
+        info=RECOVERY_JOB_INFO,
         id="escalation-outbox",
         func=recover_escalations,
         trigger="interval",

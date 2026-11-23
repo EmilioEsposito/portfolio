@@ -42,6 +42,7 @@ from sqlalchemy import String, and_, cast, exists, func, literal, or_, select, t
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
+from api.src.schedulers.job_info import JobInfo
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 
 JOB_ID = "showing-details-removal"
@@ -208,6 +209,33 @@ async def scheduled_run() -> None:
     await remove_old_details()
 
 
+# Shown on the team's Scheduler page (api/src/schedulers/job_info.py).
+JOB_INFO = JobInfo(
+    name="Showings: remove prospects' details after 12 months",
+    summary=(
+        "Removes the names, numbers and emails of prospects whose showing started 12 "
+        "months ago or more."
+    ),
+    description=(
+        "Finds the showings that started 12 months ago or more, by the database's clock, "
+        "that still hold a prospect's details, and removes them. Each attendee's name "
+        'becomes "Removed"; their mobile, email, browser details, hashed IP address, '
+        "lead link token and requirement ticks are emptied; and their cancel link stops "
+        "working. Every text, email, calendar event and invite recorded for the showing, "
+        "to prospects, residents or the host, has its recipient and wording replaced by a "
+        "note that it was removed."
+        "\n\n"
+        "The showings, their times, statuses and counts are kept, so the history of "
+        "showings stays. It works through 100 showings at a time, up to 50 batches a run, "
+        "and the next run carries on; a second run finds nothing left. It sends nothing "
+        "and calls no outside service. The removal cannot be undone."
+        "\n\n"
+        "Paused or removed, prospects' details stay past the 12 months the booking service "
+        "keeps them for."
+    ),
+)
+
+
 def register_job() -> None:
     """Schedule ``scheduled_run`` daily at 3:30 AM Eastern. Called at startup when
     background automation is on (``api/index.py``)."""
@@ -215,8 +243,8 @@ def register_job() -> None:
 
     upsert_job(
         get_scheduler(),
+        info=JOB_INFO,
         id=JOB_ID,
-        name="Showing bookings: remove prospects' details after 12 months",
         func=scheduled_run,
         trigger="cron",
         hour=3,

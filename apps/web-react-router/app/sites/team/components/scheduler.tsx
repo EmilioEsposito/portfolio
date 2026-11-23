@@ -1,28 +1,228 @@
-import { useState, useEffect, useCallback } from "react";
-import { Button } from "~/components/ui/button";
-import { Badge } from "~/components/ui/badge";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@clerk/react-router";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "~/components/ui/collapsible";
-import { ChevronDown, RefreshCw, Play, Trash2 } from "lucide-react";
+import { ChevronDown, Loader2, Play, RefreshCw, Trash2 } from "lucide-react";
 
-interface SchedulerJob {
-  id: string;
-  name?: string;
-  service: "dbos" | "apscheduler";
-  func_ref: string;
-  args: any[];
-  kwargs: Record<string, any>;
-  trigger: string;
-  next_run_time: string | null;
-  coalesce: boolean;
-  executor: string;
-  max_instances: number;
-  misfire_grace_time: number;
-  pending: boolean;
+import { Button } from "~/components/ui/button";
+import { Skeleton } from "~/components/ui/skeleton";
+import { cn } from "~/lib/utils";
+import {
+  clockText,
+  durationText,
+  failureText,
+  isStale,
+  nextRun,
+  REFRESH_EVERY_MS,
+  refreshDue,
+  relativeText,
+  scheduleWords,
+  type NextRun,
+  type SchedulerJob,
+} from "~/sites/team/lib/scheduler-jobs";
+
+type Loaded =
+  | { state: "loading" }
+  | { state: "failed"; problem: string }
+  | { state: "loaded"; jobs: SchedulerJob[]; loadedAt: number };
+
+/** What happened to the last action on one job, shown on its card. */
+type Outcome = { tone: "done" | "failed"; text: string };
+
+type Busy = "run" | "delete";
+
+function jobKey(job: SchedulerJob): string {
+  return `${job.service}:${job.id}`;
+}
+
+function problemOf(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+/** A server's message as a sentence: "Service unavailable" reads "Service unavailable." */
+function sentence(text: string): string {
+  return /[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`;
+}
+
+/** The time, ticking every second while the page is visible. */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState === "visible") setNow(Date.now());
+    };
+    const timer = window.setInterval(tick, 1000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, []);
+  return now;
+}
+
+function NextRunLine({ run, loadedAt, now }: { run: NextRun; loadedAt: number; now: number }) {
+  const today = new Date(now);
+  switch (run.kind) {
+    case "none":
+      return <span className="text-muted-foreground">{run.text}</span>;
+    case "upcoming":
+      return (
+        <span className="tabular-nums">
+          Next run {relativeText(run.at, now)} · {clockText(new Date(run.at), today)}
+        </span>
+      );
+    case "passed":
+      return (
+        <span className="tabular-nums text-amber-700 dark:text-amber-400">
+          Was due {relativeText(run.at, now)} · {clockText(new Date(run.at), today)} · the list has not caught up yet
+        </span>
+      );
+    case "overdue":
+      return (
+        <span className="font-medium tabular-nums text-red-600 dark:text-red-400">
+          Late: due {durationText(loadedAt - run.at)} before the list loaded ({clockText(new Date(run.at), today)}). The
+          scheduler may not be running.
+        </span>
+      );
+  }
+}
+
+function Detail({ label, children, code = false }: { label: string; children: ReactNode; code?: boolean }) {
+  return (
+    <>
+      <dt className="font-medium text-muted-foreground">{label}</dt>
+      <dd className={cn("min-w-0 break-words", code && "whitespace-pre-wrap break-all font-mono text-xs leading-5")}>
+        {children}
+      </dd>
+    </>
+  );
+}
+
+function shown(value: unknown): string {
+  return value === null || value === undefined ? "Not set yet" : String(value);
+}
+
+function JobCard(props: {
+  job: SchedulerJob;
+  loadedAt: number;
+  now: number;
+  open: boolean;
+  busy: Busy | undefined;
+  outcome: Outcome | undefined;
+  onToggle: () => void;
+  onRun: () => void;
+  onDelete: () => void;
+}) {
+  const { job, loadedAt, now, open, busy } = props;
+  const panelId = `job-${job.service}-${job.id}`.replace(/[^A-Za-z0-9_-]/g, "-");
+  const schedule = scheduleWords(job, new Date(now));
+  const run = nextRun(job, loadedAt, now);
+  return (
+    <li className="rounded-lg border">
+      <h3 className="text-base font-normal">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={panelId}
+          onClick={props.onToggle}
+          className="flex w-full items-start gap-3 rounded-lg p-4 text-left hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        >
+          <span className="min-w-0 flex-1 space-y-1">
+            <span className="block font-medium leading-snug">{job.name}</span>
+            {job.summary && <span className="block text-sm text-muted-foreground">{job.summary}</span>}
+            <span className="flex flex-col gap-0.5 text-sm">
+              <span className={cn(!schedule && "break-all font-mono text-xs")}>{schedule ?? job.trigger}</span>
+              <NextRunLine run={run} loadedAt={loadedAt} now={now} />
+            </span>
+          </span>
+          <ChevronDown
+            className={cn("mt-1 size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+            aria-hidden="true"
+          />
+        </button>
+      </h3>
+      <div id={panelId} hidden={!open} className="space-y-4 border-t px-4 py-4 text-sm">
+        {job.description ? (
+          <div className="space-y-2 leading-relaxed">
+            {job.description.split(/\n{2,}/).map((paragraph, index) => (
+              <p key={index}>{paragraph}</p>
+            ))}
+          </div>
+        ) : (
+          <p className="text-muted-foreground">No description: this job was added without one.</p>
+        )}
+
+        <section aria-label="Technical details" className="space-y-2">
+          <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Technical details</h4>
+          <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1">
+            <Detail label="ID" code>
+              {job.id}
+            </Detail>
+            <Detail label="Trigger" code>
+              {job.trigger}
+            </Detail>
+            <Detail label="Time zone">{job.timezone ?? "Not set"}</Detail>
+            <Detail label="Next run" code>
+              {job.next_run_time ?? "None"}
+            </Detail>
+            <Detail label="Function" code>
+              {job.func_ref}
+            </Detail>
+            <Detail label="Service">{job.service}</Detail>
+            <Detail label="Args" code>
+              {JSON.stringify(job.args)}
+            </Detail>
+            <Detail label="Kwargs" code>
+              {JSON.stringify(job.kwargs)}
+            </Detail>
+            <Detail label="Coalesce">{shown(job.coalesce)}</Detail>
+            <Detail label="Executor">{shown(job.executor)}</Detail>
+            <Detail label="Max instances">{shown(job.max_instances)}</Detail>
+            <Detail label="Misfire grace">
+              {job.misfire_grace_time === null ? "Not set yet" : `${job.misfire_grace_time} s`}
+            </Detail>
+            <Detail label="Pending">{String(job.pending)}</Detail>
+          </dl>
+        </section>
+
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" className="gap-1.5" disabled={busy !== undefined} onClick={props.onRun}>
+            {busy === "run" ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Play className="size-4" aria-hidden="true" />
+            )}
+            {busy === "run" ? "Starting…" : "Run now"}
+          </Button>
+          {job.service === "apscheduler" && (
+            <Button
+              size="sm"
+              variant="destructive"
+              className="gap-1.5"
+              disabled={busy !== undefined}
+              onClick={props.onDelete}
+            >
+              {busy === "delete" ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Trash2 className="size-4" aria-hidden="true" />
+              )}
+              {busy === "delete" ? "Deleting…" : "Delete"}
+            </Button>
+          )}
+        </div>
+        {props.outcome && (
+          <p
+            role={props.outcome.tone === "failed" ? "alert" : "status"}
+            className={cn(
+              props.outcome.tone === "failed" ? "font-medium text-red-600 dark:text-red-400" : "text-muted-foreground",
+            )}
+          >
+            {props.outcome.text}
+          </p>
+        )}
+      </div>
+    </li>
+  );
 }
 
 interface SchedulerProps {
@@ -31,12 +231,18 @@ interface SchedulerProps {
 
 export function Scheduler({ apiBaseUrl }: SchedulerProps) {
   const { getToken, isLoaded, isSignedIn } = useAuth();
-  const [jobs, setJobs] = useState<SchedulerJob[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [runningJob, setRunningJob] = useState<string | null>(null);
-  const [deletingJob, setDeletingJob] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState<Loaded>({ state: "loading" });
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshProblem, setRefreshProblem] = useState<string | null>(null);
   const [openJobs, setOpenJobs] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState<Record<string, Busy>>({});
+  const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
+  const [notice, setNotice] = useState<string | null>(null);
+  const now = useNow();
+  // The latest load wins; loads in flight are counted so the timer does not stack them.
+  const sequence = useRef(0);
+  const inFlight = useRef(0);
+  const lastAttemptAt = useRef(0);
 
   const fetchWithAuth = useCallback(
     async (url: string, init: RequestInit, retryOn401 = true) => {
@@ -65,295 +271,240 @@ export function Scheduler({ apiBaseUrl }: SchedulerProps) {
       }
       return response;
     },
-    [getToken]
+    [getToken],
   );
 
-  const fetchJobs = useCallback(async () => {
-    if (!isLoaded) return;
-    if (!isSignedIn) {
-      setError("Not signed in.");
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetchWithAuth(
-        `${apiBaseUrl}/schedulers/get_jobs`,
-        { method: "GET" },
-        true
-      );
-      if (!response.ok) {
-        const errorData = await response
-          .json()
-          .catch(() => ({ detail: `HTTP error! status: ${response.status}` }));
-        throw new Error(
-          errorData.detail || `HTTP error! status: ${response.status}`
-        );
+  /** Load the list. "quiet" keeps the list on screen while it reloads. */
+  const load = useCallback(
+    async (how: "first" | "quiet") => {
+      if (!isSignedIn) {
+        setLoaded({ state: "failed", problem: "Not signed in." });
+        return;
       }
-      const data = await response.json();
-      setJobs(data);
-    } catch (e) {
-      console.error("Failed to fetch jobs:", e);
-      setError(e instanceof Error ? e.message : "An unknown error occurred");
-    }
-    setLoading(false);
-  }, [apiBaseUrl, fetchWithAuth, isLoaded, isSignedIn]);
+      const mine = ++sequence.current;
+      inFlight.current += 1;
+      lastAttemptAt.current = Date.now();
+      if (how === "first") setLoaded({ state: "loading" });
+      setRefreshing(true);
+      try {
+        const response = await fetchWithAuth(`${apiBaseUrl}/schedulers/get_jobs`, { method: "GET" });
+        if (!response.ok) {
+          throw new Error(failureText(await response.json().catch(() => null), response.status));
+        }
+        const jobs = (await response.json()) as SchedulerJob[];
+        if (mine !== sequence.current) return;
+        setLoaded({ state: "loaded", jobs, loadedAt: Date.now() });
+        setRefreshProblem(null);
+      } catch (error) {
+        if (mine !== sequence.current) return;
+        const problem = problemOf(error, "The list could not be loaded.");
+        setLoaded((current) => (current.state === "loaded" ? current : { state: "failed", problem }));
+        setRefreshProblem(problem);
+      } finally {
+        inFlight.current -= 1;
+        if (mine === sequence.current) setRefreshing(false);
+      }
+    },
+    [apiBaseUrl, fetchWithAuth, isSignedIn],
+  );
 
+  const started = useRef(false);
   useEffect(() => {
-    fetchJobs();
-  }, [fetchJobs]);
+    if (!isLoaded || started.current) return;
+    started.current = true;
+    void load("first");
+  }, [isLoaded, load]);
+
+  // Reload on its own while the page is visible; `now` stops ticking while it is hidden.
+  useEffect(() => {
+    if (loaded.state !== "loaded" || inFlight.current > 0) return;
+    if (document.visibilityState !== "visible") return;
+    if (refreshDue(lastAttemptAt.current, now)) void load("quiet");
+  }, [now, loaded.state, load]);
+
+  const toggleJob = (key: string) => {
+    setOpenJobs((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const startAction = (key: string, action: Busy) => {
+    setBusy((current) => ({ ...current, [key]: action }));
+    setOutcomes(({ [key]: _, ...rest }) => rest);
+    setNotice(null);
+  };
+  const endAction = (key: string, outcome: Outcome | null) => {
+    setBusy(({ [key]: _, ...rest }) => rest);
+    if (outcome) setOutcomes((current) => ({ ...current, [key]: outcome }));
+  };
 
   const handleRunJobNow = async (job: SchedulerJob) => {
-    const jobKey = `${job.service}:${job.id}`;
-    setRunningJob(jobKey);
-    setError(null);
+    const key = jobKey(job);
+    startAction(key, "run");
     try {
       const response = await fetchWithAuth(
-        `${apiBaseUrl}/schedulers/run_job_now/${job.service}/${job.id}`,
-        {
-          method: "GET",
-        }
+        `${apiBaseUrl}/schedulers/run_job_now/${job.service}/${encodeURIComponent(job.id)}`,
+        { method: "GET" },
       );
       if (!response.ok) {
-        const errorData = await response
-          .json()
-          .catch(() => ({ detail: `HTTP error! status: ${response.status}` }));
-        throw new Error(
-          errorData.detail || `HTTP error! status: ${response.status}`
-        );
+        throw new Error(failureText(await response.json().catch(() => null), response.status));
       }
-      const result = await response.json();
-      alert(result.message || `Job ${job.id} triggered successfully.`);
-      fetchJobs();
-    } catch (e) {
-      console.error(`Failed to run job ${job.id}:`, e);
-      const errorMessage =
-        e instanceof Error
-          ? e.message
-          : "An unknown error occurred while running the job";
-      setError(errorMessage);
-      alert(`Error: ${errorMessage}`);
+      endAction(key, {
+        tone: "done",
+        text: "Asked the scheduler to run it now. The result shows in the logs, not on this page.",
+      });
+      void load("quiet");
+    } catch (error) {
+      endAction(key, { tone: "failed", text: `It did not start: ${sentence(problemOf(error, "unknown error"))}` });
     }
-    setRunningJob(null);
   };
 
   const handleDeleteJob = async (job: SchedulerJob) => {
     if (job.service !== "apscheduler") return;
 
     const ok = window.confirm(
-      `Delete APScheduler job "${job.name || job.id}"?\n\nThis removes it from the persisted job store.`
+      `Delete APScheduler job "${job.name || job.id}"?\n\nThis removes it from the persisted job store.`,
     );
     if (!ok) return;
 
-    const jobKey = `${job.service}:${job.id}`;
-    setDeletingJob(jobKey);
-    setError(null);
+    const key = jobKey(job);
+    startAction(key, "delete");
     try {
       const response = await fetchWithAuth(
-        `${apiBaseUrl}/schedulers/delete_job/${job.service}/${job.id}`,
-        {
-          method: "DELETE",
-        }
+        `${apiBaseUrl}/schedulers/delete_job/${job.service}/${encodeURIComponent(job.id)}`,
+        { method: "DELETE" },
       );
-
       if (!response.ok) {
-        const errorData = await response
-          .json()
-          .catch(() => ({ detail: `HTTP error! status: ${response.status}` }));
-        throw new Error(
-          errorData.detail || `HTTP error! status: ${response.status}`
-        );
+        throw new Error(failureText(await response.json().catch(() => null), response.status));
       }
-
-      const result = await response.json();
-      alert(result.message || `Job ${job.id} deleted successfully.`);
-      fetchJobs();
-    } catch (e) {
-      console.error(`Failed to delete job ${job.id}:`, e);
-      const errorMessage =
-        e instanceof Error
-          ? e.message
-          : "An unknown error occurred while deleting the job";
-      setError(errorMessage);
-      alert(`Error: ${errorMessage}`);
+      endAction(key, null);
+      setNotice(`Deleted "${job.name || job.id}".`);
+      // A load already in flight may still list it; this one supersedes it.
+      setLoaded((current) =>
+        current.state === "loaded"
+          ? { ...current, jobs: current.jobs.filter((item) => jobKey(item) !== key) }
+          : current,
+      );
+      void load("quiet");
+    } catch (error) {
+      endAction(key, { tone: "failed", text: `It was not deleted: ${sentence(problemOf(error, "unknown error"))}` });
     }
-    setDeletingJob(null);
   };
 
-  const toggleJob = (jobKey: string) => {
-    setOpenJobs((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(jobKey)) {
-        newSet.delete(jobKey);
-      } else {
-        newSet.add(jobKey);
-      }
-      return newSet;
-    });
-  };
-
-  if (loading && jobs.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-8 space-y-2">
-        <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-        <p className="text-muted-foreground">
-          {!isLoaded ? "Loading authentication..." : "Loading jobs..."}
+  const header = (
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Scheduler</h1>
+        <p className="text-sm text-muted-foreground">
+          The jobs the API runs on its own schedule. Open one to see what it does. Times are Eastern.
         </p>
       </div>
-    );
-  }
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1.5"
+        disabled={refreshing || loaded.state === "loading"}
+        onClick={() => void load(loaded.state === "loaded" ? "quiet" : "first")}
+      >
+        <RefreshCw className={cn("size-4", refreshing && "animate-spin")} aria-hidden="true" />
+        {refreshing ? "Refreshing…" : "Refresh"}
+      </Button>
+    </div>
+  );
 
-  if (error) {
+  if (loaded.state === "loading") {
     return (
-      <div className="flex flex-col items-center justify-center py-8 space-y-4">
-        <p className="text-destructive">Error: {error}</p>
-        <Button onClick={fetchJobs} variant="outline">
-          Retry
-        </Button>
+      <div className="space-y-6">
+        {header}
+        <div className="space-y-2" aria-busy="true" aria-label="Loading jobs">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
       </div>
     );
   }
 
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h3 className="text-lg font-semibold">Scheduled Jobs</h3>
-        <Button
-          onClick={fetchJobs}
-          disabled={loading}
-          variant="outline"
-          size="sm"
-        >
-          <RefreshCw
-            className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
-          />
-          Refresh
-        </Button>
+  if (loaded.state === "failed") {
+    return (
+      <div className="space-y-6">
+        {header}
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border p-4 text-sm">
+          <span className="text-muted-foreground">The jobs could not be loaded: {sentence(loaded.problem)}</span>
+          <Button variant="outline" size="sm" disabled={refreshing} onClick={() => void load("first")}>
+            Try again
+          </Button>
+        </div>
       </div>
+    );
+  }
 
-      {jobs.length === 0 && !loading && (
-        <p className="text-center text-muted-foreground py-4">
-          No jobs scheduled.
+  const { jobs, loadedAt } = loaded;
+  const stale = isStale(loadedAt, now);
+  return (
+    <div className="space-y-6">
+      {header}
+
+      <p className="text-xs text-muted-foreground">
+        Updated {relativeText(loadedAt, now)} ({clockText(new Date(loadedAt), new Date(now))}). Refreshes every{" "}
+        {REFRESH_EVERY_MS / 1000} s while this page is open.
+        {refreshProblem && !stale && (
+          <span role="alert" className="block font-medium text-red-600 dark:text-red-400">
+            The last refresh failed: {sentence(refreshProblem)} It tries again every {REFRESH_EVERY_MS / 1000} s.
+          </span>
+        )}
+      </p>
+
+      {stale && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/50 p-4 text-sm"
+        >
+          <span>
+            This list is {durationText(now - loadedAt)} old
+            {refreshing ? ", refreshing now." : refreshProblem ? `. The last refresh failed: ${sentence(refreshProblem)}` : "."}{" "}
+            Times on it may have passed.
+          </span>
+          <Button variant="outline" size="sm" disabled={refreshing} onClick={() => void load("quiet")}>
+            Refresh
+          </Button>
+        </div>
+      )}
+
+      {notice && (
+        <p role="status" className="rounded-lg border p-4 text-sm">
+          {notice}
         </p>
       )}
 
-      <div className="space-y-2">
-        {jobs.map((job) => {
-          const jobKey = `${job.service}:${job.id}`;
-          return (
-          <Collapsible
-            key={jobKey}
-            open={openJobs.has(jobKey)}
-            onOpenChange={() => toggleJob(jobKey)}
-          >
-            <div className="border rounded-lg">
-              <CollapsibleTrigger asChild>
-                <button className="flex w-full items-center justify-between p-4 hover:bg-muted/50 transition-colors">
-                  <div className="flex flex-col items-start text-left">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{job.name || job.id}</span>
-                      <Badge variant={job.service === "dbos" ? "default" : "secondary"}>
-                        {job.service.toUpperCase()}
-                      </Badge>
-                    </div>
-                    <span className="text-sm text-muted-foreground">
-                      Next Run:{" "}
-                      {job.next_run_time
-                        ? new Date(job.next_run_time).toLocaleString()
-                        : "N/A"}
-                    </span>
-                  </div>
-                  <ChevronDown
-                    className={`h-4 w-4 text-muted-foreground transition-transform ${
-                      openJobs.has(jobKey) ? "rotate-180" : ""
-                    }`}
-                  />
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="px-4 pb-4 space-y-2 text-sm border-t pt-4">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <span className="font-medium">ID:</span> {job.id}
-                    </div>
-                    <div>
-                      <span className="font-medium">Service:</span> {job.service}
-                    </div>
-                    <div>
-                      <span className="font-medium">Trigger:</span> {job.trigger}
-                    </div>
-                    <div className="col-span-2">
-                      <span className="font-medium">Function:</span>{" "}
-                      <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                        {job.func_ref}
-                      </code>
-                    </div>
-                    <div>
-                      <span className="font-medium">Args:</span>{" "}
-                      {JSON.stringify(job.args)}
-                    </div>
-                    <div>
-                      <span className="font-medium">Kwargs:</span>{" "}
-                      {JSON.stringify(job.kwargs)}
-                    </div>
-                    <div>
-                      <span className="font-medium">Coalesce:</span>{" "}
-                      {job.coalesce.toString()}
-                    </div>
-                    <div>
-                      <span className="font-medium">Executor:</span>{" "}
-                      {job.executor}
-                    </div>
-                    <div>
-                      <span className="font-medium">Max Instances:</span>{" "}
-                      {job.max_instances}
-                    </div>
-                    <div>
-                      <span className="font-medium">Misfire Grace:</span>{" "}
-                      {job.misfire_grace_time}s
-                    </div>
-                    <div>
-                      <span className="font-medium">Pending:</span>{" "}
-                      {job.pending.toString()}
-                    </div>
-                  </div>
-                  <div className="pt-2">
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        onClick={() => handleRunJobNow(job)}
-                        disabled={runningJob === jobKey || loading || deletingJob === jobKey}
-                        size="sm"
-                      >
-                        <Play className="h-4 w-4 mr-2" />
-                        {runningJob === jobKey ? "Running..." : "Run Now"}
-                      </Button>
-
-                      {job.service === "apscheduler" && (
-                        <Button
-                          onClick={() => handleDeleteJob(job)}
-                          disabled={loading || runningJob === jobKey || deletingJob === jobKey}
-                          size="sm"
-                          variant="destructive"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          {deletingJob === jobKey ? "Deleting..." : "Delete"}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </CollapsibleContent>
-            </div>
-          </Collapsible>
-          );
-        })}
-      </div>
-
-      {loading && jobs.length > 0 && (
-        <div className="flex justify-center py-2">
-          <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
-        </div>
+      {jobs.length === 0 ? (
+        <p className="rounded-lg border p-4 text-sm text-muted-foreground">
+          No jobs are scheduled here. The API registers its jobs when it starts, and only where background automation
+          is on, as it is in production.
+        </p>
+      ) : (
+        <ul className="space-y-3">
+          {jobs.map((job) => {
+            const key = jobKey(job);
+            return (
+              <JobCard
+                key={key}
+                job={job}
+                loadedAt={loadedAt}
+                now={now}
+                open={openJobs.has(key)}
+                busy={busy[key]}
+                outcome={outcomes[key]}
+                onToggle={() => toggleJob(key)}
+                onRun={() => void handleRunJobNow(job)}
+                onDelete={() => void handleDeleteJob(job)}
+              />
+            );
+          })}
+        </ul>
       )}
     </div>
   );

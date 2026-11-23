@@ -17,17 +17,25 @@ router = APIRouter(
 
 # Helper to convert APScheduler Job to a more FastAPI-friendly dict
 def job_to_dict(job: Job) -> dict:
+    # str(CronTrigger) leaves out its time zone ("cron[hour='8,17', minute='0']"),
+    # so it is returned on its own for the page to say "8:00 am Eastern".
+    timezone = getattr(job.trigger, "timezone", None)
+    # A job added before the scheduler starts (pending: automation off, or during
+    # startup) has no next run and no scheduler defaults yet; those read None.
+    next_run_time = getattr(job, "next_run_time", None)
     return {
         "id": job.id,
+        "name": job.name,
         "func_ref": str(job.func_ref),
         "args": job.args,
         "kwargs": job.kwargs,
         "trigger": str(job.trigger),
-        "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
-        "coalesce": job.coalesce,
-        "executor": job.executor,
-        "max_instances": job.max_instances,
-        "misfire_grace_time": job.misfire_grace_time,
+        "timezone": str(timezone) if timezone is not None else None,
+        "next_run_time": next_run_time.isoformat() if next_run_time else None,
+        "coalesce": getattr(job, "coalesce", None),
+        "executor": getattr(job, "executor", None),
+        "max_instances": getattr(job, "max_instances", None),
+        "misfire_grace_time": getattr(job, "misfire_grace_time", None),
         "pending": job.pending,
     }
 
