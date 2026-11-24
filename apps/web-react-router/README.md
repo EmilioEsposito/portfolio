@@ -67,7 +67,7 @@ and have no redirects.
 
 | Page | Address |
 |---|---|
-| Team home: what is waiting for a person, every team page, the notifications prompt | `/team` |
+| Team home: approvals waiting, open tasks, every team page, the notifications prompt | `/team` |
 | Sernia AI chat (`?id=<conversation>`) | `/team/chat` |
 | General agent settings | `/team/settings` |
 | Push devices (admin only) | `/team/push-devices` |
@@ -102,8 +102,17 @@ and have no redirects.
   `handle = { ownSidebar: true }`. General agent settings and all
   conversations show only to the admin, as before.
 - Team pages are `noindex`, and robots.txt on a Sernia host disallows `/team`.
-- The team home reads `GET /api/sernia-ai/conversations/history?limit=50`, the
-  list the chat's sidebar loads, and lists the conversations with `has_pending`.
+- Approvals and open tasks: the team layout reads `GET /api/sernia-ai/workflow/pending`
+  (conversations among the 50 most recent with a step waiting for approval) and
+  `GET /api/team-tasks` once, in `components/team-counts.tsx`. The navigation
+  shows them as badges beside Sernia AI and Tasks; the team home shows them on
+  those two cards and lists the conversations to approve while there are any;
+  the chat's conversation list and the conversations table mark those
+  conversations "To approve" (the history list's own `has_pending` is only
+  filled for the pending list). They are read again on the next page opened or
+  when the app returns to the screen, once a minute at most, at once on the
+  team home and after a change in the chat; the Tasks page hands over its own
+  list instead of a second read.
 - The lead agent overview (`/team/leads`) and the portfolio's write-up
   (`/systems/leasing-leads`) render the same `app/components/leasing-overview.tsx`.
 - Installed app and notifications: the manifest and service worker are

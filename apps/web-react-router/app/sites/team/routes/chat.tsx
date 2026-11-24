@@ -1152,6 +1152,8 @@ function ChatView({
     (result: any) => {
       setPendingApproval(null);
       setAllPendingApprovals([]);
+      // The conversation list and the navigation's approvals badge read it again.
+      refreshConversations();
 
       const decisionMap = new Map<string, boolean>();
       if (result.decisions) {

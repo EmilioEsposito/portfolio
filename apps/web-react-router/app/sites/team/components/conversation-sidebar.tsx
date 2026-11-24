@@ -23,6 +23,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "~/components/ui/collapsible";
+import { useTeamCounts } from "~/sites/team/components/team-counts";
 import { TeamAccount, TeamNavItems } from "~/sites/team/components/team-nav";
 import { TeamWordmark } from "~/sites/team/components/team-wordmark";
 import {
@@ -235,6 +236,12 @@ export function ConversationSidebar({
     Record<string, boolean>
   >({});
   const fetchRef = useRef(0);
+  // The history list does not say which conversations wait for an approval;
+  // the pending list behind the navigation's badge does.
+  const { approvals } = useTeamCounts();
+  const awaitingApproval = new Set(
+    approvals.state === "loaded" ? approvals.value.ids : [],
+  );
 
   const fetchConversations = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -608,12 +615,15 @@ export function ConversationSidebar({
                                   <span className="text-sm truncate flex-1">
                                     {conv.preview || "Empty conversation"}
                                   </span>
-                                  {conv.has_pending && (
+                                  {(conv.has_pending ||
+                                    awaitingApproval.has(
+                                      conv.conversation_id,
+                                    )) && (
                                     <Badge
                                       variant="outline"
                                       className="text-[10px] px-1 py-0 h-4 text-amber-600 border-amber-300 shrink-0"
                                     >
-                                      Pending
+                                      To approve
                                     </Badge>
                                   )}
                                 </div>

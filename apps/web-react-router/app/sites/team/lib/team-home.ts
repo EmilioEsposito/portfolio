@@ -1,30 +1,75 @@
 import type { ConversationSummary } from "~/sites/team/lib/sernia-conversations";
+import { dueLabel, type TasksView, type TaskSource } from "~/sites/team/lib/team-tasks";
 
-// What the team home shows under "Waiting for a person", from the list the chat's
-// conversation sidebar loads (GET /api/sernia-ai/conversations/history).
+// What the team home and the navigation count: the approvals waiting on a
+// person (GET /api/sernia-ai/workflow/pending) and the open tasks
+// (GET /api/team-tasks). No React here.
 
-/** How many recent conversations the team home reads, as the sidebar does. */
-export const RECENT_CONVERSATIONS = 50;
-/** How many waiting conversations it lists. */
-export const WAITING_SHOWN = 5;
+/** How many conversations with an approval waiting the team home lists. */
+export const APPROVALS_SHOWN = 5;
 
-export type Waiting = {
-  /** Conversations with something waiting for a person, among those read. */
+export type Approvals = {
+  /** Conversations with a step waiting for someone to approve or reject it. */
   count: number;
-  /** The most recently updated of them, at most WAITING_SHOWN. */
+  /** The most recently updated of them, at most APPROVALS_SHOWN. */
   first: ConversationSummary[];
+  /** Every one of them, for the chat's conversation list to mark. */
+  ids: string[];
 };
 
-export function waitingForPerson(conversations: ConversationSummary[], shown = WAITING_SHOWN): Waiting {
+/**
+ * The conversations the pending list returned, most recent first. The list
+ * has only conversations with an approval waiting; `has_pending` is checked
+ * again in case an older API answers with others.
+ */
+export function approvalsFrom(conversations: ConversationSummary[], shown = APPROVALS_SHOWN): Approvals {
   const waiting = conversations
-    .filter((conversation) => conversation.has_pending)
+    .filter((conversation) => conversation.has_pending !== false)
     .sort((a, b) => stamp(b) - stamp(a));
-  return { count: waiting.length, first: waiting.slice(0, shown) };
+  return {
+    count: waiting.length,
+    first: waiting.slice(0, shown),
+    ids: waiting.map((conversation) => conversation.conversation_id),
+  };
 }
 
 function stamp(conversation: ConversationSummary): number {
   const time = Date.parse(conversation.updated_at ?? conversation.created_at ?? "");
   return Number.isNaN(time) ? 0 : time;
+}
+
+export type TaskCounts = {
+  /** Tasks not yet completed. */
+  open: number;
+  /** Open tasks whose date has passed, by calendar day in the reader's time zone. */
+  overdue: number;
+  /** Sources that could not be read, or were cut short: the counts may be low. */
+  partial: TaskSource[];
+};
+
+export function taskCounts(view: TasksView, now: Date, timeZone?: string): TaskCounts {
+  const open = view.tasks.filter((task) => !task.completed);
+  return {
+    open: open.length,
+    overdue: open.filter((task) => dueLabel(task.due, now, timeZone).tone === "overdue").length,
+    partial: [...new Set([...view.unavailable, ...view.incomplete])],
+  };
+}
+
+/** "2 to approve" */
+export function approvalsText(count: number): string {
+  return count === 0 ? "Nothing to approve" : `${count} to approve`;
+}
+
+/** "14 open" or "14+ open" where a source was not read whole. */
+export function openText(counts: TaskCounts): string {
+  if (counts.open === 0) return counts.partial.length ? "Tasks not read" : "No open tasks";
+  return `${counts.open}${counts.partial.length ? "+" : ""} open`;
+}
+
+/** "14 open, 3 overdue" */
+export function tasksText(counts: TaskCounts): string {
+  return counts.overdue ? `${openText(counts)}, ${counts.overdue} overdue` : openText(counts);
 }
 
 /** The chat page for one conversation. */

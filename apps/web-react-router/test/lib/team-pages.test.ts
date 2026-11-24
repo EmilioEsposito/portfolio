@@ -8,7 +8,15 @@ import { retireRootServiceWorker } from "~/lib/retire-root-service-worker";
 import { TeamChecking, TeamSignIn, TeamWrongAccount } from "~/sites/team/components/team-gate";
 import { TEAM_SERVICE_WORKER_SCOPE, TEAM_SERVICE_WORKER_URL } from "~/sites/team/lib/push-subscription";
 import { endsPush, isTeamAdmin, teamAccess, teamEmails } from "~/sites/team/lib/team-access";
-import { conversationHref, waitingForPerson } from "~/sites/team/lib/team-home";
+import {
+  approvalsFrom,
+  approvalsText,
+  conversationHref,
+  openText,
+  taskCounts,
+  tasksText,
+} from "~/sites/team/lib/team-home";
+import type { TeamTask } from "~/sites/team/lib/team-tasks";
 import { isCurrentSection, TEAM_HOME, TEAM_SECTIONS, visibleSections } from "~/sites/team/lib/team-sections";
 import type { ConversationSummary } from "~/sites/team/lib/sernia-conversations";
 
@@ -129,19 +137,56 @@ function conversation(id: string, hasPending: boolean, updatedAt: string | null)
   };
 }
 
-test("the team home lists what waits for a person, most recent first", () => {
+test("the team home lists the conversations with something to approve, most recent first", () => {
+  // The pending list answers only conversations with an approval waiting.
   const conversations = [
     conversation("a", true, "2026-11-20T10:00:00Z"),
-    conversation("b", false, "2026-11-22T10:00:00Z"),
     conversation("c", true, "2026-11-22T09:00:00Z"),
     conversation("d", true, null),
     conversation("e", true, "2026-11-21T10:00:00Z"),
   ];
-  const waiting = waitingForPerson(conversations, 3);
-  assert.equal(waiting.count, 4);
-  assert.deepEqual(waiting.first.map((item) => item.conversation_id), ["c", "e", "a"]);
-  assert.deepEqual(waitingForPerson([conversation("b", false, null)]), { count: 0, first: [] });
+  const approvals = approvalsFrom(conversations, 3);
+  assert.equal(approvals.count, 4);
+  assert.deepEqual(approvals.first.map((item) => item.conversation_id), ["c", "e", "a"]);
+  // Every one is marked in the chat's list, not only those the home shows.
+  assert.deepEqual(approvals.ids, ["c", "e", "a", "d"]);
+  // One that says it has nothing waiting is left out.
+  assert.deepEqual(approvalsFrom([conversation("b", false, null)]), { count: 0, first: [], ids: [] });
+  assert.equal(approvalsText(0), "Nothing to approve");
+  assert.equal(approvalsText(2), "2 to approve");
   assert.equal(conversationHref("ai_sms_from_+14125550123"), "/team/chat?id=ai_sms_from_%2B14125550123");
+});
+
+function task(id: string, due: string | null, completed = false): TeamTask {
+  return { source: "clickup", id, title: id, description: "", due, assignees: [], status: "to do", completed, url: null };
+}
+
+test("the Tasks badge counts open tasks, and the overdue ones by the reader's calendar day", () => {
+  const now = new Date("2026-11-24T15:00:00Z");
+  const view = {
+    tasks: [
+      task("late", "2026-11-20T12:00:00Z"),
+      // Late on the 23rd in New York, the 24th in UTC.
+      task("yesterday-in-new-york", "2026-11-24T03:00:00Z"),
+      task("today", "2026-11-24T20:00:00Z"),
+      task("undated", null),
+      // Completed on the Tasks page: struck through there, not counted.
+      task("done", "2026-11-01T12:00:00Z", true),
+    ],
+    unavailable: [],
+    incomplete: [],
+  };
+  const counts = taskCounts(view, now, "America/New_York");
+  assert.deepEqual(counts, { open: 4, overdue: 2, partial: [] });
+  assert.equal(tasksText(counts), "4 open, 2 overdue");
+  assert.equal(taskCounts(view, now, "UTC").overdue, 1);
+
+  // A source not read whole: the count is at least this many.
+  const partial = taskCounts({ tasks: [task("a", null)], unavailable: ["quo"], incomplete: ["quo"] }, now);
+  assert.deepEqual(partial.partial, ["quo"]);
+  assert.equal(openText(partial), "1+ open");
+  assert.equal(openText(taskCounts({ tasks: [], unavailable: [], incomplete: [] }, now)), "No open tasks");
+  assert.equal(openText(taskCounts({ tasks: [], unavailable: ["clickup"], incomplete: [] }, now)), "Tasks not read");
 });
 
 const PUBLIC = new URL("../../public/", import.meta.url);
