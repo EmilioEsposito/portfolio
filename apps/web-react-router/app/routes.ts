@@ -50,6 +50,7 @@ export default [
       route("chat", "sites/team/routes/chat.tsx"),
       route("tasks", "sites/team/routes/tasks.tsx"),
       route("settings", "sites/team/routes/settings.tsx"),
+      route("push-devices", "sites/team/routes/push-devices.tsx"),
       route("admin", "sites/team/routes/admin.tsx"),
       route("tenants", "sites/team/routes/tenants.tsx"),
       route("scheduler", "sites/team/routes/scheduler.tsx"),

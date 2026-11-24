@@ -70,6 +70,7 @@ and have no redirects.
 | Team home: what is waiting for a person, every team page, the notifications prompt | `/team` |
 | Sernia AI chat (`?id=<conversation>`) | `/team/chat` |
 | General agent settings | `/team/settings` |
+| Push devices (admin only) | `/team/push-devices` |
 | All conversations | `/team/admin` |
 | Message tenants | `/team/tenants` |
 | Scheduler | `/team/scheduler` |

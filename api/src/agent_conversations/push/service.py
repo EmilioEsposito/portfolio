@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 import logfire
 from py_vapid import Vapid
 from pywebpush import WebPushException, webpush
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -93,6 +93,7 @@ async def save_subscription(
                     "p256dh": p256dh,
                     "auth": auth,
                     "user_agent": user_agent,
+                    "updated_at": func.now(),
                 },
             )
         )
