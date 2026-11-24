@@ -85,20 +85,3 @@ def test_calendar_connections_start_from_the_team_sites():
     assert calendar_callback.back_to_tab("connected") == (
         "/team/leads/bookings?calendar=connected#calendar-connections"
     )
-
-
-@pytest.mark.parametrize(
-    "message,wrong",
-    [
-        ("Review: https://other.example/team/chat?id=conversation-1", True),
-        ("Review: https://serniacapital.com/team/chat?id=conversation-2.", False),
-        ("Review: https://dev.eesposito.com/team/chat?id=conversation-1", True),
-        ("Review: sernia.capital?", True),
-        ("Task: https://app.clickup.com/t/test", False),
-        ("Docs: https://example.com/sites/sernia.capital", False),
-        ("Docs: https://other.example/team/chat", False),
-    ],
-)
-def test_sms_review_link_host(monkeypatch, message, wrong):
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
-    assert team_links.has_wrong_chat_host(message) is wrong

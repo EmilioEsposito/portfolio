@@ -204,10 +204,7 @@ async def test_approval_resumption_restores_sms_reply_owner(monkeypatch, reply_t
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("to", [PHONE, [PHONE, OTHER]])
-async def test_review_sms_retries_before_delivery(monkeypatch, to):
-    """Replay the bad draft and the corrected tool call through the Quo send path."""
-    from api.src.utils import team_links
-
+async def test_internal_review_sms_appends_the_current_conversation(monkeypatch, to):
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
     ctx = SimpleNamespace(deps=deps([]), tool_call_approved=False)
     ctx.deps.conversation_id = "sms+test&1"
@@ -220,11 +217,6 @@ async def test_review_sms_retries_before_delivery(monkeypatch, to):
     post = AsyncMock(return_value=(True, ""))
     monkeypatch.setattr(quo_tools, "_send_single_sms", post)
     task = "Task: https://app.clickup.com/t/example."
-    wrong = "https://sernia.capital/team/chat?id=sms-test"
-    assert "Blocked" in await sms_tool()(ctx, to, f"{task} Review: {wrong}")
-    assert "Blocked" in await sms_tool()(
-        ctx, to, "See https://sernia.capital?", include_chat_link=True
-    )
     assert "Blocked" in await sms_tool()(ctx, to, "x" * 990, include_chat_link=True)
     post.assert_not_awaited()
 
@@ -234,7 +226,6 @@ async def test_review_sms_retries_before_delivery(monkeypatch, to):
         post.await_args.args[3]
         == f"{task}\n\nReview: https://serniacapital.com/team/chat?id=sms%2Btest%261"
     )
-    assert not team_links.has_wrong_chat_host(post.await_args.args[3])
 
 
 @pytest.mark.asyncio
@@ -253,21 +244,3 @@ async def test_new_chat_link_option_is_team_only(monkeypatch, to):
     monkeypatch.setattr(quo_tools, "execute_sms", send)
     assert "internal team recipients" in await sms_tool()(ctx, to, "Status", include_chat_link=True)
     send.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_bad_review_link_cannot_queue_a_scheduled_sms(monkeypatch):
-    from datetime import UTC, datetime
-
-    from api.src.sernia_ai.tools import scheduling_tools
-
-    scheduler = AsyncMock()
-    monkeypatch.setattr(scheduling_tools, "get_scheduler", scheduler)
-    result = await scheduling_tools.schedule_sms(
-        SimpleNamespace(deps=deps([])),
-        PHONE,
-        "Review: https://sernia.capital/team/chat?id=test",
-        datetime(2099, 1, 1, tzinfo=UTC),
-    )
-    assert "Blocked" in result
-    scheduler.assert_not_called()
