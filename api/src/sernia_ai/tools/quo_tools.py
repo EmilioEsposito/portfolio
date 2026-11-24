@@ -1959,15 +1959,9 @@ def _build_quo_toolset():
                 "send_sms for these recipients."
             )
 
-        if team_links.has_wrong_chat_host(message):
-            return (
-                "Blocked: incorrect Sernia chat link. Remove the guessed URL. "
-                "For a team review of this conversation, retry with include_chat_link=true."
-            )
         if include_chat_link:
-            message = (
-                f"{message.rstrip()}\n\nReview: {team_links.chat_url(ctx.deps.conversation_id)}"
-            )
+            link = team_links.team_url(team_links.chat_path(ctx.deps.conversation_id))
+            message = f"{message.rstrip()}\n\nReview: {link}"
 
         # Gate: message length — carriers (e.g. AT&T) reject long messages.
         if len(message) > SMS_MAX_LENGTH:

@@ -13,7 +13,6 @@ This module imports nothing from the app, so any package may use it.
 """
 
 import os
-import re
 from urllib.parse import urlencode
 
 PRODUCTION_BASE_URL = "https://serniacapital.com"
@@ -49,23 +48,3 @@ def chat_path(conversation_id: str) -> str:
 def team_url(path: str) -> str:
     """``path`` (one of the paths above) as an absolute address for this environment."""
     return f"{base_url()}{path}"
-
-
-def chat_url(conversation_id: str) -> str:
-    return team_url(chat_path(conversation_id))
-
-
-# Check the host at the start of a Sernia chat URL, independently of its ID.
-# Also catch the bare mistyped domain sent in a draft alongside a review link.
-_CHAT_ORIGIN = re.compile(
-    r"""(?P<origin>https?://[^/?#\s<>"']+)""" + re.escape(CHAT_PATH) + r"\?id=", re.IGNORECASE
-)
-_MISTYPED_HOST = re.compile(
-    r"(?<![\w.@/-])(?:https?://)?(?:www\.)?sernia\.capital\b(?![.-]\w)", re.IGNORECASE
-)
-
-
-def has_wrong_chat_host(message: str) -> bool:
-    return bool(_MISTYPED_HOST.search(message)) or any(
-        match["origin"].lower() != base_url() for match in _CHAT_ORIGIN.finditer(message)
-    )

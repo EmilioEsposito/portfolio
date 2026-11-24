@@ -25,7 +25,6 @@ from api.src.sernia_ai.tools.quo_tools import (
     execute_sms,
     resolve_sms_routing,
 )
-from api.src.utils import team_links
 
 # Job ID prefixes — used to filter scheduled messages from system jobs
 _SMS_JOB_PREFIX = "scheduled_sms_"
@@ -149,9 +148,6 @@ async def schedule_sms(
         context: Optional hidden context (same as send_sms).
     """
     logfire.info("schedule_sms called", to=to, send_at=str(send_at), timezone=timezone)
-
-    if team_links.has_wrong_chat_host(message):
-        return f"Blocked: incorrect Sernia chat host. This conversation: {team_links.chat_url(ctx.deps.conversation_id)}"
 
     # Resolve routing (same logic as send_sms)
     client = _build_quo_client()
