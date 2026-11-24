@@ -7,9 +7,10 @@ Inherits the _sernia_gate auth dependency from the parent router.
 import os
 
 from clerk_backend_api import User
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
+from api.src.agent_conversations.push.inventory import MemberRegistrations, team_registrations
 from api.src.agent_conversations.push.service import (
     has_ios_app_subscription,
     notify_user_push,
@@ -93,10 +94,29 @@ async def get_devices(
     """What the caller's own saved subscriptions say about their devices.
 
     ``ios_app``: the caller has the Home Screen app of an iPhone or iPad
-    subscribed. A browser tab on an iPhone or iPad cannot show notifications
-    or see the app's storage; with this answer it stops asking to add the app.
+    subscribed at some point. This account-level record does not establish
+    whether the app is still installed on a particular device.
     """
     return {"ios_app": await has_ios_app_subscription(clerk_user_id=user.id, session=session)}
+
+
+@router.get("/admin/registrations")
+async def get_team_registrations(
+    response: Response,
+    user: User = Depends(_get_sernia_user),
+    session: DBSession = None,
+) -> list[MemberRegistrations]:
+    """Only the verified team administrator can inspect other users' registrations."""
+    if not any(
+        email.id == user.primary_email_address_id
+        and email.email_address.lower() == "emilio@serniacapital.com"
+        and email.verification
+        and email.verification.status == "verified"
+        for email in user.email_addresses
+    ):
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    response.headers["Cache-Control"] = "private, no-store"
+    return await team_registrations(session)
 
 
 @router.post("/test")

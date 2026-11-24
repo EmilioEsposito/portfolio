@@ -58,12 +58,10 @@ function iosVersionCanPush(agent: string): boolean {
  * Where notifications stand on this device.
  * - `needs-home-screen`: an iPhone or iPad in a browser tab; iOS only pushes
  *   to the app on the Home Screen.
- * - `in-app`: the same browser tab, for an account that already gets
- *   notifications in the Home Screen app of an iPhone or iPad.
  * - `blocked`: the browser has been told not to ask for this site.
  * - `unavailable`: this browser cannot do it at all.
  */
-export type NotificationStatus = "checking" | "on" | "off" | "blocked" | "needs-home-screen" | "in-app" | "unavailable";
+export type NotificationStatus = "checking" | "on" | "off" | "blocked" | "needs-home-screen" | "unavailable";
 
 export function notificationStatus(
   device: DeviceFacts,
@@ -71,18 +69,13 @@ export function notificationStatus(
     checked: boolean;
     permission: NotificationPermission | "unsupported";
     subscribed: boolean;
-    /**
-     * For an iPhone or iPad in a browser tab: the API says this account has
-     * the Home Screen app subscribed. Null while asking, or when asking failed.
-     */
-    iosApp?: boolean | null;
   },
 ): NotificationStatus {
   // Asked first: an iPhone's browser tab has no push at all, so it would
   // otherwise read as a browser that can never notify.
   if (device.ios && !device.standalone) {
     if (!device.iosCanPush) return "unavailable";
-    return push.iosApp === true ? "in-app" : "needs-home-screen";
+    return "needs-home-screen";
   }
   if (!device.pushSupported) return "unavailable";
   if (push.permission === "denied") return "blocked";
@@ -98,19 +91,18 @@ export const STATUS_WORD: Record<NotificationStatus, string> = {
   on: "On",
   off: "Off",
   blocked: "Blocked",
-  "needs-home-screen": "Off",
-  "in-app": "On in the app",
+  "needs-home-screen": "App only",
   unavailable: "Not available",
 };
 
 /**
- * The status's colour: green when on (here or in the app), amber when off,
+ * The status's colour: green when on, amber when off,
  * red when the browser blocks it, grey where there is nothing to do.
  */
 export function statusTone(status: NotificationStatus): "on" | "off" | "blocked" | "neutral" {
-  if (status === "on" || status === "in-app") return "on";
+  if (status === "on") return "on";
   if (status === "blocked") return "blocked";
-  return status === "checking" || status === "unavailable" ? "neutral" : "off";
+  return status === "checking" || status === "needs-home-screen" || status === "unavailable" ? "neutral" : "off";
 }
 
 /** Off or blocked: a person can fix it, so the page's top bar says so. Nothing shows when all is well. */
@@ -202,6 +194,10 @@ export function isLastOffer(reminder: Reminder): boolean {
  */
 export type BannerKind = "turn-on" | "home-screen" | "blocked" | "install";
 
+export function isInstallBanner(kind: BannerKind | null): boolean {
+  return kind === "install" || kind === "home-screen";
+}
+
 export function bannerFor(input: {
   status: NotificationStatus;
   /** The browser has offered its own install prompt. */
@@ -211,10 +207,11 @@ export function bannerFor(input: {
   now: number;
 }): BannerKind | null {
   const { status, reminders, now } = input;
-  // "in-app" asks nothing: the account already gets notifications in the app.
-  if (status === "off" || status === "needs-home-screen" || status === "blocked") {
+  // An iOS tab can offer the install steps regardless of push registrations.
+  if (status === "needs-home-screen") return shows(reminders.install, now) ? "home-screen" : null;
+  if (status === "off" || status === "blocked") {
     if (!shows(reminders.notifications, now)) return null;
-    return status === "off" ? "turn-on" : status === "blocked" ? "blocked" : "home-screen";
+    return status === "off" ? "turn-on" : "blocked";
   }
   // Installing is only pressed on a phone, where it puts the pages one tap
   // away; a desktop finds it in the notifications panel.
