@@ -34,6 +34,12 @@ have their separate eligibility policy documented below):
 4. **Group size** — Group texts are capped at `GROUP_SMS_MAX_RECIPIENTS` (10) unique recipients, matching the Quo API's `to` array limit on `POST /v1/messages`.
 5. **Unit isolation (group sends)** — Tenants from **different units** can never share a group thread: `resolve_group_sms_routing` reads each external recipient's `Property` / `Unit #` custom fields and hard-blocks the send when more than one distinct unit appears in the group. This gate runs **before** the approval gate, so a human approval cannot override it. Roommates in the same unit are fine; contacts without unit fields (vendors, team) don't trigger it.
 
+For a team SMS that links to the current run, set `include_chat_link=true` and
+leave the URL out of the body. The tool builds the URL from the run's conversation
+ID and the configured team site, then checks the length of the complete message.
+The option is available for internal contacts and all-internal groups. A draft
+with an incorrect review host is returned for correction before sending.
+
 ### Group Texts (sending)
 
 The Quo API supports up to **10 recipients** per `POST /v1/messages` (`to` array, spec `maxItems: 10`) — the message lands in **one shared group thread** where all recipients see each other's numbers and replies. Verified live 2026-08-13 (HTTP 202, single `conversationId`, status `delivered`).
