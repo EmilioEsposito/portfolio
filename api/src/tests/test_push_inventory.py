@@ -7,7 +7,6 @@ from fastapi import HTTPException, Response
 
 from api.src.agent_conversations.push import inventory, routes
 
-
 pytestmark = pytest.mark.asyncio
 
 
