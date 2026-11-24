@@ -258,12 +258,14 @@ def once_per_run(
 def inject_context(ctx: RunContext[SerniaDeps]) -> str:
     from api.src.utils import team_links
 
-    deeplink = team_links.team_url(team_links.chat_path(ctx.deps.conversation_id))
+    deeplink = team_links.chat_url(ctx.deps.conversation_id)
     return (
         f"Current Date and Time: {format_current_datetime()}. "
         f"Speaking with {ctx.deps.user_name} ({ctx.deps.user_email}) via {ctx.deps.modality}. "
         f"When creating calendar events, always include {ctx.deps.user_email} as an attendee unless told otherwise.\n"
-        f"This conversation's deeplink: {deeplink}"
+        f"This conversation's deeplink: {deeplink}\n"
+        "To include it in a team SMS via quo_send_sms, set include_chat_link=true "
+        "and leave the chat URL out of the message. For other replies, copy the exact link."
     )
 
 

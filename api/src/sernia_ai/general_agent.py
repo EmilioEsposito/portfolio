@@ -15,7 +15,7 @@ from pathlib import Path
 
 import logfire
 from pydantic import BaseModel
-from pydantic_ai import Agent, DeferredToolRequests, RunContext
+from pydantic_ai import Agent, DeferredToolRequests, ModelRetry, RunContext
 from pydantic_ai.capabilities import (
     AbstractCapability,
     Instrumentation,
@@ -24,6 +24,7 @@ from pydantic_ai.capabilities import (
     WebSearch,
 )
 from pydantic_ai.native_tools import WebFetchTool, WebSearchTool
+from pydantic_ai.output import TextOutput
 from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import Skills
 
@@ -61,6 +62,7 @@ from api.src.sernia_ai.tools.scheduling_tools import scheduling_toolset
 from api.src.sernia_ai.tools.templated_message_tools import templated_message_toolset
 from api.src.sernia_ai.tools.workspace_tools import CAPABILITY_ID as WORKSPACE_CAPABILITY_ID
 from api.src.sernia_ai.tools.workspace_tools import SerniaWorkspace, build_workspace_toolset
+from api.src.utils import team_links
 from api.src.utils.openrouter_models import resolve_model
 
 # Ensure workspace directory exists (full init with git sync happens in lifespan)
@@ -161,6 +163,16 @@ lead_policy_capability = lead_policy_skill()
 # needs them. See tools/rental_listing_tools.py.
 rental_listing_capability = rental_listing_tools()
 
+
+def check_sms_reply_links(ctx: RunContext[SerniaDeps], output: str) -> str:
+    if ctx.deps.sms_reply_recipients and team_links.has_wrong_chat_host(output):
+        raise ModelRetry(
+            "Incorrect Sernia chat host in the SMS reply. For this conversation, "
+            f"use {team_links.chat_url(ctx.deps.conversation_id)}."
+        )
+    return output
+
+
 sernia_agent = Agent(
     # `resolve_model` turns the `openrouter:` string into the SerniaOpenRouterModel
     # subclass that records the billed cost, so the fallback default (when the DB
@@ -168,7 +180,11 @@ sernia_agent = Agent(
     resolve_model(MAIN_AGENT_MODEL),
     deps_type=SerniaDeps,
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
-    output_type=[str, NoAction, DeferredToolRequests],  # HITL foundation + silent triggers
+    output_type=[
+        TextOutput(check_sms_reply_links),
+        NoAction,
+        DeferredToolRequests,
+    ],  # HITL foundation + silent triggers
     # When the model returns `NoAction` and calls tools in the same response,
     # end the run without running those tools: a silent trigger run must not
     # send an SMS or an email on its way out. This was pydantic-ai 1.x's

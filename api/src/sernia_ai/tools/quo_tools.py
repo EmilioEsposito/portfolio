@@ -64,6 +64,7 @@ from api.src.sernia_ai.config import (
 )
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.tools._logging import log_tool_error
+from api.src.utils import team_links
 from api.src.utils.fuzzy_json import fuzzy_filter_json
 
 OPENPHONE_SPEC_URL = (
@@ -1912,6 +1913,7 @@ def _build_quo_toolset():
         to: str | list[str],
         message: str,
         context: str = "",
+        include_chat_link: bool = False,
     ) -> str:
         """Send an SMS to one Quo contact, or a GROUP text to several.
 
@@ -1938,6 +1940,8 @@ def _build_quo_toolset():
             to: Recipient phone number in E.164 format (e.g. "+14125551234"),
                 or a list of 2-10 numbers for a group text (one shared thread).
             message: The text message body to send (max 1000 chars).
+            include_chat_link: Set true to append the current conversation's review URL
+                for an internal recipient or team group. Leave that URL out of message.
             context: Optional hidden context about why this message is being sent.
                 Not included in the SMS — saved to each recipient's conversation
                 history so the AI has context if they reply later.
@@ -1953,6 +1957,16 @@ def _build_quo_toolset():
                 "No SMS sent: your final response is automatically delivered to this "
                 "SMS thread. Put your reply in the final response instead of calling "
                 "send_sms for these recipients."
+            )
+
+        if team_links.has_wrong_chat_host(message):
+            return (
+                "Blocked: incorrect Sernia chat link. Remove the guessed URL. "
+                "For a team review of this conversation, retry with include_chat_link=true."
+            )
+        if include_chat_link:
+            message = (
+                f"{message.rstrip()}\n\nReview: {team_links.chat_url(ctx.deps.conversation_id)}"
             )
 
         # Gate: message length — carriers (e.g. AT&T) reject long messages.
@@ -1973,6 +1987,8 @@ def _build_quo_toolset():
                 return group
 
             # Conditional approval: any external recipient requires HITL.
+            if include_chat_link and group.has_external:
+                return "Blocked: include_chat_link is for internal team recipients."
             if group.has_external and not ctx.tool_call_approved:
                 raise ApprovalRequired()
 
@@ -2042,6 +2058,8 @@ def _build_quo_toolset():
             return routing
 
         # Conditional approval: external recipients require HITL
+        if include_chat_link and not routing.is_internal:
+            return "Blocked: include_chat_link is for internal team recipients."
         if not routing.is_internal and not ctx.tool_call_approved:
             raise ApprovalRequired()
 
