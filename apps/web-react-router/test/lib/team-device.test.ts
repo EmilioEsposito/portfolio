@@ -100,32 +100,17 @@ test("where notifications stand on a device", () => {
   assert.equal(notificationStatus(readDevice(browser(DESKTOP), tab, {}), push("default", false)), "unavailable");
 });
 
-test("an iPhone's browser tab reads as on in the app once the API says the account has it", () => {
-  const push = (iosApp: boolean | null | undefined) => ({ permission: "default" as const, subscribed: false, checked: true, iosApp });
-  assert.equal(notificationStatus(iphoneTab, push(true)), "in-app");
-  // No answer, a failed answer or a no: asked to use the Home Screen, as before.
-  assert.equal(notificationStatus(iphoneTab, push(false)), "needs-home-screen");
-  assert.equal(notificationStatus(iphoneTab, push(null)), "needs-home-screen");
-  assert.equal(notificationStatus(iphoneTab, push(undefined)), "needs-home-screen");
-  // iOS before 16.4 cannot push, whatever the account has elsewhere.
-  assert.equal(notificationStatus(readDevice(browser(OLD_IPHONE), tab, {}), push(true)), "unavailable");
-  // The answer is only about browser tabs: the app and other devices go by their own subscription.
-  assert.equal(notificationStatus(iphoneApp, push(true)), "off");
-  assert.equal(notificationStatus(android, push(true)), "off");
-});
-
 test("the status's word and colour, and which statuses need attention", () => {
   const statuses = Object.keys(STATUS_WORD) as NotificationStatus[];
   assert.deepEqual(Object.fromEntries(statuses.map((status) => [status, statusTone(status)])), {
-    checking: "neutral", on: "on", off: "off", blocked: "blocked", "needs-home-screen": "off", "in-app": "on", unavailable: "neutral",
+    checking: "neutral", on: "on", off: "off", blocked: "blocked", "needs-home-screen": "neutral", unavailable: "neutral",
   });
   // Only what a person can fix shows outside the sidebar; nothing shows when all is well.
-  assert.deepEqual(statuses.filter(needsAttention).sort(), ["blocked", "needs-home-screen", "off"]);
+  assert.deepEqual(statuses.filter(needsAttention).sort(), ["blocked", "off"]);
   assert.equal(STATUS_WORD.on, "On");
   assert.equal(STATUS_WORD.off, "Off");
-  assert.equal(STATUS_WORD["needs-home-screen"], "Off");
+  assert.equal(STATUS_WORD["needs-home-screen"], "App only");
   assert.equal(STATUS_WORD.blocked, "Blocked");
-  assert.equal(STATUS_WORD["in-app"], "On in the app");
 });
 
 test("the bell has no dot, and the top bar's button shows only when notifications need attention", () => {
@@ -136,7 +121,7 @@ test("the bell has no dot, and the top bar's button shows only when notification
     assert.match(bell, needsAttention(status) ? /lucide-bell-off/ : /lucide-bell /, status);
     assert.doesNotMatch(bell, /rounded-full/, status);
   }
-  for (const status of ["on", "checking", "unavailable", "in-app"] as NotificationStatus[]) {
+  for (const status of ["on", "checking", "unavailable", "needs-home-screen"] as NotificationStatus[]) {
     assert.equal(renderToStaticMarkup(createElement(NotificationsButtonView, { status, onOpen() {} })), "", status);
   }
   const off = renderToStaticMarkup(createElement(NotificationsButtonView, { status: "off", onOpen() {} }));
@@ -144,20 +129,19 @@ test("the bell has no dot, and the top bar's button shows only when notification
   assert.match(off, />Off<\/button>$/);
   assert.match(off, /text-amber-700 dark:text-amber-400/);
   assert.match(off, /aria-label="Notifications on this device: off\. Open notification settings"/);
-  assert.match(renderToStaticMarkup(createElement(NotificationsButtonView, { status: "needs-home-screen", onOpen() {} })), />Off<\/button>$/);
   const blocked = renderToStaticMarkup(createElement(NotificationsButtonView, { status: "blocked", onOpen() {} }));
   assert.match(blocked, />Blocked<\/button>$/);
   assert.match(blocked, /text-red-600 dark:text-red-400/);
 });
 
-test("the panel tells an iPhone tab whose account has the app where its notifications are, with no button", () => {
+test("an iPhone tab always has manual reinstall steps and leaves notification permission to the app", () => {
   // The panel's title belongs to the dialog it opens in.
   const panel = renderToStaticMarkup(
     createElement(
       Dialog,
       { open: true },
       createElement(NotificationsPanel, {
-        status: "in-app",
+        status: "needs-home-screen",
         device: iphoneTab,
         install: { available: false, installed: false },
         busy: false,
@@ -171,13 +155,9 @@ test("the panel tells an iPhone tab whose account has the app where its notifica
       }),
     ),
   );
-  assert.match(panel, /On in the app/);
-  assert.match(panel, /gets notifications in the Sernia app on the Home Screen/);
-  assert.match(panel, /A browser tab on an iPhone or iPad cannot show them/);
-  assert.doesNotMatch(panel, /<button/);
-  assert.doesNotMatch(panel, /Add to Home Screen/);
-  // The status light beside the word stays in the panel.
-  assert.match(panel, /bg-emerald-500/);
+  assert.match(panel, /Add to Home Screen/);
+  assert.match(panel, /Open as Web App/);
+  assert.doesNotMatch(panel, /<button|On in the app|bg-emerald-500/);
 });
 
 test("opening the app clears its badge where the browser has one, and never throws", async () => {
@@ -235,9 +215,6 @@ test("the one banner a page shows", () => {
   assert.equal(ask("checking"), null);
   assert.equal(ask("unavailable"), null);
   assert.equal(ask("on"), null);
-  // An iPhone tab whose account has the app is not asked to add it again.
-  assert.equal(ask("in-app", { device: iphoneTab }), null);
-  assert.equal(ask("in-app", { device: iphoneTab, installable: true }), null);
   // Turning notifications on comes before installing.
   assert.equal(ask("off", { installable: true }), "turn-on");
   assert.equal(ask("on", { installable: true }), "install");
@@ -248,6 +225,9 @@ test("the one banner a page shows", () => {
   const quiet = { ...NO_REMINDERS, notifications: putAway(NO_REMINDERS.notifications, NOW) };
   assert.equal(ask("off", { reminders: quiet }), null);
   assert.equal(ask("blocked", { reminders: quiet }), null);
+  assert.equal(ask("needs-home-screen", { device: iphoneTab, reminders: quiet }), "home-screen");
+  const hideInstall = { ...NO_REMINDERS, install: putAwayForGood(NOW) };
+  assert.equal(ask("needs-home-screen", { device: iphoneTab, reminders: hideInstall }), null);
   assert.equal(ask("on", { installable: true, reminders: quiet }), "install");
   assert.equal(ask("on", { installable: true, reminders: { ...NO_REMINDERS, install: putAway(NO_REMINDERS.install, NOW) } }), null);
   assert.equal(ask("off", { reminders: quiet, now: NOW + WEEK }), "turn-on");

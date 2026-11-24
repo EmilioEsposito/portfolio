@@ -17,6 +17,7 @@ import { tellWorkerAppOpened } from "~/sites/team/lib/push-subscription";
 import {
   bannerFor,
   clearAppBadge,
+  isInstallBanner,
   isLastOffer,
   needsAttention,
   NO_REMINDERS,
@@ -126,7 +127,6 @@ export function TeamDeviceProvider({ children }: { children: React.ReactNode }) 
         checked: push.checked,
         permission: push.permission,
         subscribed: push.isSubscribed,
-        iosApp: push.iosApp,
       })
     : "checking";
 
@@ -173,13 +173,11 @@ export function TeamDeviceProvider({ children }: { children: React.ReactNode }) 
     return () => clearTimeout(timer);
   }, [turnedOn, test]);
 
-  // An iPhone tab waits for the API's answer, so that a tab whose account has
-  // the app does not show the Home Screen banner for a moment on every page.
   const banner =
-    reminders && push.device && !push.iosAppPending
+    reminders && push.device
       ? bannerFor({ status, installable: offer.available, device: push.device, reminders, now })
       : null;
-  const topic = banner === "install" ? "install" : "notifications";
+  const topic = isInstallBanner(banner) ? "install" : "notifications";
   const dismissBanner = useCallback(() => remember(topic, putAway), [remember, topic]);
   const installApp = useCallback(() => {
     void showInstallPrompt().then((outcome) => {
@@ -280,7 +278,7 @@ export function bellLabel(status: NotificationStatus): string {
 /**
  * The button in a page's top bar, shown only while notifications are off or
  * blocked: the crossed bell and the word, in amber or red. When they are on,
- * being checked, on in the app, or cannot work here, it renders nothing; the
+ * being checked, or only available elsewhere, it renders nothing; the
  * sidebar's Notifications row is always there.
  */
 export function NotificationsButton({ className }: { className?: string }) {
@@ -361,8 +359,8 @@ const BANNER: Record<BannerKind, { text: string; action: string; busyAction?: st
     busyAction: "Turning on…",
   },
   "home-screen": {
-    text: "Notifications are off on this device. An iPhone or iPad shows them once these pages are on its Home Screen.",
-    action: "Show me how",
+    text: "Add Sernia to your Home Screen to open the team pages in one tap.",
+    action: "See install steps",
   },
   blocked: {
     text: "Notifications are blocked for this site in this browser, so you are not told when a conversation needs you.",
@@ -387,11 +385,11 @@ export function DeviceBannerView(props: {
   const working = props.busy && props.kind === "turn-on";
   return (
     <section
-      aria-label={props.kind === "install" ? "Install the app" : "Notifications on this device"}
+      aria-label={isInstallBanner(props.kind) ? "Install the app" : "Notifications on this device"}
       className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b bg-muted/50 px-4 py-2.5 text-sm sm:px-6"
     >
       <p className="flex min-w-0 flex-1 basis-64 items-start gap-2.5">
-        {props.kind === "install" ? (
+        {isInstallBanner(props.kind) ? (
           <Download className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         ) : (
           <BellOff className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -497,13 +495,8 @@ const PANEL: Record<NotificationStatus, { headline: string; detail: string }> = 
     detail: "This browser was told not to show notifications from this site, so the page cannot ask again.",
   },
   "needs-home-screen": {
-    headline: "Off",
-    detail: "An iPhone or iPad shows notifications only from an app on its Home Screen. Add these pages to it:",
-  },
-  "in-app": {
-    headline: "On in the app",
-    detail:
-      "This account gets notifications in the Sernia app on the Home Screen. A browser tab on an iPhone or iPad cannot show them; the app does.",
+    headline: "Home Screen app only",
+    detail: "If Sernia is on your Home Screen, open its icon to check notifications. If the icon is missing, add it with the steps below.",
   },
   unavailable: { headline: "Not available here", detail: "" },
 };
@@ -535,7 +528,7 @@ export function NotificationsPanel(props: {
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Notifications on this device</DialogTitle>
+        <DialogTitle>{status === "needs-home-screen" ? "Sernia on your Home Screen" : "Notifications on this device"}</DialogTitle>
         <DialogDescription className="sr-only">Whether this device is told when a conversation needs a person.</DialogDescription>
       </DialogHeader>
       <div className="space-y-4">
@@ -593,12 +586,12 @@ export function NotificationsPanel(props: {
               Tap <strong>Share</strong> <Share className="inline size-4 align-text-bottom" aria-hidden="true" />
               {device?.iosBrowser === "chrome"
                 ? ", at the top right of the address bar."
-                : ", at the bottom of the screen. If it is not there, tap ••• first."}
+                : " in the toolbar or page menu."}
             </li>
             <li>
-              Tap <strong>Add to Home Screen</strong>, then <strong>Add</strong>.
+              Choose <strong>Add to Home Screen</strong>. If you see <strong>Open as Web App</strong>, turn it on, then tap <strong>Add</strong>.
             </li>
-            <li>Open Sernia from the Home Screen, sign in, and turn on notifications there.</li>
+            <li>Open Sernia from its icon. To receive alerts, sign in and check Notifications.</li>
           </ol>
         )}
 

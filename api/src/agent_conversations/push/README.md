@@ -104,7 +104,7 @@ All under `/api/sernia-ai/push/`, gated by `_sernia_gate` (requires `@serniacapi
 ## What a team page shows
 
 The sidebar of every team page has a Notifications row with a word: "On",
-"Off", "Blocked", "On in the app" (below), or "Not available" where the browser
+"Off", "Blocked", "App only" (in an iOS browser tab), or "Not available" where the browser
 cannot notify. "Off" is amber and "Blocked" red; the rest are muted. The row
 reports; it never switches anything. It opens a panel that says it in a
 sentence, with a status light beside the word, and whose buttons are named for
@@ -120,27 +120,34 @@ with a crossed-out bell, which opens the same panel.
 permission; when the permission is changed in the browser's settings, the
 subscription is checked again.
 
-Until notifications are on, a banner on every team page asks: on Android and
-desktop its button brings up the browser's own permission prompt; on an iPhone
-or iPad in a browser tab it opens the Add to Home Screen steps; where the
-browser has blocked the site it explains how to allow it. Once notifications
-are on, a phone whose browser offers installing gets an "Install app" banner
-(the browser's own prompt). "Not now" puts a banner away for a week, the
-second time for good. Turning notifications off in the panel puts it away at
-once. The choice is kept in the browser (`sernia-team-reminders`).
+On push-capable browsers, a banner offers to turn on notifications or explains
+how to unblock them. Once notifications are on, a phone whose browser offers
+installing gets an “Install app” banner that opens the browser's own prompt.
 
-An iPhone or iPad browser tab cannot tell whether the Home Screen app is
-installed (the app has its own storage), so it asks the API once after
-sign-in (`GET /push/devices`). When the account has the Home Screen app
-subscribed, the tab reads "On in the app": no banner, no top-bar button, and
-the panel says that the app gets the notifications and a browser tab cannot.
-Until the answer arrives the banner waits; if asking fails, the tab is asked
-to use the Home Screen as before. `ios_app` counts a subscription whose user
-agent names an iPhone, iPad or iPod and whose endpoint is on Apple's push
-service. An iPad set to request desktop sites (the default) reports a Mac user
-agent, indistinguishable from Safari on a Mac, so its app is not counted and
-its browser tab still shows the Home Screen steps. Android needs none of this:
-the installed app and Chrome share storage, so a tab already reads as on.
+On iOS 16.4 and later, a browser tab offers Home Screen install steps. The
+tab cannot check the icon on this device. A push record can belong to a past
+install or another device, so the tab does not look up account subscriptions.
+The sidebar's Notifications row also opens the steps, even after the banner
+is dismissed. Opening Sernia from its icon shows the app's own push status.
+
+“Not now” snoozes a banner for one week. “Don't remind me” dismisses the
+second offer indefinitely. Install and notification reminders are stored
+separately in `sernia-team-reminders`. Turning notifications off in the
+panel dismisses the notification reminder.
+
+### Admin push devices
+
+Emilio's verified primary account can open `/team/push-devices`. The API
+(`GET /push/admin/registrations`) lists verified Sernia members from the
+configured Clerk instance, including members with no registered endpoint.
+Each registration shows its database ID, browser user agent, first registration
+and last registration update. An Apple push endpoint and a mobile iOS user
+agent indicate a Home Screen app at registration time. Older rows can have
+identical timestamps because earlier upserts preserved the original timestamp.
+Delivery time, current installation and a physical device identifier are
+unavailable. Separate iOS installs can have separate endpoints. Repeated
+registrations of one endpoint update the same row, and permanent push-service
+errors retire invalid endpoints on send.
 
 ### The app icon's badge
 

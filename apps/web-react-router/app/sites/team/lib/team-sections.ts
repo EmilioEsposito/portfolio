@@ -7,6 +7,7 @@ import {
   ListChecks,
   MessagesSquare,
   Settings,
+  Smartphone,
   type LucideIcon,
 } from "lucide-react";
 
@@ -67,6 +68,13 @@ export const TEAM_SECTIONS: TeamSection[] = [
     description: "Sernia AI's triggers, schedule and model.",
     url: "/team/settings",
     icon: Settings,
+    adminOnly: true,
+  },
+  {
+    title: "Push devices",
+    description: "See which team members have registered for notifications.",
+    url: "/team/push-devices",
+    icon: Smartphone,
     adminOnly: true,
   },
   {
