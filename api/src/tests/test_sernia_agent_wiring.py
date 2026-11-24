@@ -152,33 +152,6 @@ class TestSyntheticRun:
         assert "Test User" in instructions  # inject_context
 
     @pytest.mark.asyncio
-    async def test_sms_final_reply_retries_with_the_current_chat_url(self, deps, monkeypatch):
-        from pydantic_ai.messages import ModelResponse, TextPart
-        from pydantic_ai.models.function import FunctionModel
-
-        monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
-        deps.sms_reply_recipients = ["+14125550101"]
-        url = "https://serniacapital.com/team/chat?id=test-wiring-conv"
-        attempts = []
-
-        def model(messages, info):
-            attempts.append(messages[-1])
-            if len(attempts) == 1:
-                return ModelResponse(
-                    parts=[TextPart("Review: https://sernia.capital/team/chat?id=test-wiring-conv")]
-                )
-            feedback = str(messages[-1].parts)
-            assert "Incorrect Sernia chat host" in feedback and url in feedback
-            return ModelResponse(parts=[TextPart(f"Review: {url}")])
-
-        with sernia_agent.override(native_tools=[]):
-            result = await sernia_agent.run(
-                "Send the review link.", deps=deps, model=FunctionModel(model)
-            )
-        assert result.output == f"Review: {url}"
-        assert len(attempts) == 2
-
-    @pytest.mark.asyncio
     async def test_history_processors_run_during_agent_run(self, deps, monkeypatch):
         """The ProcessHistory capabilities must actually execute per request."""
         from pydantic_ai import RunContext

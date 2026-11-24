@@ -37,8 +37,7 @@ have their separate eligibility policy documented below):
 For a team SMS that links to the current run, set `include_chat_link=true` and
 leave the URL out of the body. The tool builds the URL from the run's conversation
 ID and the configured team site, then checks the length of the complete message.
-The option is available for internal contacts and all-internal groups. A draft
-with an incorrect review host is returned for correction before sending.
+The option is available for internal contacts and all-internal groups.
 
 ### Group Texts (sending)
 
