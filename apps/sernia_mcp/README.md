@@ -74,6 +74,9 @@ the API records each change under that person's name with the source
 | Tool | Kind | Notes |
 |------|------|-------|
 | `clickup_search_tasks` | read | Filters + optional fuzzy text query |
+| `clickup_list_members` | read | Resolve names or emails to Sernia workspace user IDs |
+| `clickup_create_task` | write | Optionally supply `assignee_ids`. Omit to leave assignment to ClickUp automations. |
+| `clickup_update_task` | write | Add or remove individual assignees with `add_assignee_ids` and `remove_assignee_ids`. |
 
 ## Quick start (local dev)
 
@@ -326,9 +329,9 @@ apps/sernia_mcp/
 
 ## Out of scope (v1)
 
-- Feature parity with the Sernia AI agent (deliberately a smaller surface — `mass_text_tenants`, scheduling, ClickUp create/update, Calendar, Drive, DB search, Python sandbox all live in `api/src/sernia_ai/` for now).
+- Feature parity with the Sernia AI agent (deliberately a smaller surface — `mass_text_tenants`, scheduling, Calendar, Drive, DB search, Python sandbox all live in `api/src/sernia_ai/` for now).
 - External SMS / email sending without UI approval (deferred — DB-backed queue).
-- Calendar / Drive / ClickUp **write** tools (deferred; read-only for now).
+- Calendar / Drive **write** tools (deferred; read-only for now).
 - Per-user / per-tool authorization (today: email-domain allowlist gates *all* tools uniformly; per-tool roles or org-level scoping not modeled).
 
 ## See also

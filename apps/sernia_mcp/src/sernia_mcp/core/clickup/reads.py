@@ -17,12 +17,30 @@ from sernia_mcp.config import (
     CLICKUP_TEAM_ID,
     DEFAULT_CLICKUP_VIEW_ID,
 )
+from sernia_mcp.core.clickup import format_assignees
 from sernia_mcp.core.clickup._client import clickup_request
 from sernia_mcp.core.errors import ExternalServiceError
 
 # ---------------------------------------------------------------------------
 # Workspace browse
 # ---------------------------------------------------------------------------
+
+
+async def list_members_core() -> str:
+    """Look up Sernia workspace members by name or email for their ClickUp assignee IDs."""
+    resp = await clickup_request("GET", "/team")
+    if resp.status_code != 200:
+        raise ExternalServiceError(f"ClickUp API HTTP {resp.status_code}: {resp.text[:200]}")
+    for team in resp.json()["teams"]:
+        if str(team["id"]) == CLICKUP_TEAM_ID:
+            lines = []
+            for member in team["members"]:
+                user = member["user"]
+                lines.append(
+                    f"{user.get('username') or '(unnamed)'} <{user.get('email') or '?'}> (id: {user['id']})"
+                )
+            return "\n".join(lines) or "No ClickUp members found in the Sernia workspace."
+    return "Sernia workspace missing from the authorized ClickUp workspaces."
 
 
 async def list_clickup_lists_core() -> str:
@@ -111,6 +129,7 @@ async def get_tasks_core(list_or_view_id: str | None = None) -> str:
         lines.append(
             f"- {name} (id: {task_id})\n"
             f"  Status: {status} | Priority: {priority_str} | Due: {due_str}\n"
+            f"  Assignees: {format_assignees(task)}\n"
             f"  URL: {url_link}"
         )
     return "\n".join(lines)

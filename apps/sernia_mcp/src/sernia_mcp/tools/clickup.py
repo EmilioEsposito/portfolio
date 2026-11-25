@@ -6,6 +6,7 @@ from sernia_mcp.core.clickup.reads import (
     get_maintenance_field_options_core,
     get_tasks_core,
     list_clickup_lists_core,
+    list_members_core,
 )
 from sernia_mcp.core.clickup.tasks import search_tasks_core
 from sernia_mcp.core.clickup.writes import (
@@ -76,6 +77,7 @@ async def clickup_create_task(
     priority: int | None = None,
     due_date: str | None = None,
     custom_fields: list[dict] | None = None,
+    assignee_ids: list[int] | None = None,
 ) -> str:
     """Create a new task in a ClickUp list.
 
@@ -87,6 +89,8 @@ async def clickup_create_task(
         priority: Optional priority 1-4 (1=urgent, 2=high, 3=normal, 4=low).
         due_date: Optional ISO date or datetime (e.g. "2026-04-30",
             "2026-04-30T17:00:00").
+        assignee_ids: ClickUp user IDs to assign. Use clickup_list_members to resolve names.
+            Omit when no assignment was requested so list automations can assign the task.
         custom_fields: Optional list of ``{"id": "<uuid>", "value": ...}``
             entries. For drop_down fields, ``value`` must be the option UUID.
     """
@@ -99,6 +103,7 @@ async def clickup_create_task(
             priority=priority,
             due_date=due_date,
             custom_fields=custom_fields,
+            assignee_ids=assignee_ids,
         )
     except CoreError as e:
         raise ToolError(f"clickup_create_task failed: {e}") from e
@@ -112,6 +117,8 @@ async def clickup_update_task(
     status: str | None = None,
     priority: int | None = None,
     due_date: str | None = None,
+    add_assignee_ids: list[int] | None = None,
+    remove_assignee_ids: list[int] | None = None,
 ) -> str:
     """Update an existing ClickUp task.
 
@@ -124,6 +131,8 @@ async def clickup_update_task(
         description: New description (markdown supported).
         status: New status string.
         priority: New priority 1-4.
+        add_assignee_ids: ClickUp user IDs to add. Use clickup_list_members to resolve names.
+        remove_assignee_ids: ClickUp user IDs to remove. Other assignees are preserved.
         due_date: New ISO date/datetime, ``""`` to clear, or omit to keep.
     """
     try:
@@ -134,6 +143,8 @@ async def clickup_update_task(
             status=status,
             priority=priority,
             due_date=due_date,
+            add_assignee_ids=add_assignee_ids,
+            remove_assignee_ids=remove_assignee_ids,
         )
     except CoreError as e:
         raise ToolError(f"clickup_update_task failed: {e}") from e
@@ -157,6 +168,15 @@ async def clickup_set_task_custom_field(
         return await set_task_custom_field_core(task_id, field_id, value)
     except CoreError as e:
         raise ToolError(f"clickup_set_task_custom_field failed: {e}") from e
+
+
+@mcp.tool
+async def clickup_list_members() -> str:
+    """List Sernia workspace member names, emails and ClickUp IDs for assigning tasks."""
+    try:
+        return await list_members_core()
+    except CoreError as e:
+        raise ToolError(f"clickup_list_members failed: {e}") from e
 
 
 @mcp.tool
