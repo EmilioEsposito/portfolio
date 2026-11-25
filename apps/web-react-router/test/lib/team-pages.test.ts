@@ -109,7 +109,9 @@ test("the admin's pages show only to the admin", () => {
   for (const url of ["/team/chat", "/team/leads", "/team/tenants", "/team/scheduler"]) {
     assert.ok(everyone.includes(url), url);
   }
-  assert.ok(everyone.includes("/team/tasks"));
+  // Tasks come first, on the team home and in the navigation (after Team home).
+  assert.equal(everyone[0], "/team/tasks");
+  assert.equal(admin[0], "/team/tasks");
   assert.ok(admin.includes("/team/push-devices") && !everyone.includes("/team/push-devices"));
   for (const section of TEAM_SECTIONS) assert.ok(section.description.length > 0, section.url);
 });
