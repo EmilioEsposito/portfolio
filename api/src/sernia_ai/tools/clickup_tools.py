@@ -93,6 +93,36 @@ def _looks_like_clickup_id(value: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _format_assignees(task: dict) -> str:
+    if task.get("assignees") is None:
+        return "not reported"
+    return (
+        ", ".join(
+            f"{user.get('username') or user.get('email') or '?'} (id: {user.get('id', '?')})"
+            for user in task["assignees"]
+        )
+        or "unassigned"
+    )
+
+
+@clickup_toolset.tool
+async def list_members(ctx: RunContext[SerniaDeps]) -> str:
+    """Look up Sernia workspace members by name or email for their ClickUp assignee IDs."""
+    resp = await _clickup_request("GET", "/team")
+    if resp.status_code != 200:
+        return f"ClickUp API error (HTTP {resp.status_code}): {resp.text[:200]}"
+    for team in resp.json()["teams"]:
+        if str(team["id"]) == CLICKUP_TEAM_ID:
+            lines = []
+            for member in team["members"]:
+                user = member["user"]
+                lines.append(
+                    f"{user.get('username') or '(unnamed)'} <{user.get('email') or '?'}> (id: {user['id']})"
+                )
+            return "\n".join(lines) or "No ClickUp members found in the Sernia workspace."
+    return "Sernia workspace missing from the authorized ClickUp workspaces."
+
+
 @clickup_toolset.tool
 async def list_clickup_lists(ctx: RunContext[SerniaDeps]) -> str:
     """List all spaces, folders, and lists in the ClickUp workspace.
@@ -196,6 +226,7 @@ async def get_tasks(
         lines.append(
             f"- {name} (id: {task_id})\n"
             f"  Status: {status} | Priority: {priority_str} | Due: {due_str}\n"
+            f"  Assignees: {_format_assignees(task)}\n"
             f"  URL: {url_link}"
         )
     return "\n".join(lines)
@@ -285,16 +316,12 @@ async def search_tasks(
         due_str = "no due date"
         if due_date:
             due_str = datetime.fromtimestamp(int(due_date) / 1000).strftime("%Y-%m-%d")
-        assignees = task.get("assignees", [])
-        assignee_str = (
-            ", ".join(a.get("username", "?") for a in assignees) if assignees else "unassigned"
-        )
         url_link = task.get("url", "")
 
         lines.append(
             f"- {name} (id: {task_id})\n"
             f"  Status: {status} | Priority: {priority_str} | Due: {due_str}\n"
-            f"  Assignees: {assignee_str}\n"
+            f"  Assignees: {_format_assignees(task)}\n"
             f"  URL: {url_link}"
         )
     result = "\n".join(lines)
@@ -364,6 +391,7 @@ async def create_task(
     priority: int | None = None,
     due_date: str | None = None,
     custom_fields: list[dict] | None = None,
+    assignee_ids: list[int] | None = None,
 ) -> str:
     """Create a new task in a ClickUp list.
 
@@ -374,6 +402,8 @@ async def create_task(
         status: Optional status string (e.g. "to do", "in progress").
         priority: Optional priority 1-4 (1=urgent, 2=high, 3=normal, 4=low).
         due_date: Optional due date as ISO string (e.g. "2025-07-15").
+        assignee_ids: ClickUp user IDs to assign. Use clickup_list_members to resolve names.
+            Omit when no assignment was requested so list automations can assign the task.
         custom_fields: Optional list of custom field values. Each entry is
             ``{"id": "<field_uuid>", "value": ...}``. For drop_down fields the
             value must be the option UUID (use get_maintenance_field_options).
@@ -389,6 +419,8 @@ async def create_task(
         # ClickUp expects millisecond Unix timestamp
         dt = datetime.fromisoformat(due_date)
         body["due_date"] = int(dt.timestamp() * 1000)
+    if assignee_ids:
+        body["assignees"] = assignee_ids
     if custom_fields is not None:
         valid = await _list_field_names_by_id(list_id)
         if valid is not None:
@@ -402,7 +434,11 @@ async def create_task(
         return f"ClickUp API error (HTTP {resp.status_code}): {resp.text[:300]}"
 
     data = resp.json()
-    return f"Task created: {data.get('name')} (id: {data.get('id')})\nURL: {data.get('url', 'N/A')}"
+    return (
+        f"Task created: {data.get('name')} (id: {data.get('id')})\n"
+        f"Assignees: {_format_assignees(data)}\n"
+        f"URL: {data.get('url', 'N/A')}"
+    )
 
 
 @clickup_toolset.tool
@@ -414,6 +450,8 @@ async def update_task(
     status: str | None = None,
     priority: int | None = None,
     due_date: str | None = None,
+    add_assignee_ids: list[int] | None = None,
+    remove_assignee_ids: list[int] | None = None,
 ) -> str:
     """Update an existing ClickUp task.
 
@@ -423,6 +461,8 @@ async def update_task(
         description: New description.
         status: New status string.
         priority: New priority 1-4 (1=urgent, 2=high, 3=normal, 4=low).
+        add_assignee_ids: ClickUp user IDs to add. Use clickup_list_members to resolve names.
+        remove_assignee_ids: ClickUp user IDs to remove. Other assignees are preserved.
         due_date: New due date as ISO string, or empty string to clear.
     """
     body: dict = {}
@@ -441,6 +481,13 @@ async def update_task(
             dt = datetime.fromisoformat(due_date)
             body["due_date"] = int(dt.timestamp() * 1000)
 
+    if add_assignee_ids or remove_assignee_ids:
+        add = add_assignee_ids or []
+        remove = remove_assignee_ids or []
+        if set(add).intersection(remove):
+            return "The same ClickUp user cannot be both added and removed."
+        body["assignees"] = {"add": add, "rem": remove}
+
     if not body:
         return "No fields to update."
 
@@ -449,7 +496,11 @@ async def update_task(
         return f"ClickUp API error (HTTP {resp.status_code}): {resp.text[:300]}"
 
     data = resp.json()
-    return f"Task updated: {data.get('name')} (id: {data.get('id')})\nURL: {data.get('url', 'N/A')}"
+    return (
+        f"Task updated: {data.get('name')} (id: {data.get('id')})\n"
+        f"Assignees: {_format_assignees(data)}\n"
+        f"URL: {data.get('url', 'N/A')}"
+    )
 
 
 @clickup_toolset.tool

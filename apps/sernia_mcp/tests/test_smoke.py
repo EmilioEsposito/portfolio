@@ -50,6 +50,7 @@ async def test_expected_tools_exposed():
         "clickup_update_task",
         "clickup_set_task_custom_field",
         "clickup_list_lists",
+        "clickup_list_members",
         "clickup_get_tasks",
         "clickup_get_maintenance_field_options",
         "quo_list_tasks",

@@ -6,6 +6,7 @@ from datetime import datetime
 
 from sernia_mcp.clients._fuzzy import fuzzy_filter_json
 from sernia_mcp.config import CLICKUP_TEAM_ID
+from sernia_mcp.core.clickup import format_assignees
 from sernia_mcp.core.clickup._client import clickup_request
 from sernia_mcp.core.errors import ExternalServiceError
 
@@ -72,15 +73,11 @@ async def search_tasks_core(
             if due_date
             else "no due date"
         )
-        assignees = task.get("assignees", [])
-        assignee_str = (
-            ", ".join(a.get("username", "?") for a in assignees) if assignees else "unassigned"
-        )
         url_link = task.get("url", "")
         lines.append(
             f"- {name} (id: {task_id})\n"
             f"  Status: {status} | Priority: {priority_str} | Due: {due_str}\n"
-            f"  Assignees: {assignee_str}\n"
+            f"  Assignees: {format_assignees(task)}\n"
             f"  URL: {url_link}"
         )
     result = "\n".join(lines)

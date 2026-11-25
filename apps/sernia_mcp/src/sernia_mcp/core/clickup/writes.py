@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from sernia_mcp.core.clickup import format_assignees
 from sernia_mcp.core.clickup._client import clickup_request
 from sernia_mcp.core.errors import ExternalServiceError, ValidationError
 
@@ -35,6 +36,7 @@ async def create_task_core(
     priority: int | None = None,
     due_date: str | None = None,
     custom_fields: list[dict] | None = None,
+    assignee_ids: list[int] | None = None,
 ) -> str:
     """Create a new task in a ClickUp list.
 
@@ -45,6 +47,8 @@ async def create_task_core(
         status: Optional status string.
         priority: Optional 1-4 (1=urgent, 2=high, 3=normal, 4=low).
         due_date: Optional ISO date or datetime.
+        assignee_ids: ClickUp user IDs to assign. Use clickup_list_members to resolve names.
+            Omit when no assignment was requested so list automations can assign the task.
         custom_fields: Optional ``[{"id": "<uuid>", "value": ...}]`` list.
     """
     body: dict = {"name": name}
@@ -56,6 +60,8 @@ async def create_task_core(
         body["priority"] = priority
     if due_date is not None:
         body["due_date"] = _due_date_to_ms(due_date)
+    if assignee_ids:
+        body["assignees"] = assignee_ids
     if custom_fields is not None:
         body["custom_fields"] = custom_fields
 
@@ -64,7 +70,11 @@ async def create_task_core(
         raise ExternalServiceError(f"ClickUp API HTTP {resp.status_code}: {resp.text[:300]}")
 
     data = resp.json()
-    return f"Task created: {data.get('name')} (id: {data.get('id')})\nURL: {data.get('url', 'N/A')}"
+    return (
+        f"Task created: {data.get('name')} (id: {data.get('id')})\n"
+        f"Assignees: {format_assignees(data)}\n"
+        f"URL: {data.get('url', 'N/A')}"
+    )
 
 
 async def update_task_core(
@@ -75,6 +85,8 @@ async def update_task_core(
     status: str | None = None,
     priority: int | None = None,
     due_date: str | None = None,
+    add_assignee_ids: list[int] | None = None,
+    remove_assignee_ids: list[int] | None = None,
 ) -> str:
     """Update an existing ClickUp task.
 
@@ -93,6 +105,13 @@ async def update_task_core(
     if due_date is not None:
         body["due_date"] = None if due_date == "" else _due_date_to_ms(due_date)
 
+    if add_assignee_ids or remove_assignee_ids:
+        add = add_assignee_ids or []
+        remove = remove_assignee_ids or []
+        if set(add).intersection(remove):
+            raise ValidationError("The same ClickUp user cannot be both added and removed.")
+        body["assignees"] = {"add": add, "rem": remove}
+
     if not body:
         return "No fields to update."
 
@@ -101,7 +120,11 @@ async def update_task_core(
         raise ExternalServiceError(f"ClickUp API HTTP {resp.status_code}: {resp.text[:300]}")
 
     data = resp.json()
-    return f"Task updated: {data.get('name')} (id: {data.get('id')})\nURL: {data.get('url', 'N/A')}"
+    return (
+        f"Task updated: {data.get('name')} (id: {data.get('id')})\n"
+        f"Assignees: {format_assignees(data)}\n"
+        f"URL: {data.get('url', 'N/A')}"
+    )
 
 
 async def set_task_custom_field_core(
