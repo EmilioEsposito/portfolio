@@ -179,3 +179,39 @@ async def test_set_custom_field_http_failure_raises():
 
         with pytest.raises(ExternalServiceError, match="HTTP 403"):
             await set_task_custom_field_core("T1", "f", "v")
+
+
+@pytest.mark.asyncio
+async def test_assignee_tools_through_mcp():
+    from fastmcp import Client
+
+    from sernia_mcp.config import CLICKUP_TEAM_ID
+    from sernia_mcp.server import mcp
+
+    member = {"id": 27, "username": "Alex", "email": "alex@example.test"}
+    teams = [{"id": CLICKUP_TEAM_ID, "members": [{"user": member}]}]
+    read = AsyncMock(return_value=_ok_response({"teams": teams}))
+    write = AsyncMock(
+        return_value=_ok_response({"id": "T1", "name": "Fix sink", "assignees": [member]})
+    )
+    with (
+        patch("sernia_mcp.core.clickup.reads.clickup_request", read),
+        patch("sernia_mcp.core.clickup.writes.clickup_request", write),
+    ):
+        async with Client(mcp) as client:
+            members = await client.call_tool("clickup_list_members", {})
+            assert "Alex <alex@example.test> (id: 27)" in members.content[0].text
+            created = await client.call_tool(
+                "clickup_create_task", {"list_id": "L1", "name": "Fix sink", "assignee_ids": [27]}
+            )
+            write.assert_awaited_once_with(
+                "POST", "/list/L1/task", json={"name": "Fix sink", "assignees": [27]}
+            )
+            assert "Assignees: Alex (id: 27)" in created.content[0].text
+            await client.call_tool(
+                "clickup_update_task",
+                {"task_id": "T1", "add_assignee_ids": [27], "remove_assignee_ids": [39]},
+            )
+            write.assert_awaited_with(
+                "PUT", "/task/T1", json={"assignees": {"add": [27], "rem": [39]}}
+            )
