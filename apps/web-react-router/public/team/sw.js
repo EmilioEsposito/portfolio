@@ -63,6 +63,22 @@ async function syncBadge() {
   }
 }
 
+// Apple's push service (Home Screen apps on iPhone and iPad, Safari on a Mac)
+// deletes every push subscription of a site after three pushes that showed no
+// notification, and never forgives one (WebKit's maxSilentPushCount). There a
+// push is always shown. The API already sends no push about a conversation to
+// someone who has it open (push/presence.py); this only catches the rare push
+// that crosses a reader arriving at the page.
+async function mayStaySilent() {
+  try {
+    const subscription = await self.registration.pushManager.getSubscription();
+    if (!subscription) return false;
+    return !new URL(subscription.endpoint).hostname.endsWith("push.apple.com");
+  } catch {
+    return false;
+  }
+}
+
 async function shouldShowNotification(data) {
   if (data.type !== "response") return true;
 
@@ -94,7 +110,7 @@ async function shouldShowNotification(data) {
     type: "response-ready",
     data,
   });
-  return false;
+  return !(await mayStaySilent());
 }
 
 self.addEventListener("push", (event) => {

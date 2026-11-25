@@ -8,8 +8,9 @@ import os
 
 from clerk_backend_api import User
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from api.src.agent_conversations.push import presence
 from api.src.agent_conversations.push.inventory import MemberRegistrations, team_registrations
 from api.src.agent_conversations.push.service import (
     has_ios_app_subscription,
@@ -41,6 +42,18 @@ class SubscribeRequest(BaseModel):
 
 class UnsubscribeRequest(BaseModel):
     endpoint: str
+
+
+class PresenceReport(BaseModel):
+    # A random ID the page picks when it loads, so that one page leaving does
+    # not cancel another page that still has the conversation open.
+    client_id: str = Field(min_length=1, max_length=64)
+    # The conversation the page shows in front of the person; None when it is
+    # hidden, out of focus, or closed.
+    conversation_id: str | None = Field(default=None, max_length=200)
+    # Counts up with each report from the page; an older report that arrives
+    # late is ignored.
+    seq: int = Field(ge=0)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -84,6 +97,20 @@ async def unsubscribe(
         session=session,
     )
     return {"status": "unsubscribed" if deleted else "not_found"}
+
+
+@router.post("/presence", status_code=204)
+async def report_presence(
+    body: PresenceReport,
+    user: User = Depends(_get_sernia_user),
+) -> Response:
+    """The conversation this page has in front of its reader, if any.
+
+    Pushes about that conversation are not sent to them while it is (see
+    ``presence``). Only the signed-in user's own pages are affected.
+    """
+    presence.report(user.id, body.client_id, body.conversation_id, body.seq)
+    return Response(status_code=204)
 
 
 @router.get("/devices")

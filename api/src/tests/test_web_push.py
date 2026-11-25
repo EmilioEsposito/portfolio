@@ -618,3 +618,133 @@ async def test_send_push_notification():
     )
 
     print("Sent! Check your device for the notification.")
+
+
+# ── Conversation presence: no push about a conversation its reader has open ──
+
+
+@pytest.fixture
+def presence():
+    from api.src.agent_conversations.push import presence
+
+    presence.clear()
+    yield presence
+    presence.clear()
+
+
+def test_presence_is_per_page_and_expires(presence, monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(presence.time, "monotonic", lambda: now[0])
+
+    presence.report("user-1", "phone", "conversation-123", seq=1)
+    presence.report("user-1", "laptop", "conversation-123", seq=1)
+    presence.report("user-2", "laptop", "conversation-999", seq=1)
+    assert presence.readers("conversation-123") == {"user-1"}
+    assert presence.readers(None) == set()
+
+    # One page leaving does not cancel the other page that still has it open.
+    presence.report("user-1", "laptop", None, seq=2)
+    assert presence.readers("conversation-123") == {"user-1"}
+    presence.report("user-1", "phone", "conversation-999", seq=2)
+    assert presence.readers("conversation-123") == set()
+    assert presence.readers("conversation-999") == {"user-1", "user-2"}
+
+    # A page that went away without saying so stops counting.
+    now[0] += presence.PRESENCE_TTL_SECONDS
+    assert presence.readers("conversation-999") == set()
+
+
+def test_presence_ignores_a_report_that_arrives_late(presence):
+    presence.report("user-1", "phone", "conversation-123", seq=1)
+    presence.report("user-1", "phone", None, seq=3)
+    # The page's earlier "open" was handled after its "left".
+    presence.report("user-1", "phone", "conversation-123", seq=2)
+    assert presence.readers("conversation-123") == set()
+
+    presence.report("user-1", "phone", "conversation-123", seq=4)
+    assert presence.readers("conversation-123") == {"user-1"}
+
+
+@pytest.mark.asyncio
+async def test_presence_route_records_the_signed_in_users_page(presence):
+    from api.src.agent_conversations.push import routes
+
+    user = MagicMock()
+    user.id = "user-456"
+    body = routes.PresenceReport(client_id="page-1", conversation_id="conversation-123", seq=1)
+    response = await routes.report_presence(body=body, user=user)
+    assert response.status_code == 204
+    assert presence.readers("conversation-123") == {"user-456"}
+
+    away = routes.PresenceReport(client_id="page-1", seq=2)
+    await routes.report_presence(body=away, user=user)
+    assert presence.readers("conversation-123") == set()
+
+
+def _fake_session(subs):
+    query_result = MagicMock()
+    query_result.scalars.return_value.all.return_value = subs
+    session = AsyncMock()
+    session.execute.return_value = query_result
+
+    class FakeSessionContext:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+    return session, FakeSessionContext
+
+
+@pytest.mark.asyncio
+async def test_targeted_push_skips_a_user_with_the_conversation_open(presence, monkeypatch):
+    from api.src.agent_conversations.push import service
+
+    sub = MagicMock(endpoint="https://web.push.apple.com/a", p256dh="k", auth="a")
+    session, factory = _fake_session([sub])
+    sent = []
+    monkeypatch.setattr(service, "_get_vapid", lambda: object())
+    monkeypatch.setattr(service, "AsyncSessionFactory", factory)
+    monkeypatch.setattr(service, "_send_push", lambda info, payload: sent.append(info))
+
+    presence.report("user-1", "phone", "conversation-123", seq=1)
+    await service.notify_chat_response(
+        conversation_id="conversation-123", clerk_user_id="user-1", response_text="Done."
+    )
+    assert sent == []
+    session.execute.assert_not_awaited()
+
+    # Another conversation, or the same one after the page leaves, is pushed.
+    await service.notify_chat_response(
+        conversation_id="conversation-999", clerk_user_id="user-1", response_text="Done."
+    )
+    presence.report("user-1", "phone", None, seq=2)
+    await service.notify_chat_response(
+        conversation_id="conversation-123", clerk_user_id="user-1", response_text="Done."
+    )
+    assert len(sent) == 2
+
+
+@pytest.mark.asyncio
+async def test_team_push_skips_only_people_with_the_conversation_open(presence, monkeypatch):
+    from api.src.agent_conversations.push import service
+
+    reader = MagicMock(clerk_user_id="user-1", endpoint="https://e/1", p256dh="k", auth="a")
+    other = MagicMock(clerk_user_id="user-2", endpoint="https://e/2", p256dh="k", auth="a")
+    _, factory = _fake_session([reader, other])
+    sent = []
+    monkeypatch.setattr(service, "_get_vapid", lambda: object())
+    monkeypatch.setattr(service, "AsyncSessionFactory", factory)
+    monkeypatch.setattr(service, "_send_push", lambda info, payload: sent.append(info["endpoint"]))
+
+    presence.report("user-1", "laptop", "conversation-123", seq=1)
+    await service.notify_pending_approval(
+        conversation_id="conversation-123", tool_name="send_sms", tool_args={}
+    )
+    assert sent == ["https://e/2"]
+
+    # A push about no conversation (a showing alert) reaches everyone.
+    sent.clear()
+    await service.notify_all_sernia_users(title="Showing booked", body="Tomorrow 10am")
+    assert sent == ["https://e/1", "https://e/2"]

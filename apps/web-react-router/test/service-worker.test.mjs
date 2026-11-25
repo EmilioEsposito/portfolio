@@ -4,6 +4,9 @@ import test from "node:test";
 const handlers = {};
 const shownNotifications = [];
 const postedMessages = [];
+// Chrome's push service unless a test says otherwise.
+const FCM_ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc";
+let pushEndpoint = FCM_ENDPOINT;
 
 globalThis.self = {
   addEventListener(name, handler) {
@@ -16,6 +19,11 @@ globalThis.self = {
   registration: {
     async showNotification(title, options) {
       shownNotifications.push({ title, options });
+    },
+    pushManager: {
+      async getSubscription() {
+        return { endpoint: pushEndpoint };
+      },
     },
   },
   skipWaiting: async () => {},
@@ -69,6 +77,33 @@ test("suppresses a response notification for the focused conversation", async ()
       },
     },
   ]);
+});
+
+test("on Apple's push service, shows the notification even for the focused conversation", async () => {
+  // WebKit deletes the subscription after three pushes that showed nothing.
+  shownNotifications.length = 0;
+  postedMessages.length = 0;
+  pushEndpoint = "https://web.push.apple.com/QGz9fPjX";
+  self.clients.matchAll = async () => [
+    {
+      focused: true,
+      url: "https://example.test/team/chat?id=conversation-123",
+      postMessage(message) {
+        postedMessages.push(message);
+      },
+    },
+  ];
+
+  try {
+    await dispatchResponsePush();
+  } finally {
+    pushEndpoint = FCM_ENDPOINT;
+  }
+
+  assert.equal(shownNotifications.length, 1);
+  // The open page still gets the completion signal.
+  assert.equal(postedMessages.length, 1);
+  assert.equal(postedMessages[0].type, "response-ready");
 });
 
 test("shows a response notification when the conversation is not focused", async () => {
