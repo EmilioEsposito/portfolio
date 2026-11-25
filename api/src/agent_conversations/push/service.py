@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.src.agent_conversations.push import presence
 from api.src.agent_conversations.push.models import WebPushSubscription
 from api.src.database.database import AsyncSessionFactory, provide_session
 from api.src.utils import team_links
@@ -214,7 +215,11 @@ async def notify_all_sernia_users(
     body: str,
     data: dict | None = None,
 ) -> None:
-    """Send a push notification to all active Sernia subscriptions."""
+    """Send a push notification to all active Sernia subscriptions.
+
+    A push about a conversation (``data["conversation_id"]``) skips the people
+    who have that conversation open in front of them (see ``presence``).
+    """
     if not _get_vapid():
         logfire.warn("VAPID private key not loaded — skipping push notification")
         return
@@ -229,7 +234,14 @@ async def notify_all_sernia_users(
 
     async with AsyncSessionFactory() as session:
         result = await session.execute(select(WebPushSubscription))
-        subs = result.scalars().all()
+        readers = presence.readers((data or {}).get("conversation_id"))
+        subs = [sub for sub in result.scalars().all() if sub.clerk_user_id not in readers]
+        if readers:
+            logfire.info(
+                "web push skipped for people with the conversation open",
+                conversation_id=(data or {}).get("conversation_id"),
+                clerk_user_ids=sorted(readers),
+            )
 
         logfire.info("web push sending", sub_count=len(subs), title=title)
 
@@ -276,13 +288,27 @@ async def notify_user_push(
     body: str,
     data: dict | None = None,
 ) -> None:
-    """Send a push notification to a specific user's subscriptions only."""
-    if not _get_vapid():
-        logfire.warn("VAPID private key not loaded — skipping push notification")
-        return
+    """Send a push notification to a specific user's subscriptions only.
 
+    Nothing is sent about a conversation (``data["conversation_id"]``) that the
+    user has open in front of them (see ``presence``).
+    """
     if not clerk_user_id:
         logfire.warn("notify_user_push called with empty clerk_user_id — skipping")
+        return
+
+    conversation_id = (data or {}).get("conversation_id")
+    if clerk_user_id in presence.readers(conversation_id):
+        logfire.info(
+            "web push skipped: the user has the conversation open",
+            conversation_id=conversation_id,
+            clerk_user_id=clerk_user_id,
+            title=title,
+        )
+        return
+
+    if not _get_vapid():
+        logfire.warn("VAPID private key not loaded — skipping push notification")
         return
 
     # Prefix title with environment name when not in production

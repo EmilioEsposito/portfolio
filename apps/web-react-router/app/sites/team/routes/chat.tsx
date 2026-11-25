@@ -11,6 +11,7 @@ import { useScrollToBottom } from "~/sites/team/hooks/use-scroll-to-bottom";
 import { NotificationsButton, TeamDeviceBanner } from "~/sites/team/components/team-device";
 import { TeamHomeButton } from "~/sites/team/components/team-nav";
 import { useVisualViewportHeight } from "~/sites/team/hooks/use-visual-viewport-height";
+import { useConversationPresence } from "~/sites/team/hooks/use-conversation-presence";
 import {
   usePullToRefresh,
   useIsStandalonePwa,
@@ -747,6 +748,9 @@ function ChatView({
       window.removeEventListener("online", handleOnline);
     };
   }, [syncFromServer]);
+
+  // No push about this conversation while it is in front of its reader.
+  useConversationPresence(conversationId, getToken);
 
   // When this view is mounted, apply focused completion signals in place so
   // attachments, drafts, scroll state, and the selected admin tab are kept.

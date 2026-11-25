@@ -34,9 +34,34 @@ through the authenticated API. `service.py` encrypts notifications with VAPID an
 sends them to the browser vendor's push service. The service worker displays the
 notification and opens `/team/chat?id=…` (`team_links.chat_path`) when it is clicked.
 
-For web-chat completions, the service worker suppresses the OS notification
-when the matching conversation is already focused. Both agents use the same
-approval notifications. General-agent SMS notification helpers live separately
+Both agents use the same approval notifications.
+
+### No push about a conversation its reader has open
+
+Nobody gets a push (response, approval or alert) about a conversation they have
+in front of them: an open phone app showing it, or a focused browser window
+showing it on a computer. The chat view reports its conversation to
+`POST /push/presence` on arrival and every 15 seconds while it is in front, and
+reports leaving as soon as it is hidden, loses focus on a computer, switches
+conversation or tab, or closes (`lib/conversation-presence.ts`). `presence.py`
+keeps those reports in memory and forgets a page that stops reporting after 40
+seconds; `notify_user_push` and `notify_all_sernia_users` leave out the readers
+of the push's `conversation_id`. Teammates who do not have it open still get
+approvals and alerts. Each report is numbered, so one handled late cannot undo a
+newer one.
+
+The push is held back on the server because a service worker cannot drop one on
+Apple's push service (Home Screen apps on iPhone and iPad, Safari on a Mac):
+WebKit counts every push that shows no notification within 30 seconds, never
+resets the count, and deletes all of the site's push subscriptions on the third
+(`maxSilentPushCount` in WebKit's `WebPushDaemonConstants.h`). The service worker
+therefore always shows a push on Apple's service. Elsewhere it still hides a
+response that arrives for the focused conversation, which only happens when a
+push crosses the reader's arrival. Either way it tells the open page the
+response is ready.
+
+Presence lives in the API process's memory (one process today). A restart, or
+a report that is lost, only means a push is sent as it was before this rule. General-agent SMS notification helpers live separately
 in [`sernia_ai/notifications.py`](../../sernia_ai/notifications.py).
 
 ## Environment Variables
@@ -81,10 +106,12 @@ Output is in `.env`-ready format — copy directly into local `.env` and Railway
 |------|---------|
 | `models.py` | `WebPushSubscription` SQLAlchemy model — stores browser push endpoints |
 | `service.py` | Subscription CRUD + targeted response push, and team-wide approval/alert push |
-| `routes.py` | 5 endpoints: `GET /push/vapid-public-key`, `POST /push/subscribe`, `POST /push/unsubscribe`, `POST /push/test`, `GET /push/devices` |
-| `apps/web-react-router/public/team/sw.js` | Service worker — handles focus-aware push display, the app icon's badge, and notification deeplinks (no caching) |
+| `presence.py` | Which conversation each team page has in front of its reader; pushes skip those readers |
+| `routes.py` | `GET /push/vapid-public-key`, `POST /push/subscribe`, `POST /push/unsubscribe`, `POST /push/test`, `POST /push/presence`, `GET /push/devices`, `GET /push/admin/registrations` |
+| `apps/web-react-router/public/team/sw.js` | Service worker — shows pushes (hides a response for the focused conversation except on Apple's push service), the app icon's badge, and notification deeplinks (no caching) |
 | `apps/web-react-router/public/team/manifest.json` | PWA manifest and its 192 and 512 pixel icons — lets a browser offer installing, and "Add to Home Screen" on iOS. The installed app opens the team home (`/team`); `launch_handler` makes a link the system hands to the installed app reuse its open window |
 | `apps/web-react-router/app/sites/team/hooks/use-push-notifications.ts` | React hook for SW registration, permission, subscribe/unsubscribe. One instance for all team pages |
+| `apps/web-react-router/app/sites/team/lib/conversation-presence.ts`, `hooks/use-conversation-presence.ts` | The chat view's presence reports: when it is in front, the heartbeat, and leaving |
 | `apps/web-react-router/app/sites/team/components/team-device.tsx` | What every team page shows: the sidebar's Notifications row, the top-bar button while notifications need attention, the panel with the buttons, and the banner that asks; also clears the app icon's badge |
 | `apps/web-react-router/app/sites/team/lib/team-device.ts` | What the device can do, where notifications stand on it, and which reminder to show (no React) |
 | `apps/web-react-router/app/sites/team/lib/install-prompt.ts` | Keeps the browser's own install prompt (Chrome, Edge) until a page offers it |
@@ -99,6 +126,7 @@ All under `/api/sernia-ai/push/`, gated by `_sernia_gate` (requires `@serniacapi
 | `/push/subscribe` | POST | Saves browser push subscription to DB |
 | `/push/unsubscribe` | POST | Removes subscription |
 | `/push/test` | POST | Sends a test notification to the caller's own devices, nobody else's |
+| `/push/presence` | POST | `{client_id, conversation_id \| null, seq}`: the conversation this page has in front of the caller, or none. 204 |
 | `/push/devices` | GET | `{"ios_app": bool}`: whether the caller has the Home Screen app of an iPhone or iPad subscribed (their own rows only) |
 
 ## What a team page shows
@@ -165,6 +193,7 @@ call is feature-detected and never throws.
 ## iOS Notes
 
 - Web Push only works on **iOS Safari 16.4+** when installed as a **standalone PWA** (Add to Home Screen)
+- Every push must show a notification: three that show none and WebKit deletes the site's subscriptions for good (see "No push about a conversation its reader has open")
 - The `manifest.json` + `apple-mobile-web-app-capable` meta tag in `root.tsx` enables this
 - An iPhone's browser tab has no `PushManager` at all, so iOS in a tab is checked for before push support: it is asked to use the Home Screen, never told its browser cannot notify
 - iOS shows its permission prompt only while handling a tap, so the hook asks for permission first thing in the click
