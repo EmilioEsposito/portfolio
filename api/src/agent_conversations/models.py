@@ -14,7 +14,7 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 from pydantic_core import to_jsonable_python
-from sqlalchemy import JSON, DateTime, Float, Index, Integer, String, func, select
+from sqlalchemy import JSON, DateTime, Float, Index, Integer, String, bindparam, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -648,25 +648,21 @@ async def list_user_conversations(
         result = await s.execute(query, params)
         rows = result.fetchall()
 
+        # For the pending filter: what each conversation waits on, found in the
+        # database in one query rather than by loading every history here.
+        pending_by_id: dict[str, list[dict]] = {}
+        if pending_only:
+            pending_by_id = await _pending_approvals(
+                s,
+                [row.id for row in rows if _run_settled(row.metadata_)],
+            )
+
         conv_list = []
         for row in rows:
-            # For pending_only filter, we need to check pending status
-            # This requires loading the full messages - only do it when filtering
-            has_pending = False
-            pending: list[dict] = []
-
-            if pending_only:
-                web_run = (row.metadata_ or {}).get("web_chat_run")
-                if web_run and web_run.get("status") != "completed":
-                    continue
-                # Load full conversation to check pending status
-                conv = await get_agent_conversation(s, row.id, clerk_user_id)
-                if conv and conv.messages:
-                    messages = ModelMessagesTypeAdapter.validate_python(conv.messages)
-                    pending = extract_pending_approval_from_messages(messages)
-                    has_pending = len(pending) > 0
-                    if not has_pending:
-                        continue  # Skip non-pending conversations
+            pending = pending_by_id.get(row.id, [])
+            has_pending = bool(pending)
+            if pending_only and not has_pending:
+                continue
 
             # Extract trigger metadata if present
             metadata = row.metadata_ or {}
@@ -748,6 +744,83 @@ async def delete_conversation(
 # =============================================================================
 # Pending Approval Utilities
 # =============================================================================
+
+
+_PENDING_APPROVALS = text("""
+    WITH tail AS (
+        -- Each history is read once: its messages from the last model response on.
+        SELECT c.id, x.ord, x.msg
+        FROM agent_conversations c
+        CROSS JOIN LATERAL (
+            SELECT m.ord, m.msg,
+                   max(CASE WHEN m.msg->>'kind' = 'response' THEN m.ord END) OVER () AS last_response
+            FROM json_array_elements(c.messages) WITH ORDINALITY AS m(msg, ord)
+        ) x
+        WHERE c.id IN :ids AND x.ord >= x.last_response
+    ),
+    parts AS (
+        SELECT t.id, t.ord, t.msg->>'kind' AS kind, p.part, p.part_ord
+        FROM tail t
+        CROSS JOIN LATERAL json_array_elements(
+            CASE WHEN json_typeof(t.msg->'parts') = 'array' THEN t.msg->'parts' ELSE '[]'::json END
+        ) WITH ORDINALITY AS p(part, part_ord)
+    )
+    SELECT c.id,
+           c.part->>'tool_call_id' AS tool_call_id,
+           c.part->>'tool_name' AS tool_name,
+           c.part->>'args' AS args
+    FROM parts c
+    WHERE c.kind = 'response'
+      AND c.part->>'part_kind' = 'tool-call'
+      AND NOT EXISTS (
+          SELECT 1 FROM parts r
+          WHERE r.id = c.id
+            AND r.kind = 'request'
+            AND r.part->>'part_kind' = 'tool-return'
+            AND r.part->>'tool_call_id' = c.part->>'tool_call_id'
+      )
+    ORDER BY c.id, c.ord, c.part_ord
+""").bindparams(bindparam("ids", expanding=True))
+
+
+def _run_settled(metadata: dict | None) -> bool:
+    """No web chat run, or a completed one: a run still going has nothing to approve yet."""
+    run = (metadata or {}).get("web_chat_run")
+    return not run or run.get("status") == "completed"
+
+
+def _stored_args(raw: str | None) -> Any:
+    """A tool call's arguments as stored: an object, or a JSON string of one."""
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return raw
+
+
+async def _pending_approvals(session: AsyncSession, ids: list[str]) -> dict[str, list[dict]]:
+    """The tool calls waiting for approval in each conversation, by conversation id.
+
+    The chat's rule (``get_conversation_with_pending``, which reads the history
+    through ``_repair_orphaned_tool_calls``): a call in the conversation's last
+    model response that no later request returns. An unanswered call further
+    back was interrupted and is no longer waiting. Postgres reads each history
+    once and sends back only the waiting calls: the 50 most recent histories run
+    to tens of megabytes, which loading them here took seconds to transfer.
+    """
+    if not ids:
+        return {}
+    pending: dict[str, list[dict]] = {}
+    for row in (await session.execute(_PENDING_APPROVALS, {"ids": ids})).all():
+        pending.setdefault(row.id, []).append(
+            {
+                "tool_call_id": row.tool_call_id,
+                "tool_name": row.tool_name,
+                "args": _stored_args(row.args),
+            }
+        )
+    return pending
 
 
 def extract_pending_approval_from_messages(messages: list[ModelMessage]) -> list[dict]:

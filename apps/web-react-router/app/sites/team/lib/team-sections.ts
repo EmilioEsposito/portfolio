@@ -27,7 +27,7 @@ export type TeamSection = {
 
 export const TEAM_HOME: TeamSection = {
   title: "Team home",
-  description: "What needs a person, and every team page.",
+  description: "Approvals, open tasks and every team page.",
   url: "/team",
   icon: Home,
 };
@@ -35,7 +35,7 @@ export const TEAM_HOME: TeamSection = {
 export const TEAM_SECTIONS: TeamSection[] = [
   {
     title: "Sernia AI",
-    description: "Ask the general agent, and answer the conversations waiting for a person.",
+    description: "Ask the general agent, and approve or reject what it asks to do.",
     url: "/team/chat",
     icon: Bot,
   },

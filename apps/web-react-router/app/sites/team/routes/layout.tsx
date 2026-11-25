@@ -6,6 +6,7 @@ import type { Route } from "./+types/layout";
 import { EnvBanner } from "~/components/env-banner";
 import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
 import { retireRootServiceWorkerOnce } from "~/lib/retire-root-service-worker";
+import { TeamCountsProvider } from "~/sites/team/components/team-counts";
 import { TeamDeviceBanner, TeamDeviceProvider } from "~/sites/team/components/team-device";
 import { TeamGuard } from "~/sites/team/components/team-guard";
 import { TeamSidebar, TeamTopBar, type TeamLayoutData } from "~/sites/team/components/team-nav";
@@ -80,26 +81,29 @@ function TeamPages({ banner, ownSidebar }: { banner: React.ReactNode; ownSidebar
     <TeamGuard banner={banner}>
       {/* One notification subscription and one set of reminders for every team page. */}
       <TeamDeviceProvider>
-        <OpeningLine />
-        {ownSidebar ? (
-          <>
-            {banner}
-            {/* A page with its own sidebar fills the screen, so it places TeamDeviceBanner
-                itself, under its header (the chat, its settings, All conversations);
-                test/lib/team-pages.test.ts checks that each does. */}
-            <Outlet />
-          </>
-        ) : (
-          <SidebarProvider>
-            <TeamSidebar />
-            <SidebarInset className="min-w-0 overflow-x-clip">
+        {/* The approvals and open tasks behind the navigation's badges and the team home. */}
+        <TeamCountsProvider>
+          <OpeningLine />
+          {ownSidebar ? (
+            <>
               {banner}
-              <TeamTopBar />
-              <TeamDeviceBanner />
+              {/* A page with its own sidebar fills the screen, so it places TeamDeviceBanner
+                  itself, under its header (the chat, its settings, All conversations);
+                  test/lib/team-pages.test.ts checks that each does. */}
               <Outlet />
-            </SidebarInset>
-          </SidebarProvider>
-        )}
+            </>
+          ) : (
+            <SidebarProvider>
+              <TeamSidebar />
+              <SidebarInset className="min-w-0 overflow-x-clip">
+                {banner}
+                <TeamTopBar />
+                <TeamDeviceBanner />
+                <Outlet />
+              </SidebarInset>
+            </SidebarProvider>
+          )}
+        </TeamCountsProvider>
       </TeamDeviceProvider>
     </TeamGuard>
   );

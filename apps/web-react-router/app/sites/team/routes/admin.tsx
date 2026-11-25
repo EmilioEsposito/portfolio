@@ -76,6 +76,7 @@ import {
 } from "lucide-react";
 import { SidebarProvider, SidebarInset, useSidebar } from "~/components/ui/sidebar";
 import { ConversationSidebar } from "~/sites/team/components/conversation-sidebar";
+import { useTeamCounts } from "~/sites/team/components/team-counts";
 import { TeamDeviceBanner } from "~/sites/team/components/team-device";
 import { TeamHomeButton } from "~/sites/team/components/team-nav";
 import { teamTitle } from "~/sites/team/lib/team-meta";
@@ -427,7 +428,16 @@ export default function SerniaAdminPage() {
   const { getToken } = useAuth();
   const navigate = useNavigate();
 
-  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [loaded, setConversations] = useState<ConversationSummary[]>([]);
+  // The history list does not say which conversations wait for an approval;
+  // the pending list behind the navigation's badge does.
+  const { approvals } = useTeamCounts();
+  const conversations = useMemo(() => {
+    const awaiting = new Set(approvals.state === "loaded" ? approvals.value.ids : []);
+    return loaded.map((c) =>
+      awaiting.has(c.conversation_id) ? { ...c, has_pending: true } : c
+    );
+  }, [loaded, approvals]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
@@ -575,7 +585,7 @@ export default function SerniaAdminPage() {
               variant="outline"
               className="text-xs text-amber-600 border-amber-300"
             >
-              Pending
+              To approve
             </Badge>
           ) : null,
         enableSorting: true,
@@ -774,7 +784,7 @@ export default function SerniaAdminPage() {
                       variant="outline"
                       className="text-xs text-amber-600 border-amber-300"
                     >
-                      Pending
+                      To approve
                     </Badge>
                   )}
                 </>
