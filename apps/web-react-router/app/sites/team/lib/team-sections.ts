@@ -34,6 +34,12 @@ export const TEAM_HOME: TeamSection = {
 
 export const TEAM_SECTIONS: TeamSection[] = [
   {
+    title: "Tasks",
+    description: "Open ClickUp maintenance tasks and Quo tasks: see them, and mark them complete.",
+    url: "/team/tasks",
+    icon: ListChecks,
+  },
+  {
     title: "Sernia AI",
     description: "Ask the general agent, and approve or reject what it asks to do.",
     url: "/team/chat",
@@ -44,12 +50,6 @@ export const TEAM_SECTIONS: TeamSection[] = [
     description: "Zillow leads: listing data, the agent's settings and showing bookings.",
     url: "/team/leads",
     icon: Inbox,
-  },
-  {
-    title: "Tasks",
-    description: "Open ClickUp maintenance tasks and Quo tasks: see them, and mark them complete.",
-    url: "/team/tasks",
-    icon: ListChecks,
   },
   {
     title: "Message tenants",
