@@ -12,13 +12,17 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
 } from "~/components/ui/sidebar";
+import { useTeamCounts } from "~/sites/team/components/team-counts";
 import { NotificationsButton, NotificationsSidebarItem } from "~/sites/team/components/team-device";
 import { TeamWordmark } from "~/sites/team/components/team-wordmark";
+import { cn } from "~/lib/utils";
 import { isTeamAdmin } from "~/sites/team/lib/team-access";
+import { approvalsText, tasksText } from "~/sites/team/lib/team-home";
 import { isCurrentSection, TEAM_HOME, visibleSections } from "~/sites/team/lib/team-sections";
 
 // The team's navigation, built from the sidebar primitives in
@@ -48,23 +52,56 @@ function useCloseOnPhone() {
   };
 }
 
+type NavBadge = { text: string; label: string; attention: boolean };
+
+/** The count beside a section in the navigation: approvals waiting by Sernia AI, open tasks by Tasks. */
+function useNavBadges(): Record<string, NavBadge> {
+  const { approvals, tasks } = useTeamCounts();
+  const badges: Record<string, NavBadge> = {};
+  if (approvals.state === "loaded" && approvals.value.count > 0) {
+    const count = approvals.value.count;
+    badges["/team/chat"] = { text: String(count), label: approvalsText(count), attention: true };
+  }
+  if (tasks.state === "loaded" && tasks.value.open > 0) {
+    const { open, partial } = tasks.value;
+    badges["/team/tasks"] = { text: `${open}${partial.length ? "+" : ""}`, label: tasksText(tasks.value), attention: false };
+  }
+  return badges;
+}
+
 /** The team home and every section the user may open, the current one marked. */
 export function TeamNavItems() {
   const { pathname } = useLocation();
   const admin = useTeamAdmin();
   const close = useCloseOnPhone();
+  const badges = useNavBadges();
   return (
     <SidebarMenu>
       {[TEAM_HOME, ...visibleSections(admin)].map((section) => {
         const current = isCurrentSection(section, pathname);
+        const badge = badges[section.url];
         return (
           <SidebarMenuItem key={section.url}>
-            <SidebarMenuButton asChild isActive={current} tooltip={section.title}>
+            <SidebarMenuButton asChild isActive={current} tooltip={badge ? `${section.title}: ${badge.label}` : section.title}>
               <Link to={section.url} onClick={close} aria-current={current ? "page" : undefined}>
                 <section.icon />
                 <span>{section.title}</span>
+                {badge && <span className="sr-only">, {badge.label}</span>}
               </Link>
             </SidebarMenuButton>
+            {badge && (
+              <SidebarMenuBadge
+                aria-hidden="true"
+                className={cn(
+                  "rounded-full px-1.5",
+                  badge.attention
+                    ? "bg-amber-500/15 text-amber-700 peer-hover/menu-button:text-amber-700 peer-data-[active=true]/menu-button:text-amber-700 dark:text-amber-300 dark:peer-hover/menu-button:text-amber-300 dark:peer-data-[active=true]/menu-button:text-amber-300"
+                    : "bg-sidebar-foreground/10",
+                )}
+              >
+                {badge.text}
+              </SidebarMenuBadge>
+            )}
           </SidebarMenuItem>
         );
       })}

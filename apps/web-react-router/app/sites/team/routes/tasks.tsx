@@ -5,6 +5,7 @@ import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { cn } from "~/lib/utils";
+import { useTeamCounts } from "~/sites/team/components/team-counts";
 import { teamTitle } from "~/sites/team/lib/team-meta";
 import {
   assigneeText,
@@ -217,6 +218,11 @@ type Filter = "all" | TaskSource;
 export default function TeamTasks() {
   const { loaded, refreshing, changing, working, problems, reload, setCompleted } = useTasks();
   const [filter, setFilter] = useState<Filter>("all");
+  // The navigation's Tasks badge follows this list, completions included.
+  const { reportTasks } = useTeamCounts();
+  useEffect(() => {
+    if (loaded.state === "loaded") reportTasks(loaded.view);
+  }, [loaded, reportTasks]);
   const tasks = loaded.state === "loaded" ? loaded.view.tasks : [];
   const counts = countBySource(tasks);
   const shown = filter === "all" ? tasks : tasks.filter((task) => task.source === filter);
