@@ -21,6 +21,7 @@ import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Switch } from "~/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { Textarea } from "~/components/ui/textarea";
 import {
   type Cancellations,
   type Change,
@@ -28,11 +29,13 @@ import {
   type RentalData,
   type RentalListing,
   type ShowingRules,
+  MAX_DESCRIPTION_LENGTH,
   SHOWING_RULES_SUBJECT,
   WEEKDAY_LABELS,
   WEEKDAYS,
   cancellationQuestion,
   cancellationsFrom,
+  characterCount,
   cleanRules,
   listingSaveBody,
   cleanListing,
@@ -316,6 +319,46 @@ function LinesEditor({
         <Plus className="h-3.5 w-3.5" />
         {addLabel}
       </Button>
+    </div>
+  );
+}
+
+/** The ad's description: several lines, with a count against the cap the API enforces. */
+function DescriptionEditor({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const count = characterCount(value);
+  const over = count - MAX_DESCRIPTION_LENGTH;
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>Listing description</Label>
+      <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+        The ad&rsquo;s description as published on Zillow, pasted as it is. To correct something in it, add a
+        public fact.
+      </p>
+      <Textarea
+        id={id}
+        rows={8}
+        className="min-h-[160px] resize-y bg-background"
+        aria-describedby={`${id}-hint ${id}-count`}
+        aria-invalid={over > 0 ? true : undefined}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <p
+        id={`${id}-count`}
+        aria-live="polite"
+        className={cn("text-xs", over > 0 ? "font-medium text-red-700 dark:text-red-400" : "text-muted-foreground")}
+      >
+        {count.toLocaleString("en-US")} of {MAX_DESCRIPTION_LENGTH.toLocaleString("en-US")} characters
+        {over > 0 && `. Shorten it by ${over.toLocaleString("en-US")} to save.`}
+      </p>
     </div>
   );
 }
@@ -755,35 +798,50 @@ function UnitEditor({
       </Card>
 
       <p className="text-sm">
-        <span className="font-medium">Public facts are told to leads. Internal notes are not.</span>{" "}
+        <span className="font-medium">
+          The listing description and public facts are told to leads. Internal notes are not.
+        </span>{" "}
         <span className="text-muted-foreground">
-          Both are read by the lead agent, so neither may hold a phone number, an email address, a link or an
-          access code; a save with one is refused.
+          The lead agent reads all three, so none may hold a phone number, an email address, a link or an access
+          code; a save with one is refused. Where they differ, the terms on offer above win, then the public
+          facts, then the description.
         </span>
       </p>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section
-          aria-labelledby={id("facts-heading")}
-          className="space-y-3 rounded-xl border-2 border-sky-300 bg-sky-50/60 p-4 dark:border-sky-800 dark:bg-sky-950/20"
+          aria-labelledby={id("public-heading")}
+          className="space-y-4 rounded-xl border-2 border-sky-300 bg-sky-50/60 p-4 dark:border-sky-800 dark:bg-sky-950/20"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Globe className="h-4 w-4 text-sky-700 dark:text-sky-400" aria-hidden />
-            <h3 id={id("facts-heading")} className="text-sm font-semibold">
-              Public facts
+            <h3 id={id("public-heading")} className="text-sm font-semibold">
+              Listing description and public facts
             </h3>
             <Badge variant="outline" className="border-sky-400 text-sky-800 dark:text-sky-300">
               Told to leads
             </Badge>
           </div>
-          <p className="text-xs text-muted-foreground">What we would print on a listing. One fact per line.</p>
-          <LinesEditor
-            id={id("fact")}
-            lines={draft.public_facts}
-            onChange={(lines) => set("public_facts", lines)}
-            addLabel="Add public fact"
-            placeholder="Dishwasher"
+          <DescriptionEditor
+            id={id("description")}
+            value={draft.listing_description}
+            onChange={(value) => set("listing_description", value)}
           />
+          <div className="space-y-2">
+            <h4 id={id("facts-heading")} className="text-sm font-medium">
+              Public facts
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              What the ad does not say, or a correction to it. One fact per line.
+            </p>
+            <LinesEditor
+              id={id("fact")}
+              lines={draft.public_facts}
+              onChange={(lines) => set("public_facts", lines)}
+              addLabel="Add public fact"
+              placeholder="Dishwasher"
+            />
+          </div>
         </section>
         <section
           aria-labelledby={id("notes-heading")}

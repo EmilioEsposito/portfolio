@@ -401,7 +401,10 @@ The optional Zillow-ad tool fetches the saved public Zillow URL on request and
 returns the ad beside the reviewed listing for comparison. It saves nothing
 itself. The lead agent never fetches Zillow; it loads the reviewed database
 rows on each run. The Zillow public/editor URLs are team tools and are not
-included in the lead's case.
+included in the lead's case. The ad's description, as copied into the
+listing's `listing_description`, is: `render_case` prints it in the unit's
+entry after the facts, and the policy has the unit's first line (rent, lease
+start, tour type) and then its facts win where the description differs.
 
 `listing_data.py` converts `rental_listings` and `rental_showing_rules` into
 `ListingData`. `rental_listing_changes` retains the history. An empty store

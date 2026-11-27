@@ -199,6 +199,7 @@ class TestFreeTextWaitsForAPerson:
                 "unit": "12-A",
                 "zillow_listing_url_internal_editor_view": "https://www.zillow.com/rental-manager/x",
             },
+            {"unit": "12-A", "listing_description": "Sunny one bedroom.\nHeat included."},
             # One text change makes the whole call wait, typed fields included.
             {"unit": "12-A", "asking_rent": 1600, "add_public_facts": ["Cats allowed"]},
         ],
@@ -233,6 +234,23 @@ class TestFreeTextWaitsForAPerson:
             "Resident wants 48 hours' notice where possible",
             "Lease start can move to June 15; check with us first",
         ]
+
+    @pytest.mark.asyncio
+    async def test_an_approved_description_is_saved_with_its_lines_and_can_be_removed(self):
+        ad = "Sunny one bedroom near the park.\n\nHeat and hot water included."
+        said = await tools.rental_listing_update(
+            ctx(approved=True), unit="12-A", listing_description=f"  {ad}\n"
+        )
+
+        assert said.startswith("Saved.")
+        saved = await unit("12-A")
+        assert saved.listing_description == ad
+        assert saved.public_facts == ON_FILE[0].public_facts  # the facts are left alone
+
+        with pytest.raises(ApprovalRequired):
+            await tools.rental_listing_update(ctx(), unit="12-A", listing_description="")
+        await tools.rental_listing_update(ctx(approved=True), unit="12-A", listing_description="")
+        assert (await unit("12-A")).listing_description == ""
 
     @pytest.mark.asyncio
     async def test_an_approved_new_unit_is_added(self):
@@ -280,6 +298,10 @@ class TestRefusals:
             ({"add_public_facts": ["Door code is 4821"]}, "access code"),
             ({"add_internal_notes": ["Lockbox code on the rail"]}, "access code"),
             ({"add_internal_notes": ["Resident: sam@example.com"]}, "email address"),
+            (
+                {"listing_description": "Sunny one bedroom.\nCall 412-555-0134 to see it."},
+                "listing description 'Call 412-555-0134 to see it.': holds a phone number",
+            ),
             ({"showing_booking_url": "http://book.example.com"}, "https"),
             ({"zillow_listing_url_public_view": "https://example.com/ad"}, "zillow.com"),
             ({"asking_rent": -5}, "asking_rent"),

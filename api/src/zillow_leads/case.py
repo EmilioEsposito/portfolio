@@ -6,8 +6,9 @@ tour times may be offered right now, where a thread has a decision to make —
 are computed here rather than left to the model.
 
 Only what code or a grader reads is a typed field. Everything else the model
-needs to know about a unit is free text (``Listing.facts``), so it can come
-from a note, a listing page or a database without this module changing.
+needs to know about a unit is free text (``Listing.facts`` and the ad's
+``Listing.description``), so it can come from a note, a listing page or a
+database without this module changing.
 
 A case holds what differs from one lead or one week to the next. Anything that
 is the same for every lead, such as how to apply, belongs in
@@ -51,8 +52,12 @@ class Listing(BaseModel):
     booking_url: str = ""
     # Whatever else is true of the unit, one fact per line: bedrooms, floor,
     # utilities, laundry, parking, appliances, pets. The model answers unit
-    # questions from this and nothing else.
+    # questions from this and the description, and nothing else.
     facts: str = ""
+    # The unit's Zillow ad description as published, several lines: what the
+    # lead has already read. Where it differs, the typed fields above and the
+    # facts win (``prompts/policy.md``).
+    description: str = ""
     # What the model should know to decide but must not tell the lead, one note
     # per line: a resident who wants two days' notice, a lease start that can
     # move under a condition. Low-stakes only; the policy says how to use them.
@@ -62,7 +67,7 @@ class Listing(BaseModel):
     # inside these windows are listed in the case as preferred.
     preferred_times: list[PreferredWindow] = Field(default_factory=list)
 
-    @field_validator("facts", "internal_notes", mode="before")
+    @field_validator("facts", "description", "internal_notes", mode="before")
     @classmethod
     def _text_from_lines(cls, value: object) -> object:
         """Accept a list of lines, which is easier to edit by hand in JSON."""
@@ -425,6 +430,12 @@ def _fact_lines(text: str) -> list[str]:
     return [line.strip().lstrip("-*• ").strip() for line in text.splitlines() if line.strip(" -*•")]
 
 
+# How a unit's Zillow ad description is introduced in the case, after its facts.
+# The policy says how it ranks; this label repeats it.
+DESCRIPTION_LABEL = (
+    "Zillow ad description, as published (where it differs, the first line "
+    "and the facts above win):"
+)
 # How a unit's internal notes are introduced in the case. The policy says what
 # the model may do with them; this label repeats the one rule that matters.
 INTERNAL_NOTES_LABEL = "Internal notes (for your decisions only, never tell the lead):"
@@ -458,6 +469,10 @@ def render_case(case: LeadCase) -> str:
         facts.append("virtual tours allowed" if listing.virtual_tours else "in-person tours only")
         lines.append(f"- {listing.unit}: " + "; ".join(fact for fact in facts if fact))
         lines += [f"  - {fact}" for fact in _fact_lines(listing.facts)]
+        if ad := [line.strip() for line in listing.description.splitlines() if line.strip()]:
+            # Indented under its label, so no line of the ad reads as part of the case.
+            lines.append(f"  - {DESCRIPTION_LABEL}")
+            lines += [f"    {line}" for line in ad]
         if notes := _fact_lines(listing.internal_notes):
             lines.append(f"  - {INTERNAL_NOTES_LABEL}")
             lines += [f"    - {note}" for note in notes]

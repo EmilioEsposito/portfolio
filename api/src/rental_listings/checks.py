@@ -3,12 +3,14 @@
 The types in ``schema.py`` say what shape a value has. These checks cover the
 rest: values that make no sense, and free text that must not be stored here.
 
-The text checks apply to public facts and internal notes alike. The Zillow
-lead agent reads both and answers strangers, so neither may hold anything
-that would matter if it leaked: a phone number, an email address, a link, or
-words about access codes. They catch the obvious cases. What they cannot
-catch (a wrong fact, a note that is more sensitive than it looks) is why a
-change to free text made by an agent waits for a person's approval.
+The text checks apply to the listing description, public facts and internal
+notes alike. The Zillow lead agent reads all three and answers strangers, so
+none may hold anything that would matter if it leaked: a phone number, an
+email address, a link, or words about access codes. An ad pasted with one is
+refused with the field and the line named, so the person knows what to trim.
+They catch the obvious cases. What they cannot catch (a wrong fact, a note
+that is more sensitive than it looks) is why a change to free text made by an
+agent waits for a person's approval.
 """
 
 import re
@@ -20,6 +22,8 @@ from api.src.rental_listings.schema import RentalListing, ShowingRules
 
 MAX_LINES = 60  # public facts, or internal notes, per listing
 MAX_LINE_LENGTH = 300
+# The listing description: a Zillow ad's description, line breaks allowed.
+MAX_DESCRIPTION_LENGTH = 5000
 MAX_NAME_LENGTH = 120
 # Notice before a showing, in hours: at least one, at most the 14 days showings are offered.
 MAX_NOTICE_HOURS = 14 * 24
@@ -103,6 +107,24 @@ def _lines_problems(where: str, kind: str, lines: list[str]) -> list[str]:
     return problems
 
 
+def _description_problems(where: str, text: str) -> list[str]:
+    """The listing description: several lines allowed, each named by its start when refused.
+
+    An ad is long, so a refusal quotes the start of the line to trim. A match
+    that only shows across a line break is refused for the whole field.
+    """
+    where = f"{where} listing description"
+    problems = []
+    if len(text) > MAX_DESCRIPTION_LENGTH:
+        problems.append(f"{where}: over {MAX_DESCRIPTION_LENGTH:,} characters ({len(text):,})")
+    found = [
+        problem
+        for line in text.splitlines()
+        for problem in _text_problems(f"{where} {line.strip()[:40]!r}", line)
+    ]
+    return problems + (found or _text_problems(where, text))
+
+
 _LOCAL_TIME = "must be a local time of day with no UTC offset, e.g. 09:00"
 
 
@@ -142,6 +164,7 @@ def listing_problems(listing: RentalListing) -> list[str]:
     )
     problems += _text_problems(f"{where} name", listing.unit)
     problems += _text_problems(f"{where} address", listing.address)
+    problems += _description_problems(where, listing.listing_description)
     problems += _lines_problems(where, "public fact", listing.public_facts)
     problems += _lines_problems(where, "internal note", listing.internal_notes)
     for preferred in listing.preferred_showing_times:

@@ -15,7 +15,12 @@ from sqlalchemy.exc import IntegrityError
 from api.src.database.app_settings import AppSetting
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service
-from api.src.rental_listings.checks import RentalDataInvalid, listing_problems, rules_problems
+from api.src.rental_listings.checks import (
+    MAX_DESCRIPTION_LENGTH,
+    RentalDataInvalid,
+    listing_problems,
+    rules_problems,
+)
 from api.src.rental_listings.models import RentalListingChange, RentalListingRecord
 from api.src.rental_listings.schema import PreferredWindow, RentalListing, ShowingRules
 
@@ -29,6 +34,9 @@ LISTING = RentalListing(
     preferred_showing_times=[
         PreferredWindow(days=["mon", "tue"], start=time(15, 0), end=time(18, 0))
     ],
+    listing_description=(
+        "Sunny one bedroom near the park.\n\nHeat and hot water included. Cats welcome."
+    ),
     public_facts=["1 bedroom, second floor", "Dishwasher", "Built 1925, renovated 2019"],
     internal_notes=["Resident wants 48 hours' notice where possible"],
 )
@@ -82,6 +90,30 @@ class TestChecks:
 
         assert len(as_fact) == 1 and reason in as_fact[0] and "public fact" in as_fact[0]
         assert len(as_note) == 1 and reason in as_note[0] and "internal note" in as_note[0]
+
+        # In the description, the refusal names the field and quotes the line to trim.
+        ad = f"Sunny one bedroom near the park.\n\n{text}\nHeat included."
+        as_ad = listing_problems(RentalListing(unit="12-A", listing_description=ad))
+        assert as_ad == [
+            f"unit 12-A listing description {text[:40]!r}: {as_fact[0].rsplit(': ', 1)[1]}"
+        ]
+        assert reason in as_ad[0]
+
+    def test_a_description_may_span_lines_up_to_its_length_cap(self):
+        lines = "Sunny one bedroom.\n\n- Dishwasher\n- Hardwood floors\n"
+        assert listing_problems(RentalListing(unit="12-A", listing_description=lines)) == []
+
+        at_cap = RentalListing(unit="12-A", listing_description="a" * MAX_DESCRIPTION_LENGTH)
+        assert listing_problems(at_cap) == []
+        over = at_cap.model_copy(update={"listing_description": "a" * (MAX_DESCRIPTION_LENGTH + 1)})
+        assert listing_problems(over) == [
+            f"unit 12-A listing description: over {MAX_DESCRIPTION_LENGTH:,} characters "
+            f"({MAX_DESCRIPTION_LENGTH + 1:,})"
+        ]
+
+    def test_a_phone_number_split_across_lines_in_the_description_is_still_refused(self):
+        unit = RentalListing(unit="12-A", listing_description="Call 412 555\n0134 today")
+        assert listing_problems(unit) == ["unit 12-A listing description: holds a phone number"]
 
     @pytest.mark.parametrize(
         "text", ["Dishwasher", "Barcode scanner in the lobby", "Zip code 15213", "Encoded keys"]

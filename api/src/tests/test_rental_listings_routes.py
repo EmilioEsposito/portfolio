@@ -126,6 +126,7 @@ async def test_an_edit_replaces_the_unit_and_needs_no_approval_for_free_text(api
             "asking_rent": 1550,
             "off_market_on": date(2027, 6, 15),
             "public_facts": [*LISTING.public_facts, "Washer and dryer in unit"],
+            "listing_description": "Sunny one bedroom.\n\nNew windows this spring.",
             "internal_notes": [],
         }
     )
@@ -148,6 +149,11 @@ async def test_an_edit_replaces_the_unit_and_needs_no_approval_for_free_text(api
         ("internal_notes", ["Door code is 4821"], "access code"),
         ("internal_notes", ["Resident: sam@example.com"], "email address"),
         ("public_facts", ["Photos at https://example.com"], "link"),
+        (
+            "listing_description",
+            "Sunny one bedroom.\nCall 412-555-0134 for a tour.",
+            "listing description 'Call 412-555-0134 for a tour.': holds a phone number",
+        ),
     ],
 )
 @pytest.mark.asyncio

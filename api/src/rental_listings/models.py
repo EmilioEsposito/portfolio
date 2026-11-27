@@ -2,7 +2,18 @@
 
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, func, text
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,6 +47,8 @@ class RentalListingRecord(Base):
     showing_notice_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
     zillow_listing_url_public_view: Mapped[str] = mapped_column(String, default="")
     zillow_listing_url_internal_editor_view: Mapped[str] = mapped_column(String, default="")
+    # The ad's description as published on Zillow, several lines.
+    listing_description: Mapped[str] = mapped_column(Text, default="", server_default="")
     # Lists, validated by ``schema.RentalListing`` on the way in and out.
     preferred_showing_times: Mapped[list] = mapped_column(JSONB, default=list)
     public_facts: Mapped[list] = mapped_column(JSONB, default=list)
