@@ -228,9 +228,7 @@ async def test_an_edit_cannot_rename_a_unit_or_create_one(api):
 
 @pytest.mark.asyncio
 async def test_showing_rules_are_saved_and_in_the_history(api):
-    rules = ShowingRules(
-        blackout_dates=[date(2027, 7, 4)], showing_booking_url="https://book.example.com"
-    )
+    rules = ShowingRules(blackout_dates=[date(2027, 7, 4)])
 
     response = await api.put(
         "/api/rental-listings/showing-rules",

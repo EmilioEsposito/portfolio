@@ -68,6 +68,17 @@ SERVE_PORT = 8377
 LISTINGS_HELP = "the season's listing data file (old name: --operating)"
 
 
+def read_season_listings(path: Path) -> ListingData:
+    """Expand the shared booking link in older offline season fixtures."""
+    raw = json.loads(path.read_text())
+    shared = raw.pop("booking_url", "")
+    if shared:
+        for unit in raw.get("listings", []):
+            if not unit.get("booking_url"):
+                unit["booking_url"] = shared
+    return ListingData.model_validate(raw)
+
+
 def _fingerprint(path: Path) -> str:
     """A short hash of a file, so a run records exactly which version it read."""
     return f"{path.name}@{hashlib.sha256(path.read_bytes()).hexdigest()[:8]}"
@@ -179,7 +190,7 @@ async def run(args: argparse.Namespace) -> None:
     ensure_logfire_configured(mode="prod", service_name="zillow-evals", environment="local")
     logfire.instrument_pydantic_ai()
 
-    listing_data = ListingData.model_validate_json(args.listings.read_text())
+    listing_data = read_season_listings(args.listings)
     scenarios = read_scenarios(args.scenarios)
     edits = read_case_edits(args.case_edits) if args.case_edits else {}
     order: list[str] = []
@@ -288,7 +299,7 @@ async def browse(args: argparse.Namespace) -> None:
 
 
 async def review(args: argparse.Namespace) -> None:
-    listing_data = ListingData.model_validate_json(args.listings.read_text())
+    listing_data = read_season_listings(args.listings)
     rows = [json.loads(line) for line in args.run.read_text().splitlines() if line]
     snapshot = _policy_snapshot(args.run)
     policy = snapshot.read_text() if snapshot.exists() else ""
@@ -359,7 +370,7 @@ async def judge_runs(args: argparse.Namespace) -> None:
     ensure_logfire_configured(mode="prod", service_name="zillow-evals", environment="local")
     logfire.instrument_pydantic_ai()
 
-    listing_data = ListingData.model_validate_json(args.listings.read_text())
+    listing_data = read_season_listings(args.listings)
     by_id = {item.scenario_id: item for item in read_scenarios(args.scenarios)}
     edits = read_case_edits(args.case_edits) if args.case_edits else {}
     verdicts = latest_per_output(read_labels(args.labels)) if args.labels else {}

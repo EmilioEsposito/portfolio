@@ -47,8 +47,7 @@ class Listing(BaseModel):
     # From this date the unit is taken: it moves from the listings to the
     # "rented, do not offer" list. Dated so a past case sees the past state.
     rented_on: date | None = None
-    # Where a lead can book a showing for this unit themselves. Empty means
-    # use ``ListingData.booking_url``, and if that is empty too, offer times.
+    # The booking service supplies this thread's link when the case is built.
     booking_url: str = ""
     # Whatever else is true of the unit, one fact per line: bedrooms, floor,
     # utilities, laundry, parking, appliances, pets. The model answers unit
@@ -97,8 +96,6 @@ class ListingData(BaseModel):
     timezone: str = "America/New_York"
     listings: list[Listing] = Field(default_factory=list)
     rented_units: list[str] = Field(default_factory=list)
-    # The self-serve booking page for showings, when one exists.
-    booking_url: str = ""
     showing_window: ShowingWindow = Field(default_factory=ShowingWindow)
     # A weekly pattern of tour times kept by hand. The evals' season file has
     # one. Production has none: there, tour times come from a ``TourSource``
@@ -301,11 +298,9 @@ def build_case(
     the weekly pattern in ``listing_data`` knows them (a calendar, a booking
     service). The case stores the times either way, never where they came from.
 
-    ``booking_links`` replace units' booking links (the booking service's page
-    with this thread's own token; an empty one is no link at all), and
-    ``own_showings`` are the thread's own showings. Both come from the booking
-    service, only while it is in use;
-    without them the case is exactly what it was before either existed.
+    The booking service supplies ``booking_links`` for this thread and
+    ``own_showings`` for its attendees. A unit missing from the link map
+    has no booking link in the case.
 
     A showing the lead is booked into is not offered back to them: its time is
     left out of the open times and the booked tours at that unit, so what the
@@ -322,11 +317,7 @@ def build_case(
     rented = [item for item in listing_data.listings if item.rented_on and item.rented_on <= today]
     links = booking_links or {}
     listed = [
-        item.model_copy(
-            update={
-                "booking_url": links.get(item.unit, item.booking_url or listing_data.booking_url)
-            }
-        )
+        item.model_copy(update={"booking_url": links.get(item.unit, "")})
         for item in listing_data.listings
         if item not in rented
     ]

@@ -196,7 +196,6 @@ async def rental_listing_update(
     next_lease_start_latest: date | None = None,
     virtual_tours_allowed: bool | None = None,
     off_market_on: date | None = None,
-    showing_booking_url: str | None = None,
     zillow_listing_url_public_view: str | None = None,
     zillow_listing_url_internal_editor_view: str | None = None,
     listing_description: str | None = None,
@@ -239,7 +238,6 @@ async def rental_listing_update(
         next_lease_start_latest: The last date the next lease can start. Equal to the earliest for a fixed date.
         virtual_tours_allowed: Whether a virtual tour may be offered for this unit.
         off_market_on: The date from which the unit is no longer on offer, usually because the next lease is signed.
-        showing_booking_url: The https link where a lead books a showing of this unit. An empty string removes it.
         zillow_listing_url_public_view: The unit's Zillow ad as a lead sees it, an https zillow.com link given by a person. Not shown to leads. An empty string removes it.
         zillow_listing_url_internal_editor_view: The Zillow Rental Manager page where the team edits the ad, an https zillow.com link given by a person. An empty string removes it.
         listing_description: The unit's Zillow ad description as published, several lines, copied as the ad has it, without any sentence holding a phone number, email address, link or person's name. Replaces the one on file. An empty string removes it.
@@ -263,7 +261,6 @@ async def rental_listing_update(
             next_lease_start_latest=next_lease_start_latest,
             virtual_tours_allowed=virtual_tours_allowed,
             off_market_on=off_market_on,
-            showing_booking_url=showing_booking_url,
             zillow_listing_url_public_view=zillow_listing_url_public_view,
             zillow_listing_url_internal_editor_view=zillow_listing_url_internal_editor_view,
             listing_description=listing_description,
@@ -286,7 +283,6 @@ async def showing_rules_update(
     latest_start: clock | None = None,
     add_blackout_dates: list[date] | None = None,
     remove_blackout_dates: list[date] | None = None,
-    showing_booking_url: str | None = None,
 ) -> str:
     """Change the showing rules that apply to every rental unit. Saved at once.
 
@@ -301,7 +297,6 @@ async def showing_rules_update(
         latest_start: The latest local time of day a showing may start, e.g. 18:00, with no UTC offset.
         add_blackout_dates: Dates on which there are no showings at all.
         remove_blackout_dates: Dates to take off the blackout list.
-        showing_booking_url: The https link where a lead books a showing, used for any unit without its own. An empty string removes it.
     """
     token = _caller()
     try:
@@ -312,7 +307,6 @@ async def showing_rules_update(
             latest_start=latest_start,
             add_blackout_dates=add_blackout_dates,
             remove_blackout_dates=remove_blackout_dates,
-            showing_booking_url=showing_booking_url,
         )
         saved = await core.save_rules(token, plan)
     except CoreError as error:

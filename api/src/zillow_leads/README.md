@@ -53,13 +53,12 @@ flowchart TD
     BOOK -. Booked showings .-> CASE
 ```
 
-The booking integration is **switched off**. `handle.py` asks
+The Booking settings tab controls the integration. `handle.py` asks
 `showing_bookings/lead_tours.py` for its tour source on each lead: unless the
 Booking settings tab's switch `lead_agent_uses_open_times` is on, and whenever
 that setting cannot be read, it is `NoTours`, which returns no open times and
 no booked showings. With the switch on, the booking service's open times and
-showings with room come through `tours_for_case` like any other source. A case may contain a configured booking
-link; without one, the policy tells the lead that the team will check and get
+showings with room come through `tours_for_case` like any other source. Booking supplies a per-thread link for eligible units; without one, the policy tells the lead that the team will check and get
 back, and records a team note. With the switch off, a tour recorded in an
 outcome does not create a booking, phone contact, or calendar event. With it
 on, a sent reply that confirms a tour books it; see "Showings agreed by email"
@@ -78,9 +77,8 @@ in by code (`showing_bookings/lead_tours.py`, `case.build_case`):
   the thread is handled with the switch on. It holds no personal data and
   appears only in that thread's links. Each unit's booking link in the case is
   the booking page with it: `<SHOWING_PUBLIC_BASE_URL>/showings/<unit>?t=<token>`.
-  Only where that page answers: a unit the public may not book now (in the booking
-  service's live mode, one that is not ticked; or any, with public booking off)
-  keeps the listing's own link, unless the lead has a showing there already.
+  The link appears when public booking is enabled and the unit is open to
+  booking or the lead already has a place there. Otherwise the case has no link for that unit.
   A booking made through it is tied to the thread
   (`showing_attendees.zillow_thread_id`); see the booking service's README.
 - **The lead's own showings.** `LeadCase.own_showings` lists the thread's

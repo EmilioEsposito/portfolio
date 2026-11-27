@@ -62,7 +62,7 @@ def _text_problems(where: str, text: str) -> list[str]:
     return found
 
 
-def _booking_url_problems(where: str, url: str) -> list[str]:
+def _https_url_problems(where: str, url: str) -> list[str]:
     if not url:
         return []
     parts = urlsplit(url)
@@ -79,7 +79,7 @@ def zillow_url_problems(where: str, url: str) -> list[str]:
     """
     if not url:
         return []
-    if problems := _booking_url_problems(where, url):
+    if problems := _https_url_problems(where, url):
         return problems
     parts = urlsplit(url)
     host = (parts.hostname or "").lower()
@@ -154,7 +154,6 @@ def listing_problems(listing: RentalListing) -> list[str]:
     first, final = listing.next_lease_start_earliest, listing.next_lease_start_latest
     if first and final and first > final:
         problems.append(f"{where}: next_lease_start_earliest is after next_lease_start_latest")
-    problems += _booking_url_problems(f"{where} showing_booking_url", listing.showing_booking_url)
     problems += zillow_url_problems(
         f"{where} zillow_listing_url_public_view", listing.zillow_listing_url_public_view
     )
@@ -188,7 +187,4 @@ def rules_problems(rules: ShowingRules) -> list[str]:
         problems.append("showing rules: earliest_start is after latest_start")
     if not 1 <= rules.showing_notice_hours <= MAX_NOTICE_HOURS:
         problems.append(f"showing rules: showing_notice_hours must be from 1 to {MAX_NOTICE_HOURS}")
-    problems += _booking_url_problems(
-        "showing rules showing_booking_url", rules.showing_booking_url
-    )
     return problems
