@@ -216,6 +216,18 @@ def _stripped(value: str | None) -> str | None:
     return value.strip() if value is not None else None
 
 
+def _description_change(on_file: str, given: str | None) -> list[str]:
+    """One line for a change to the listing description, by size: an ad is too long to print twice."""
+    if given is None or given.strip() == on_file:
+        return []
+    new = given.strip()
+    if not new:
+        return ["listing_description: removed"]
+    if not on_file:
+        return [f"listing_description: added ({len(new):,} characters)"]
+    return [f"listing_description: changed ({len(on_file):,} -> {len(new):,} characters)"]
+
+
 def _iso(value: date | time | None) -> str | None:
     return value.isoformat() if value is not None else None
 
@@ -234,6 +246,7 @@ def plan_listing_change(
     showing_booking_url: str | None = None,
     zillow_listing_url_public_view: str | None = None,
     zillow_listing_url_internal_editor_view: str | None = None,
+    listing_description: str | None = None,
     add_public_facts: list[str] | None = None,
     remove_public_facts: list[str] | None = None,
     add_internal_notes: list[str] | None = None,
@@ -292,6 +305,9 @@ def plan_listing_change(
             "zillow_listing_url_internal_editor_view": _stripped(
                 zillow_listing_url_internal_editor_view
             ),
+            # Sent only when given. It is not in the blank listing above, so a
+            # new listing saves against an API that does not have the field yet.
+            "listing_description": _stripped(listing_description),
             "preferred_showing_times": (
                 [window.model_dump(mode="json") for window in preferred_showing_times]
                 if preferred_showing_times is not None
@@ -323,8 +339,9 @@ def plan_listing_change(
     described = [
         f"{name}: {current.get(name)!r} -> {value!r}"
         for name, value in changes.items()
-        if current.get(name) != value
+        if current.get(name) != value and name != "listing_description"
     ]
+    described += _description_change(current.get("listing_description") or "", listing_description)
     described += fact_lines + note_lines
     if existing is None:
         described.insert(0, f"New listing for unit {updated['unit']}")

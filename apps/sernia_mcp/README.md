@@ -43,7 +43,7 @@ The tool surface mirrors Claude Code's `Read` / `Edit` / `Write` so models that 
 
 ### Rental listings
 
-The same five tools and parameter names as the Sernia agent's. Each unit's listing (the next lease on offer, public facts, internal
+The same five tools and parameter names as the Sernia agent's. Each unit's listing (the next lease on offer, the Zillow ad's description, public facts, internal
 notes) is what the Zillow lead agent answers leads from. The data lives in
 the API's database, which this service does not reach: the tools call
 `/api/rental-listings` with the signed-in user's own Clerk OAuth token, and
@@ -55,7 +55,7 @@ the API records each change under that person's name with the source
 | `rental_listings_read` | read | Every listing and the showing rules |
 | `rental_listing_history` | read | Changes, newest first, with who and from where |
 | `rental_listing_zillow_ad_read` | read | A unit's live Zillow ad beside its listing on file, to propose changes from. The API reads the ad (`GET /api/rental-listings/zillow-ad/{unit}`, through Jina Reader); this service never calls Zillow |
-| `rental_listing_update` | write | Changes a listing, or adds one. Saved at once; the answer lists each change and the listing as it now reads |
+| `rental_listing_update` | write | Changes a listing, or adds one, including `listing_description` (the Zillow ad's description as published; public facts add to it or correct it). Saved at once; the answer lists each change and the listing as it now reads |
 | `showing_rules_update` | write | The showing window, blackout dates and the shared booking link. Saved at once |
 
 - **No card.** Every change is saved when the tool is called. The Sernia
