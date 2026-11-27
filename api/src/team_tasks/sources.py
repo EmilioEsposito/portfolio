@@ -1,14 +1,4 @@
-"""Open tasks from the two places the team keeps them, in one small shape.
-
-Nothing is stored and nothing joins the two. Each source has a reader and a way
-to complete or reopen a task; the routes only put the two lists together.
-Dropping a source means deleting its section here and its name from ``Source``.
-
-- ClickUp: the maintenance list (``CLICKUP_MAINTENANCE_LIST_ID``), subtasks
-  included. Its due date is what the list calls the reminder date.
-- Quo: every task in the workspace. Quo has no web address for a task, so a
-  Quo task carries no link.
-"""
+"""Read and update the team's three ClickUp lists and workspace Quo tasks."""
 
 import os
 import re
@@ -16,10 +6,20 @@ from datetime import UTC, datetime
 from typing import Literal, NamedTuple
 
 import httpx
-from pydantic import AwareDatetime, BaseModel
+from pydantic import AwareDatetime, BaseModel, Field
 
 from api.src.open_phone import tasks as quo_tasks
 from api.src.sernia_ai.config import CLICKUP_MAINTENANCE_LIST_ID
+
+CLICKUP_LISTS = {
+    "901311922390": "Sernia Other Todo",
+    "901311922677": "Leasing",
+    CLICKUP_MAINTENANCE_LIST_ID: "Maintenance",
+}
+
+# Staff who use a different email for ClickUp and their team login. Key by
+# the stable workspace member ID so a display-name change cannot move tasks.
+CLICKUP_TEAM_EMAIL_BY_MEMBER_ID = {"94066437": "peppino@serniacapital.com"}
 
 Source = Literal["clickup", "quo"]
 
@@ -39,6 +39,9 @@ class Task(BaseModel):
     description: str
     due: AwareDatetime | None
     assignees: list[str]
+    list_id: str | None = None
+    mine: bool = False
+    assignee_emails: set[str] = Field(default_factory=set, exclude=True, repr=False)
     # The source's own word for where the task stands ("to do", "waiting", "open").
     status: str
     completed: bool
@@ -80,19 +83,26 @@ def _clickup_client() -> httpx.AsyncClient:
     )
 
 
-def clickup_task(raw: dict) -> Task:
+def clickup_task(raw: dict, list_id: str | None = None) -> Task:
     status = raw.get("status") or {}
     due = raw.get("due_date")
+    assignees = raw.get("assignees") or []
+    emails = {person["email"].strip().casefold() for person in assignees if person.get("email")}
+    for person in assignees:
+        team_email = CLICKUP_TEAM_EMAIL_BY_MEMBER_ID.get(str(person.get("id")))
+        if team_email:
+            emails.add(team_email)
     return Task(
         source="clickup",
+        list_id=list_id or (raw.get("list") or {}).get("id"),
+        assignee_emails=emails,
         id=str(raw["id"]),
         title=raw.get("name") or "Untitled task",
         description=(raw.get("text_content") or raw.get("description") or "").strip(),
         # ClickUp gives dates as milliseconds since 1970, in a string.
         due=datetime.fromtimestamp(int(due) / 1000, UTC) if due else None,
         assignees=[
-            person.get("username") or person.get("email") or "Someone"
-            for person in raw.get("assignees") or []
+            person.get("username") or person.get("email") or "Someone" for person in assignees
         ],
         status=status.get("status") or "",
         completed=status.get("type") == "closed",
@@ -100,21 +110,33 @@ def clickup_task(raw: dict) -> Task:
     )
 
 
-async def clickup_open(client: httpx.AsyncClient | None = None) -> Listing:
-    """Every task in the maintenance list that is not closed."""
+async def clickup_open(list_id: str, client: httpx.AsyncClient | None = None) -> Listing:
+    """Every task in the requested team list that is not closed."""
     async with client or _clickup_client() as http:
         found: list[Task] = []
         for page in range(CLICKUP_MAX_PAGES):
             response = await http.get(
-                f"/list/{CLICKUP_MAINTENANCE_LIST_ID}/task",
+                f"/list/{list_id}/task",
                 params={"include_closed": "false", "subtasks": "true", "page": str(page)},
             )
             response.raise_for_status()
             body = response.json()
-            found.extend(clickup_task(raw) for raw in body.get("tasks") or [])
+            found.extend(clickup_task(raw, list_id) for raw in body.get("tasks") or [])
             if body.get("last_page", True):
                 return Listing(found)
         return Listing(found, complete=False)
+
+
+async def clickup_create(list_id: str, title: str, description: str) -> Task:
+    if list_id not in CLICKUP_LISTS:
+        raise NotFound(list_id)
+    body = {"name": title}
+    if description:
+        body["description"] = description
+    async with _clickup_client() as http:
+        response = await http.post(f"/list/{list_id}/task", json=body)
+        response.raise_for_status()
+        return clickup_task(response.json(), list_id)
 
 
 async def clickup_set_completed(
@@ -137,10 +159,11 @@ async def clickup_set_completed(
             # ClickUp answers 401 for a task the key cannot see.
             raise NotFound(task_id)
         current.raise_for_status()
-        # Only the list this page shows: the key itself can reach every list.
-        if (current.json().get("list") or {}).get("id") != CLICKUP_MAINTENANCE_LIST_ID:
+        # The integration key can also reach lists outside the team page.
+        list_id = (current.json().get("list") or {}).get("id")
+        if list_id not in CLICKUP_LISTS:
             raise NotFound(task_id)
-        listing = await http.get(f"/list/{CLICKUP_MAINTENANCE_LIST_ID}")
+        listing = await http.get(f"/list/{list_id}")
         listing.raise_for_status()
         statuses = listing.json().get("statuses") or []
         wanted = "closed" if completed else "open"
@@ -175,9 +198,11 @@ def _quo_client() -> httpx.AsyncClient:
     )
 
 
-def quo_task(raw: dict, names: dict[str, str]) -> Task:
-    """``names`` maps a Quo user id to the person's name."""
+def quo_task(raw: dict, users: dict[str, dict]) -> Task:
     assigned = raw.get("assignedTo")
+    person = users.get(assigned, {})
+    email = person.get("email") or ""
+    name = " ".join(part for part in (person.get("firstName"), person.get("lastName")) if part)
     due = raw.get("dueDate")
     completed = bool(raw.get("completed"))
     return Task(
@@ -186,34 +211,38 @@ def quo_task(raw: dict, names: dict[str, str]) -> Task:
         title=raw.get("title") or "Untitled task",
         description=(raw.get("description") or "").strip(),
         due=datetime.fromisoformat(due.replace("Z", "+00:00")) if due else None,
-        assignees=[names.get(assigned, "Someone")] if assigned else [],
+        assignees=[name or email or "Someone"] if assigned else [],
+        assignee_emails={email.strip().casefold()} if email else set(),
         status="complete" if completed else "open",
         completed=completed,
         url=None,
     )
 
 
-async def _quo_names(http: httpx.AsyncClient) -> dict[str, str]:
-    response = await http.get("/v1/users", params={"maxResults": "50"})
-    response.raise_for_status()
-    return {
-        user["id"]: " ".join(part for part in (user.get("firstName"), user.get("lastName")) if part)
-        or user.get("email")
-        or "Someone"
-        for user in response.json().get("data") or []
-    }
+async def _quo_users(http: httpx.AsyncClient) -> dict[str, dict]:
+    users = {}
+    params = {"maxResults": "50"}
+    while True:
+        response = await http.get("/v1/users", params=params)
+        response.raise_for_status()
+        page = response.json()
+        users.update({user["id"]: user for user in page.get("data") or []})
+        token = page.get("nextPageToken")
+        if not token:
+            return users
+        params["pageToken"] = token
 
 
 async def quo_open(client: httpx.AsyncClient | None = None) -> Listing:
     """Every Quo task that is neither completed nor deleted."""
     async with client or _quo_client() as http:
-        names = await _quo_names(http)
+        users = await _quo_users(http)
         found: list[Task] = []
         token: str | None = None
         for _ in range(QUO_MAX_PAGES):
             body = await quo_tasks.list_tasks(http, QUO_PAGE_SIZE, token)
             found.extend(
-                quo_task(raw, names)
+                quo_task(raw, users)
                 for raw in body.get("data") or []
                 if not raw.get("completed") and not raw.get("isDeleted")
             )
@@ -242,13 +271,12 @@ async def quo_set_completed(
                 raise NotFound(task_id) from None
             raise
         try:
-            names = await _quo_names(http)
+            users = await _quo_users(http)
         except (httpx.HTTPError, ValueError, KeyError):
             # The task has changed already. A failed lookup of people's names
             # must not be reported as the change failing.
-            names = {}
-        return quo_task(raw, names)
+            users = {}
+        return quo_task(raw, users)
 
 
-READERS = {"clickup": clickup_open, "quo": quo_open}
 WRITERS = {"clickup": clickup_set_completed, "quo": quo_set_completed}
