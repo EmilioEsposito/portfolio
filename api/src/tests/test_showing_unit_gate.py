@@ -261,42 +261,11 @@ async def test_settings_that_do_not_read_offer_the_lead_agent_nothing(two_units)
 
 @pytest.mark.asyncio
 async def test_a_lead_gets_no_link_to_a_page_that_says_the_unit_is_not_open(two_units):
-    """The listing's own link instead; no link at all when that is such a page too."""
-    own_link = "https://book.example/320-03"
-    page = f"https://serniacapital.com/showings/{UNIT}"
-    token = await lead_links.token_for_thread(THREAD, now=NOW)
-    for settings, listing_link, expected in [
-        (CLOSED, own_link, own_link),
-        (CLOSED, "", ""),
-        (CLOSED, page, ""),
-        ({**CLOSED, "live_units": [UNIT]}, page, f"{page}?t={token}"),
-        ({**CLOSED, "live_units": [], "live_all_units": True}, own_link, f"{page}?t={token}"),
-        ({**CLOSED, "send_mode": "capture"}, own_link, f"{page}?t={token}"),
-        # With public booking off, every one of these pages answers that it is not open.
-        ({**CLOSED, "live_units": [UNIT], "public_booking_enabled": False}, own_link, own_link),
-        ({**CLOSED, "live_units": [UNIT], "public_booking_enabled": False}, page, ""),
-    ]:
-        await store_settings(**settings)
-        two_units.world.listing = two_units.world.listing.model_copy(
-            update={"showing_booking_url": listing_link}
-        )
-        assert links(await case_for(two_units))[UNIT] == expected, (settings, listing_link)
-
-
-@pytest.mark.asyncio
-async def test_the_rules_own_link_is_no_way_round_it(two_units):
-    """The booking page for any unit without its own link, when it is a unit's page here."""
     await store_settings(**CLOSED)
-    two_units.world.rules = two_units.world.rules.model_copy(
-        update={"showing_booking_url": f"https://serniacapital.com/showings/{UNIT}"}
-    )
     assert links(await case_for(two_units))[UNIT] == ""
 
-    two_units.world.rules = two_units.world.rules.model_copy(
-        update={"showing_booking_url": "https://serniacapital.com/showings"}
-    )
-    # The units list says which units are open, and never that one is not.
-    assert links(await case_for(two_units))[UNIT] == "https://serniacapital.com/showings"
+    await store_settings(**{**CLOSED, "live_units": [UNIT], "public_booking_enabled": False})
+    assert links(await case_for(two_units))[UNIT] == ""
 
 
 @pytest.mark.asyncio

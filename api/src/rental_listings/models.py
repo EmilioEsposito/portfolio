@@ -42,7 +42,6 @@ class RentalListingRecord(Base):
     next_lease_start_latest: Mapped[date | None] = mapped_column(Date, nullable=True)
     virtual_tours_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
     off_market_on: Mapped[date | None] = mapped_column(Date, nullable=True)
-    showing_booking_url: Mapped[str] = mapped_column(String, default="")
     # A longer notice than the showing rules give, in hours. Empty uses the rules'.
     showing_notice_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
     zillow_listing_url_public_view: Mapped[str] = mapped_column(String, default="")

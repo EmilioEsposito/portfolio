@@ -311,8 +311,12 @@ class TestReplyChecks:
         assert result["no_staff_names"] is False
 
     def test_a_reply_may_only_use_links_the_case_supplied(self):
-        with_link = LISTING_DATA.model_copy(update={"booking_url": "https://book.example/tours"})
-        case = build_case(thread(message(0)), with_link, upto=0)
+        case = build_case(
+            thread(message(0)),
+            LISTING_DATA,
+            upto=0,
+            booking_links={"12-A": "https://book.example/tours"},
+        )
         signed = "\n\nSernia Capital Team"
 
         text = render_case(case)
@@ -334,17 +338,21 @@ class TestReplyChecks:
     def test_a_unit_can_have_its_own_booking_link(self):
         listing_data = LISTING_DATA.model_copy(
             update={
-                "booking_url": "https://book.example/any",
                 "listings": [
-                    Listing(unit="12-A", booking_url="https://book.example/12a"),
+                    Listing(unit="12-A"),
                     Listing(unit="12-C"),
                 ],
             }
         )
-        case = build_case(thread(message(0)), listing_data, upto=0)
+        case = build_case(
+            thread(message(0)),
+            listing_data,
+            upto=0,
+            booking_links={"12-A": "https://book.example/12a"},
+        )
         assert [item.booking_url for item in case.listings] == [
             "https://book.example/12a",
-            "https://book.example/any",
+            "",
         ]
 
     def test_no_reply_is_not_scored(self):
@@ -381,8 +389,13 @@ class TestScenarios:
         first = scenarios_from_thread(self.past)[0]
         richer = LISTING_DATA.model_copy(
             update={
-                "listings": [Listing(unit="12-A", facts="Second floor\n- Dishwasher")],
-                "booking_url": "https://book.example/tours",
+                "listings": [
+                    Listing(
+                        unit="12-A",
+                        facts="Second floor\n- Dishwasher",
+                        booking_url="https://book.example/tours",
+                    )
+                ],
             }
         )
 

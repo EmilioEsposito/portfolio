@@ -181,14 +181,15 @@ def case_for(
 ) -> LeadCase:
     """The scenario as a case: the conversation plus what was true at that moment."""
     upto = len(scenario.thread.messages) - 1
+    links = {unit.unit: unit.booking_url for unit in listing_data.listings if unit.booking_url}
     if edit is None:
-        return build_case(scenario.thread, listing_data, upto=upto)
+        return build_case(scenario.thread, listing_data, upto=upto, booking_links=links)
     case = build_case(
         scenario.thread,
         listing_data,
         upto=upto,
         booked_tours=edit.booked,
-        booking_links=edit.booking_links or None,
+        booking_links=links | edit.booking_links,
         own_showings=edit.own_showings,
     )
     known = {slot.start for slot in case.offerable_slots}

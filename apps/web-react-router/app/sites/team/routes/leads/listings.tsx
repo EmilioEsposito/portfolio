@@ -549,7 +549,6 @@ function useHistory(subject: string | null, refreshKey: number, enabled = true) 
 function UnitEditor({
   original,
   isNew,
-  sharedBookingUrl,
   rulesNoticeHours,
   onSaved,
   onCancel,
@@ -559,7 +558,6 @@ function UnitEditor({
 }: {
   original: RentalListing;
   isNew: boolean;
-  sharedBookingUrl: string;
   rulesNoticeHours: number;
   onSaved: (unit: RentalListing) => void;
   onCancel: () => void;
@@ -732,25 +730,6 @@ function UnitEditor({
                       event.target.value === "" ? null : Math.round(Number(event.target.value)),
                     )
                   }
-                />
-              </Field>
-              <Field
-                id={id("booking")}
-                label="Showing booking link"
-                hint={
-                  sharedBookingUrl
-                    ? "Where a lead books a showing of this unit. Leave empty to use the shared link in the showing rules."
-                    : "Where a lead books a showing of this unit. No shared link is set in the showing rules."
-                }
-              >
-                <Input
-                  id={id("booking")}
-                  type="url"
-                  inputMode="url"
-                  placeholder="https://"
-                  aria-describedby={id("booking-hint")}
-                  value={draft.showing_booking_url}
-                  onChange={(event) => set("showing_booking_url", event.target.value)}
                 />
               </Field>
             </div>
@@ -1032,21 +1011,6 @@ function RulesEditor({
             />
           </Field>
 
-          <Field
-            id="rules-booking"
-            label="Shared booking link"
-            hint="Used for any unit without its own booking link."
-          >
-            <Input
-              id="rules-booking"
-              type="url"
-              inputMode="url"
-              placeholder="https://"
-              aria-describedby="rules-booking-hint"
-              value={draft.showing_booking_url}
-              onChange={(event) => set("showing_booking_url", event.target.value)}
-            />
-          </Field>
 
           <section aria-labelledby="rules-blackout-heading" className="space-y-2">
             <h3 id="rules-blackout-heading" className="text-sm font-semibold">
@@ -1356,7 +1320,6 @@ function RentalUnitsScreen() {
                 key={`new-${draftNew.unit}`}
                 original={draftNew}
                 isNew
-                sharedBookingUrl={data.showing_rules.showing_booking_url}
                 rulesNoticeHours={data.showing_rules.showing_notice_hours}
                 onSaved={onUnitSaved}
                 onCancel={() => {
@@ -1373,7 +1336,6 @@ function RentalUnitsScreen() {
                 key={`${current.unit}-${version}`}
                 original={current}
                 isNew={false}
-                sharedBookingUrl={data.showing_rules.showing_booking_url}
                 rulesNoticeHours={data.showing_rules.showing_notice_hours}
                 onSaved={onUnitSaved}
                 onCancel={() => {}}

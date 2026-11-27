@@ -30,7 +30,6 @@ LISTING = RentalListing(
     asking_rent=1500,
     next_lease_start_earliest=date(2027, 7, 1),
     next_lease_start_latest=date(2027, 8, 1),
-    showing_booking_url="https://book.example.com/12-a",
     preferred_showing_times=[
         PreferredWindow(days=["mon", "tue"], start=time(15, 0), end=time(18, 0))
     ],
@@ -141,9 +140,8 @@ class TestChecks:
             "javascript:alert(1)",
         ],
     )
-    def test_a_booking_link_must_be_a_plain_https_address(self, url):
-        assert listing_problems(RentalListing(unit="12-A", showing_booking_url=url))
-        assert rules_problems(ShowingRules(showing_booking_url=url))
+    def test_zillow_links_must_be_plain_https_addresses(self, url):
+        assert listing_problems(RentalListing(unit="12-A", zillow_listing_url_public_view=url))
 
     @pytest.mark.parametrize(
         "url",
@@ -337,6 +335,22 @@ class TestShowingRules:
 
         assert rules == ShowingRules()
         assert (rules.earliest_start, rules.latest_start) == (time(9, 0), time(18, 0))
+
+    @pytest.mark.asyncio
+    async def test_old_rules_keep_their_window_without_the_retired_link(self, session):
+        session.add(
+            AppSetting(
+                key=service.SHOWING_RULES_KEY,
+                value={
+                    "earliest_start": "10:00",
+                    "showing_booking_url": "https://book.example/old",
+                },
+            )
+        )
+        await session.commit()
+        rules = await service.read_showing_rules(session)
+        assert rules == ShowingRules(earliest_start=time(10))
+        assert "showing_booking_url" not in rules.model_dump()
 
     @pytest.mark.asyncio
     async def test_saved_rules_read_back_and_can_be_replaced(self, session):

@@ -30,7 +30,6 @@ export interface RentalListing {
   next_lease_start_latest: string | null;
   virtual_tours_allowed: boolean;
   off_market_on: string | null;
-  showing_booking_url: string;
   // Hours of notice before a showing of this unit, when its resident needs more
   // than the showing rules give. null uses the rules' notice.
   showing_notice_hours: number | null;
@@ -60,7 +59,6 @@ export interface ShowingRules {
   blackout_dates: string[];
   // The least notice before a showing, in hours (24 unless changed).
   showing_notice_hours: number;
-  showing_booking_url: string;
 }
 
 export interface RentalData {
@@ -87,7 +85,6 @@ export function newListing(name: string): RentalListing {
     next_lease_start_latest: null,
     virtual_tours_allowed: false,
     off_market_on: null,
-    showing_booking_url: "",
     showing_notice_hours: null,
     zillow_listing_url_public_view: "",
     zillow_listing_url_internal_editor_view: "",
@@ -117,7 +114,6 @@ export function cleanListing(unit: RentalListing): RentalListing {
     ...unit,
     unit: unit.unit.trim(),
     address: unit.address.trim(),
-    showing_booking_url: unit.showing_booking_url.trim(),
     zillow_listing_url_public_view: unit.zillow_listing_url_public_view.trim(),
     zillow_listing_url_internal_editor_view: unit.zillow_listing_url_internal_editor_view.trim(),
     next_lease_start_earliest: unit.next_lease_start_earliest || null,
@@ -138,7 +134,6 @@ export function cleanRules(rules: ShowingRules): ShowingRules {
   return {
     ...rules,
     timezone: rules.timezone.trim(),
-    showing_booking_url: rules.showing_booking_url.trim(),
     earliest_start: shortTime(rules.earliest_start),
     latest_start: shortTime(rules.latest_start),
     blackout_dates: [...new Set(rules.blackout_dates.filter(Boolean))].sort(),
@@ -254,7 +249,6 @@ const UNIT_FIELD_LABELS: Record<string, string> = {
   next_lease_start_latest: "Next lease: latest start",
   virtual_tours_allowed: "Virtual tours allowed",
   off_market_on: "Off market from",
-  showing_booking_url: "Showing booking link",
   showing_notice_hours: "Notice before a showing (hours)",
   zillow_listing_url_public_view: "Zillow ad (public)",
   zillow_listing_url_internal_editor_view: "Zillow ad (editor)",
