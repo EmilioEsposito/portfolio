@@ -5,7 +5,12 @@
 
 export type TaskSource = "clickup" | "quo";
 
+export type ClickUpList = { id: string; name: string; state: "ready" | "unavailable" | "incomplete" };
+export type TaskDraft = { list_id: string; title: string; description: string };
+
 export type TeamTask = {
+  mine: boolean;
+  list_id: string | null;
   source: TaskSource;
   id: string;
   title: string;
@@ -22,6 +27,7 @@ export type TeamTask = {
 
 export type TasksView = {
   tasks: TeamTask[];
+  clickup_lists: ClickUpList[];
   /** Sources that could not be read just now; their tasks are missing. */
   unavailable: TaskSource[];
   /** Sources with more tasks than the API reads; some of their open tasks may be missing. */
@@ -93,9 +99,7 @@ export function statusText(task: Pick<TeamTask, "status" | "completed">): string
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-/** How many open tasks each source has, for the filter. */
-export function countBySource(tasks: TeamTask[]): Record<TaskSource, number> {
-  const counts: Record<TaskSource, number> = { clickup: 0, quo: 0 };
-  for (const task of tasks) counts[task.source] += 1;
-  return counts;
+/** Completed rows remain visible for Undo, but leave the open counts immediately. */
+export function openCount(tasks: TeamTask[]): number {
+  return tasks.filter((task) => !task.completed).length;
 }

@@ -1,36 +1,24 @@
 # Team tasks
 
-The team's Tasks page (`/team/tasks`) lists the open tasks from the two places
-the team keeps them and lets a person mark one complete.
+The signed-in team page at `/team/tasks` combines the Sernia Other Todo, Leasing
+and MaintenanceRequest lists in ClickUp (including subtasks) with open Quo
+tasks. The API reads each list independently and sorts by due date, undated last.
 
-| Source | Which tasks | Link |
-| --- | --- | --- |
-| ClickUp | The maintenance list (`CLICKUP_MAINTENANCE_LIST_ID`), subtasks included, every status that is not closed | The task in ClickUp |
-| Quo | Every task in the workspace that is not completed or deleted | None: Quo has no web address for a task |
+My Tasks matches the signed-in person's verified Clerk email addresses against
+ClickUp assignee emails and the assigned Quo user's email. A verified staff
+member using a separate ClickUp login can also match by the stable member ID
+in `CLICKUP_TEAM_EMAIL_BY_MEMBER_ID`. The navigation and
+team home count that person's open tasks. All tasks includes teammates and
+unassigned work. Both views can be filtered by list. Completed rows stay on
+screen for Undo and drop out of open counts immediately.
 
-Nothing is stored and there is no shared layer. `sources.py` has one reader and
-one writer per source, each mapping into the same `Task` shape (title,
-description, due date, assignees, status, link). Dropping a source means
-deleting its section there, its name from `Source`, and its entries in
-`READERS` and `WRITERS`.
+All endpoints require a verified Sernia Capital user.
 
-## Endpoints
-
-Both need a verified `@serniacapital.com` user.
-
-| Endpoint | Purpose |
+| Endpoint | Behavior |
 | --- | --- |
-| `GET /api/team-tasks` | Open tasks of both sources, soonest due first, undated last. A source that cannot be read is named in `unavailable`; the other is still returned. A source with more pages than its reader follows is named in `incomplete`, and the page says some tasks may be missing |
-| `POST /api/team-tasks/{source}/{task_id}/status` | `{"completed": true}` completes a task. `{"completed": false, "restore": "waiting"}` reopens it, in ClickUp to the status it had before when the list still has it |
+| `GET /api/team-tasks` | Returns open tasks, a personal assignment flag on each row, the three ClickUp lists with their read status, and source availability. Partial reads keep the other lists visible. |
+| `POST /api/team-tasks/clickup` | Creates a task using `list_id`, `title` and optional `description`. Omits assignees, due date and status so ClickUp can apply list defaults. |
+| `POST /api/team-tasks/{source}/{task_id}/status` | Completes or reopens the task. ClickUp writes check the task's current list against the same three-list allowlist and use its own statuses. Undo restores the previous status if available. |
 
-Quo lists every task ever made, completed and deleted ones included, and has
-no filter for them, so the Quo reader pages through all of them (up to
-`QUO_MAX_PAGES` pages of 100) and keeps the open ones. The page gets slower as
-that history grows.
-
-Completing a ClickUp task moves it to the list's own closed status, read from
-the list each time. Only tasks of the maintenance list can be changed, though
-the key can reach every list.
-
-Creating, editing, assigning and dating tasks is left to each app and to
-Sernia AI's ClickUp and Quo tools.
+Quo's reader pages through completed and deleted tasks to find the open ones,
+up to `QUO_MAX_PAGES`. Each ClickUp list has its own `CLICKUP_MAX_PAGES` limit.

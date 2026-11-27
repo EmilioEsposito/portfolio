@@ -35,7 +35,7 @@ export const TEAM_HOME: TeamSection = {
 export const TEAM_SECTIONS: TeamSection[] = [
   {
     title: "Tasks",
-    description: "Open ClickUp maintenance tasks and Quo tasks: see them, and mark them complete.",
+    description: "View your assignments and the team’s work in ClickUp and Quo.",
     url: "/team/tasks",
     icon: ListChecks,
   },

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assigneeText,
-  countBySource,
+  openCount,
   dueLabel,
   statusText,
   taskKey,
@@ -45,13 +45,13 @@ test("only a status that says more than open is shown", () => {
 });
 
 function task(source: TeamTask["source"], id: string): TeamTask {
-  return { source, id, title: id, description: "", due: null, assignees: [], status: "open", completed: false, url: null };
+  return { source, mine: true, list_id: null, id, title: id, description: "", due: null, assignees: [], status: "open", completed: false, url: null };
 }
 
 test("tasks are told apart across sources and counted by source", () => {
   assert.notEqual(taskKey(task("clickup", "1")), taskKey(task("quo", "1")));
-  assert.deepEqual(countBySource([task("clickup", "a"), task("quo", "b"), task("clickup", "c")]), { clickup: 2, quo: 1 });
-  assert.deepEqual(countBySource([]), { clickup: 0, quo: 0 });
+  assert.equal(openCount([task("clickup", "a"), task("quo", "b"), { ...task("clickup", "c"), completed: true }]), 2);
+  assert.equal(openCount([]), 0);
 });
 
 test("a status change takes only where the task stands from the API's answer", () => {
