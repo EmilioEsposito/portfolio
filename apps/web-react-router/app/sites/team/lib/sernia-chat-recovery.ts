@@ -10,6 +10,7 @@ export interface ChatRunStatus {
   status: "running" | "completed" | "failed" | "cancelled" | "interrupted";
   started_at: string;
   cancel_requested?: boolean;
+  credit_limit?: { daily: boolean; key_id: string | null };
   can_steer?: boolean;
   follow_ups?: { id: string; text: string; included: boolean }[];
 }

@@ -10,6 +10,7 @@ import pytest
 import pytest_asyncio
 from fastapi import HTTPException
 from pydantic_ai import Agent
+from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from sqlalchemy import delete
@@ -244,6 +245,44 @@ async def test_provider_failure_keeps_initial_prompt_and_terminal_status(scenari
     result = await messages(scenario.cid)
     assert result["run"]["status"] == "failed"
     assert "test request" in json.dumps(result["messages"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "source", "period", "expected_daily"),
+    [
+        (403, "openrouter_key_limit", "daily", True),
+        (403, "openrouter_key_limit", "monthly", False),
+        (403, "policy", "daily", None),
+        (429, "openrouter_key_limit", "daily", None),
+    ],
+)
+async def test_credit_limit_survives_stream_and_reload(
+    scenario, monkeypatch, status, source, period, expected_daily
+):
+    key_id = "a" * 64
+    detail = {
+        "message": f"Key limit exceeded ({period} limit). Manage it using https://openrouter.ai/workspaces/default/keys/{key_id}.",
+        "metadata": {"limit_source": source, "spend_usd": 100},
+    }
+
+    async def refused(history, info):
+        raise ModelHTTPError(status, "test-model", detail)
+        yield "unreachable"
+
+    monkeypatch.setattr(routes, "sernia_agent", Agent(FunctionModel(stream_function=refused)))
+    response = await start(scenario.cid)
+    stream = "".join([chunk async for chunk in response.body_iterator])
+    await finished()
+    result = await messages(scenario.cid)
+    assert result["run"]["status"] == "failed"
+    if expected_daily is None:
+        assert "credit_limit" not in result["run"]
+    else:
+        assert result["run"]["credit_limit"] == {"daily": expected_daily, "key_id": key_id}
+        assert "Sernia AI reached its OpenRouter credit limit." in stream
+        assert "spend_usd" not in stream
+        assert "test request" in json.dumps(result["messages"])
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { ChatRunNotice } from "../../app/sites/team/components/chat-run-notice.tsx";
 
 import {
   serverHasResponseForRequest,
@@ -148,4 +152,25 @@ test("matches persisted attachments when the adapter drops the filename", async 
     ),
     true,
   );
+});
+
+
+test("the saved budget failure gives staff the key link and distinguishes daily from other limits", () => {
+  const render = (daily: boolean, key_id: string | null) =>
+    renderToStaticMarkup(createElement(ChatRunNotice, {
+      run: { id: "r", status: "failed", started_at: "", credit_limit: { daily, key_id } },
+    }));
+  const key = "a".repeat(64);
+  const daily = render(true, key);
+  assert.match(daily, /Daily AI usage credits have been depleted for Sernia AI/);
+  assert.match(daily, /Tell Emilio to investigate or increase the budget/);
+  assert.ok(daily.includes(`href="https://openrouter.ai/workspaces/default/keys/${key}"`));
+  assert.doesNotMatch(render(false, null), /Daily/);
+  assert.match(render(false, null), /href="https:\/\/openrouter.ai\/settings\/keys"/);
+});
+
+test("older failed runs keep their recovery notice", () => {
+  const html = renderToStaticMarkup(createElement(ChatRunNotice, { run: { id: "r", status: "failed", started_at: "" } }));
+  assert.match(html, /The response stopped early/);
+  assert.doesNotMatch(html, /OpenRouter/);
 });
