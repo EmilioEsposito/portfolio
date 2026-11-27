@@ -10,7 +10,7 @@ import { TeamCountsProvider } from "~/sites/team/components/team-counts";
 import { TeamDeviceBanner, TeamDeviceProvider } from "~/sites/team/components/team-device";
 import { TeamGuard } from "~/sites/team/components/team-guard";
 import { TeamSidebar, TeamTopBar, type TeamLayoutData } from "~/sites/team/components/team-nav";
-import { forgetOldHomeRedirectOnce } from "~/sites/team/lib/forget-old-home-redirect";
+import { clearSiteCacheUrls, forgetOldHomeRedirectOnce } from "~/sites/team/lib/forget-old-home-redirect";
 import { keepInstallPrompt } from "~/sites/team/lib/install-prompt";
 import { isSerniaHomeRequest, isSerniaHost, rootRequestMode } from "~/sites/site";
 
@@ -36,9 +36,11 @@ export const middleware: Route.MiddlewareFunction[] = [
  * the middleware above decides there too.
  */
 export function loader({ url }: Route.LoaderArgs): TeamLayoutData {
-  if (isSerniaHomeRequest(new URL("/", url))) return { publicSiteHref: "/" };
+  const publicSiteAtRoot = isSerniaHomeRequest(new URL("/", url));
+  const urls = clearSiteCacheUrls(url, publicSiteAtRoot);
+  if (publicSiteAtRoot) return { publicSiteHref: "/", clearSiteCacheUrls: urls };
   // A Sernia host whose public pages are switched off has none to link to.
-  return { publicSiteHref: isSerniaHost(url.host) ? null : "https://serniacapital.com/" };
+  return { publicSiteHref: isSerniaHost(url.host) ? null : "https://serniacapital.com/", clearSiteCacheUrls: urls };
 }
 
 /** The root loader's data on a team page: what Clerk's provider reads, plus the environment name. */
@@ -63,12 +65,10 @@ export default function TeamLayout({ loaderData }: Route.ComponentProps) {
   // The root loader ran Clerk for this request and carries its state.
   const root = useRouteLoaderData("root") as ClerkRootData | undefined;
   const ownSidebar = useMatches().some((match) => (match.handle as TeamPageHandle | undefined)?.ownSidebar);
-  const publicSiteAtRoot = loaderData.publicSiteHref === "/";
+  const { clearSiteCacheUrls: clearUrls } = loaderData;
   useEffect(retireRootServiceWorkerOnce, []);
   // So serniacapital.com stops opening the resident portal it once redirected to.
-  useEffect(() => {
-    if (publicSiteAtRoot) forgetOldHomeRedirectOnce();
-  }, [publicSiteAtRoot]);
+  useEffect(() => forgetOldHomeRedirectOnce(clearUrls), [clearUrls]);
   // The browser may offer its install prompt before anyone has signed in.
   useEffect(() => keepInstallPrompt(), []);
   const banner = <EnvBanner railwayEnvironmentName={root?.railwayEnvironmentName} />;

@@ -1,5 +1,6 @@
 import { data, redirect, type MiddlewareFunction } from "react-router";
 
+import { CLEAR_SITE_CACHE_PATH, clearSiteCacheResponse } from "~/sites/team/lib/forget-old-home-redirect";
 import {
   isSerniaHomeRequest,
   rootRequestMode,
@@ -36,11 +37,19 @@ export type TeamRootData = { site: "team"; railwayEnvironmentName?: string };
  * Clerk runs for the team's pages and nothing else. A team path on `www.` of
  * a Sernia host first moves to the host without it, and anything a Sernia
  * host does not serve answers the Sernia 404 before any page code runs.
+ *
+ * The move is temporary and never stored, so a browser asks again each time
+ * and the address can change later; see ~/lib/moved. One team path does not
+ * move: `www.` answers the cache-clearing request itself, because a browser
+ * clears only what it saved for the host that answered.
  */
 export function createRootMiddleware(clerk: MiddlewareFunction<Response>): MiddlewareFunction<Response> {
   return (args, next) => {
     const moved = teamRedirect(args.url);
-    if (moved) throw redirect(moved, 308);
+    if (moved) {
+      if (args.url.pathname === CLEAR_SITE_CACHE_PATH) return clearSiteCacheResponse();
+      throw redirect(moved, { status: 307, headers: { "Cache-Control": "no-store" } });
+    }
     switch (rootRequestMode(args.url)) {
       case "sernia-not-found": {
         const body: SerniaNotFound = {

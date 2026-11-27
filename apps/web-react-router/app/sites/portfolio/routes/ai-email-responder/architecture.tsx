@@ -1,6 +1,6 @@
-import { redirect } from "react-router";
+import { movedTo } from "~/lib/moved";
 
 // Retired fictional email studio; keep existing links useful.
 export function loader() {
-  return redirect("/systems/leasing-leads", 301);
+  return movedTo("/systems/leasing-leads");
 }

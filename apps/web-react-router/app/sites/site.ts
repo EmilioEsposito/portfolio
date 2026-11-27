@@ -260,6 +260,21 @@ export function teamRedirect(url: URL | string, options: SiteOptions = {}): stri
   return `//${target.host}${target.pathname}${target.search}${target.hash}`;
 }
 
+/**
+ * The `www.` twin of a Sernia host, with the request's port, when Sernia
+ * serves both: `www.serniacapital.com` for `serniacapital.com`. Null on the
+ * twin itself and on any other host.
+ */
+export function wwwTwinHost(url: URL | string, options: SiteOptions = {}): string | null {
+  const parsed = typeof url === "string" ? new URL(url) : url;
+  const host = normalizeHost(parsed.host);
+  const hosts = serniaPublicHosts(options.hostsSetting);
+  if (host.startsWith("www.") || !hosts.includes(host) || !hosts.includes(`www.${host}`)) return null;
+  const twin = new URL(parsed.href);
+  twin.hostname = `www.${host}`;
+  return twin.host;
+}
+
 function isSerniaApiPath(pathname: string): boolean {
   return (
     pathname.startsWith(SERNIA_PUBLIC_API_PREFIX) ||
