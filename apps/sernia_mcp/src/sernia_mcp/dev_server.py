@@ -10,8 +10,9 @@ What this does:
   * Browser opens automatically. The picker lists the ``@app.ui()`` tools
     (including ``quo_delete_task``, ``quo_send_sms``, and ``google_send_email``). Pick one, fill in the form,
     launch.
-  * The approval card renders. Click Approve or Reject; the inspector panel
-    shows the ``CallTool → _confirm_send_*`` traffic.
+  * The approval card renders. Click Approve or Reject; the MCP Log panel
+    shows the ``tools/call _confirm_send_*`` traffic and the card shows a
+    toast with the outcome.
 
 Quo task lookups, deletions, and upstream sends are MOCKED. Nothing hits OpenPhone or Gmail — safe to
 exercise with any phone/email. Mocks print to stdout so you can confirm what
@@ -27,7 +28,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastmcp import FastMCP
 
-from sernia_mcp.core.types import EmailSendResult, SmsResult, SmsRouting
+from sernia_mcp.core.types import EmailSendResult, GroupSmsRouting, SmsResult, SmsRouting
 from sernia_mcp.tools import approvals
 
 # -----------------------------------------------------------------------------
@@ -56,6 +57,29 @@ async def _fake_send_sms_core(to_phone: str, message: str, *, routing=None) -> S
         to_phone=to_phone,
         contact_name=(routing.contact_name if routing else None),
         line_name=(routing.line_name if routing else "(dev)"),
+        parts_sent=1,
+        message_chars=len(message),
+    )
+
+
+async def _fake_resolve_group_sms_routing_core(phones: list[str]) -> GroupSmsRouting:
+    """Pretend every number in a group resolves, internal when all start with ``+1555``."""
+    all_internal = all(phone.startswith("+1555") for phone in phones)
+    return GroupSmsRouting(
+        phones=list(dict.fromkeys(phones)),
+        recipient_names=[f"Dev Contact {phone[-4:]}" for phone in dict.fromkeys(phones)],
+        all_internal=all_internal,
+        from_phone_id="DEVPHONEID",
+        line_name="Sernia AI (dev)" if all_internal else "Sernia Team (dev)",
+    )
+
+
+async def _fake_send_group_sms_core(to_phones: list[str], message: str) -> SmsResult:
+    print(f"[DEV MOCK send_group_sms_core] would send to={to_phones!r} ({len(message)} chars)")
+    return SmsResult(
+        to_phone=", ".join(to_phones),
+        contact_name=", ".join(f"Dev Contact {phone[-4:]}" for phone in to_phones),
+        line_name="(dev)",
         parts_sent=1,
         message_chars=len(message),
     )
@@ -91,9 +115,16 @@ async def _fake_task_client():
         yield client
 
 
+# FastMCP's dev UI draws cards but does not declare the MCP Apps extension, so
+# the check that keeps confirm tools from clients without cards would refuse
+# it. Here every client is the dev UI.
+approvals.client_draws_cards = lambda: True
 approvals.task_client = _fake_task_client
 approvals.resolve_sms_routing_core = _fake_resolve_sms_routing_core  # type: ignore[assignment]
 approvals.send_sms_core = _fake_send_sms_core  # type: ignore[assignment]
+# Group texts too: left real, an Approve here would text real people.
+approvals.resolve_group_sms_routing_core = _fake_resolve_group_sms_routing_core  # type: ignore[assignment]
+approvals.send_group_sms_core = _fake_send_group_sms_core  # type: ignore[assignment]
 approvals.send_email_core = _fake_send_email_core  # type: ignore[assignment]
 
 

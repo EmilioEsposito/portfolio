@@ -65,18 +65,34 @@ permissions, add checks rather than bypassing it.
 names that FastMCP's ordinary lookup does not resolve. Hashed action calls still
 require the email-domain identity check. Preserve the tests in `test_auth.py`.
 
-Sends use the Apps approval flow:
+Which writes need a card: an action that reaches people outside the team or
+cannot be undone (an SMS, an email, a deletion). A change that stays inside
+the team and can be put back (a rental listing, a task) is saved at once, and
+whether the person is asked first is the client's setting, not this service's
+(Claude asks before a tool set to "Always ask", and in its default Auto mode may
+run one without asking); give such tools accurate `ToolAnnotations`. Do not add a card to a reversible internal write,
+and do not introduce an unguarded tool for the other kind.
 
-1. A model-visible UI tool queues a pending action and returns an approval card.
-2. A hidden confirmation tool performs the send after the Apps action.
-3. `ApprovalApp` hides confirmation tools from listing and rejects raw-name calls,
-   while allowing hashed UI dispatch.
+A card works like this (README, "Approval cards", has the full account):
 
-Hashed addresses identify routes; they do not prove a human click. An authenticated
-custom client can reproduce an Apps call. Preserve raw-name isolation, domain
-authorization, one-time pending IDs, expiry, and `disabled=Rx("decided")` on decided
-cards. Fixed reminders are a separate, code-owned exception documented in README.
-Do not introduce an unguarded destructive tool.
+1. A model-visible entry tool queues a pending action and returns the card.
+2. A click calls a confirm tool marked `visibility: ["app"]`.
+3. The confirm tool carries out the decision once, and raises unless it did.
+
+`ApprovalApp` lists the confirm tools only for clients that declare the MCP
+Apps extension, and the entry tools refuse every other client before queuing.
+A confirm tool acts only on a queued request, by its random id and for the
+signed-in user who asked.
+The confirm tools must stay in `tools/list` for card clients: a client forwards
+a card's call only to a listed tool, and hiding them is what broke every
+Approve click from the FastMCP 4 upgrade until November 2026. Keeping the model
+away from them is the client's job, so a card is not proof of a human click.
+
+Preserve: the card-client check on listing and entry tools; domain
+authorization; one-time pending IDs bound to the user who asked; expiry;
+`disabled=Rx("decided")`; and `on_success` / `on_error` toasts through
+`_decision_buttons`, so a card never says "sent" when nothing was. Fixed reminders are a separate, code-owned
+exception documented in README.
 
 ## Context and workspace
 
@@ -97,7 +113,11 @@ all writes synchronized successfully.
 
 - Add core tests with mocked clients and update `test_smoke.py` when changing tools.
 - Exercise approval actions through the in-process MCP client in
-  `test_approvals.py`; cover context operations in `test_context.py`.
+  `test_approvals.py`; cover context operations in `test_context.py`. A new card
+  goes in that file's `CARDS`, which checks that its buttons call listed tools.
+- After a FastMCP, protocol or client change, click Reject on a card in a real
+  client and confirm the call in the service's logs. Tests cannot see a client
+  drop a click.
 - HTTP/auth changes belong in `test_http_app.py` and `test_auth.py`. Preserve the
   canonical `/mcp` endpoint without redirects that can lose authorization headers.
 - Mark provider tests `live` and exclude them by default. Never use real external

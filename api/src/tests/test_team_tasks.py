@@ -61,6 +61,8 @@ def test_a_clickup_task_is_read_into_the_shared_shape():
     assert task == Task(
         source="clickup",
         id="86abc1",
+        list_id=LIST_ID,
+        assignee_emails={"avery@example.com"},
         title="Replace the hallway light",
         description="The fixture flickers.",
         due=DUE,
@@ -79,8 +81,17 @@ def test_a_clickup_task_is_read_into_the_shared_shape():
     assert bare.completed is True
 
 
+def test_clickup_member_using_a_separate_login_matches_only_by_member_id(monkeypatch):
+    monkeypatch.setattr(sources, "CLICKUP_TEAM_EMAIL_BY_MEMBER_ID", {"42": "avery@example.com"})
+    person = {"id": 42, "email": "alternate@example.org", "username": "Avery"}
+    task = sources.clickup_task(clickup_raw(assignees=[person]))
+    assert task.assignee_emails == {"alternate@example.org", "avery@example.com"}
+    task = sources.clickup_task(clickup_raw(assignees=[{**person, "id": 43}]))
+    assert task.assignee_emails == {"alternate@example.org"}
+
+
 def test_a_quo_task_is_read_into_the_shared_shape():
-    task = sources.quo_task(quo_raw(), {"USone": "Blake Example"})
+    task = sources.quo_task(quo_raw(), {"USone": {"firstName": "Blake", "lastName": "Example"}})
     assert task == Task(
         source="quo",
         id="TKone",
@@ -110,7 +121,9 @@ async def test_clickup_reads_every_page_of_the_maintenance_list_and_only_open_ta
             200, json={"tasks": [clickup_raw(f"86p{page}")], "last_page": page == 1}
         )
 
-    tasks, complete = await sources.clickup_open(fake(handler, "https://api.clickup.com/api/v2"))
+    tasks, complete = await sources.clickup_open(
+        LIST_ID, fake(handler, "https://api.clickup.com/api/v2")
+    )
     assert [task.id for task in tasks] == ["86p0", "86p1"]
     assert complete is True
     assert asked[0] == {"include_closed": "false", "subtasks": "true", "page": "0"}
@@ -166,7 +179,9 @@ async def test_a_reader_that_runs_out_of_pages_says_its_list_is_cut_short(monkey
 
     tasks, complete = await sources.quo_open(fake(quo, "https://api.openphone.com"))
     assert (tasks, complete, quo_pages) == ([], False, 3)
-    tasks, complete = await sources.clickup_open(fake(clickup, "https://api.clickup.com/api/v2"))
+    tasks, complete = await sources.clickup_open(
+        LIST_ID, fake(clickup, "https://api.clickup.com/api/v2")
+    )
     assert (len(tasks), complete) == (2, False)
 
 
@@ -179,7 +194,7 @@ def clickup_writes(task_list=LIST_ID, lookup=200):
             sent.append(body)
             kind = next(item["type"] for item in STATUSES if item["status"] == body["status"])
             return httpx.Response(200, json=clickup_raw(status=body["status"], kind=kind))
-        if request.url.path.endswith(f"/list/{LIST_ID}"):
+        if request.url.path.endswith(f"/list/{task_list}"):
             return httpx.Response(200, json={"statuses": STATUSES})
         return httpx.Response(lookup, json=clickup_raw(list={"id": task_list}))
 
@@ -187,8 +202,9 @@ def clickup_writes(task_list=LIST_ID, lookup=200):
 
 
 @pytest.mark.asyncio
-async def test_completing_a_clickup_task_uses_the_lists_own_closed_status():
-    client, sent = clickup_writes()
+@pytest.mark.parametrize("list_id", sources.CLICKUP_LISTS)
+async def test_completing_a_clickup_task_uses_the_lists_own_closed_status(list_id):
+    client, sent = clickup_writes(list_id)
     task = await sources.clickup_set_completed("86abc1", True, client=client)
     assert sent == [{"status": "complete"}]
     assert task.completed is True
@@ -209,7 +225,7 @@ async def test_undoing_puts_a_clickup_task_back_where_it_was():
 
 
 @pytest.mark.asyncio
-async def test_only_tasks_of_the_maintenance_list_can_be_changed():
+async def test_only_tasks_of_the_three_team_lists_can_be_changed():
     for client, _ in (
         clickup_writes(task_list="901300000000"),
         clickup_writes(lookup=404),
@@ -271,9 +287,10 @@ async def test_a_quo_change_that_went_through_is_not_reported_as_failed_when_nam
 async def test_a_source_without_its_key_is_unavailable(monkeypatch):
     monkeypatch.delenv("CLICKUP_API_KEY", raising=False)
     monkeypatch.delenv("QUO_API_KEY_PORTFOLIO", raising=False)
-    for read in (sources.clickup_open, sources.quo_open):
-        with pytest.raises(sources.Unavailable):
-            await read()
+    with pytest.raises(sources.Unavailable):
+        await sources.clickup_open(LIST_ID)
+    with pytest.raises(sources.Unavailable):
+        await sources.quo_open()
 
 
 def task(source, task_id, due):
@@ -297,7 +314,19 @@ def app(allowed=True):
     async def caller():
         if not allowed:
             raise HTTPException(403, "A verified Sernia account is required.")
-        return SimpleNamespace(id="test-user")
+        return SimpleNamespace(
+            id="test-user",
+            email_addresses=[
+                SimpleNamespace(
+                    email_address="Avery@Example.COM",
+                    verification=SimpleNamespace(status="verified"),
+                ),
+                SimpleNamespace(
+                    email_address="blake@example.com",
+                    verification=SimpleNamespace(status="unverified"),
+                ),
+            ],
+        )
 
     application.dependency_overrides[routes.verify_serniacapital_user] = caller
     return application
@@ -311,7 +340,9 @@ def browser(allowed=True):
 
 @pytest.mark.asyncio
 async def test_the_list_is_both_sources_soonest_first_with_undated_tasks_last(monkeypatch):
-    async def clickup():
+    async def clickup(list_id):
+        if list_id != LIST_ID:
+            return sources.Listing([])
         return sources.Listing(
             [
                 task("clickup", "later", datetime(2026, 12, 1, tzinfo=UTC)),
@@ -322,7 +353,8 @@ async def test_the_list_is_both_sources_soonest_first_with_undated_tasks_last(mo
     async def quo():
         return sources.Listing([task("quo", "sooner", datetime(2026, 11, 24, tzinfo=UTC))])
 
-    monkeypatch.setattr(sources, "READERS", {"clickup": clickup, "quo": quo})
+    monkeypatch.setattr(sources, "clickup_open", clickup)
+    monkeypatch.setattr(sources, "quo_open", quo)
     async with browser() as client:
         body = (await client.get("/team-tasks")).json()
     assert [item["id"] for item in body["tasks"]] == ["sooner", "later", "undated"]
@@ -331,13 +363,14 @@ async def test_the_list_is_both_sources_soonest_first_with_undated_tasks_last(mo
 
 @pytest.mark.asyncio
 async def test_one_source_failing_still_shows_the_other(monkeypatch):
-    async def clickup():
+    async def clickup(list_id):
         raise httpx.ConnectError("no route")
 
     async def quo():
         return sources.Listing([task("quo", "TKone", None)], complete=False)
 
-    monkeypatch.setattr(sources, "READERS", {"clickup": clickup, "quo": quo})
+    monkeypatch.setattr(sources, "clickup_open", clickup)
+    monkeypatch.setattr(sources, "quo_open", quo)
     async with browser() as client:
         response = await client.get("/team-tasks")
     assert response.status_code == 200
@@ -385,8 +418,79 @@ async def test_changing_a_status_answers_the_task_or_says_why_not(monkeypatch):
 async def test_tasks_require_a_verified_sernia_user():
     async with browser(allowed=False) as client:
         assert (await client.get("/team-tasks")).status_code == 403
+        assert (
+            await client.post("/team-tasks/clickup", json={"title": "task", "list_id": LIST_ID})
+        ).status_code == 403
         change = await client.post("/team-tasks/quo/TKone/status", json={"completed": True})
         assert change.status_code == 403
     assert [dep.dependency for dep in routes.router.dependencies] == [
         routes.verify_serniacapital_user
     ]
+
+
+@pytest.mark.asyncio
+async def test_partial_list_failure_and_personal_assignments(monkeypatch):
+    other, leasing, maintenance = sources.CLICKUP_LISTS
+
+    async def clickup(list_id):
+        if list_id == leasing:
+            raise httpx.ConnectError("offline")
+        email = "aVERy@example.COM" if list_id == other else "blake@example.com"
+        return sources.Listing(
+            [
+                sources.clickup_task(
+                    clickup_raw(list_id, assignees=[{"username": "Same Name", "email": email}]),
+                    list_id,
+                )
+            ],
+            complete=list_id != maintenance,
+        )
+
+    async def quo():
+        user = {"firstName": "Avery", "email": "AVERY@example.com"}
+        return sources.Listing(
+            [
+                sources.quo_task(quo_raw(), {"USone": user}),
+                sources.quo_task(quo_raw("TKtwo", assignedTo=None), {}),
+            ]
+        )
+
+    monkeypatch.setattr(sources, "clickup_open", clickup)
+    monkeypatch.setattr(sources, "quo_open", quo)
+    async with browser() as client:
+        body = (await client.get("/team-tasks")).json()
+    assert body["unavailable"] == []
+    assert body["incomplete"] == ["clickup"]
+    assert {item["id"]: item["state"] for item in body["clickup_lists"]} == {
+        other: "ready",
+        leasing: "unavailable",
+        maintenance: "incomplete",
+    }
+    assert {item["id"] for item in body["tasks"] if item["mine"]} == {other, "TKone"}
+    assert all("assignee_emails" not in item for item in body["tasks"])
+
+
+@pytest.mark.asyncio
+async def test_create_uses_selected_list_and_preserves_clickup_defaults(monkeypatch):
+    list_id = next(iter(sources.CLICKUP_LISTS))
+    writes = []
+
+    def handler(request):
+        assert request.method == "POST"
+        assert request.url.path == f"/api/v2/list/{list_id}/task"
+        writes.append(json.loads(request.content))
+        return httpx.Response(201, json=clickup_raw())
+
+    monkeypatch.setattr(
+        sources, "_clickup_client", lambda: fake(handler, "https://api.clickup.com/api/v2")
+    )
+    async with browser() as client:
+        for draft in ({"title": "   ", "list_id": list_id}, {"title": "new", "list_id": "outside"}):
+            assert (await client.post("/team-tasks/clickup", json=draft)).status_code == 422
+        created = await client.post(
+            "/team-tasks/clickup",
+            json={"title": "  Follow up  ", "description": "Call tomorrow", "list_id": list_id},
+        )
+    assert created.status_code == 201
+    assert created.json()["mine"] and created.json()["list_id"] == list_id
+    assert writes == [{"name": "Follow up", "description": "Call tomorrow"}]

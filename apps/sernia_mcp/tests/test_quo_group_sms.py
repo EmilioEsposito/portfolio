@@ -205,7 +205,10 @@ class TestSendGroupSms:
 
 class TestGroupApprovalFlow:
     @pytest.fixture(autouse=True)
-    def _clear_pending(self):
+    def _clear_pending(self, monkeypatch):
+        # These call the entry tool as a plain function, outside any request,
+        # so there is no client to ask: stand in for one that draws cards.
+        monkeypatch.setattr(approvals, "client_draws_cards", lambda: True)
         approvals._PENDING.clear()
         yield
         approvals._PENDING.clear()
@@ -234,6 +237,7 @@ class TestGroupApprovalFlow:
     async def test_confirm_approve_routes_to_group_send(self):
         approvals._PENDING["gid"] = {
             "type": "sms",
+            "owner": "local",
             "group": True,
             "to_phones": [TENANT_320_02_A, TENANT_320_02_B],
             "message": "group hello",
@@ -263,6 +267,7 @@ class TestGroupApprovalFlow:
     async def test_confirm_reject_group_does_not_send(self):
         approvals._PENDING["gid"] = {
             "type": "sms",
+            "owner": "local",
             "group": True,
             "to_phones": [TENANT_320_02_A, TENANT_320_02_B],
             "message": "group hello",

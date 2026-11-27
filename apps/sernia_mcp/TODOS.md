@@ -160,7 +160,7 @@ Visible tools currently registered on `sernia_mcp`:
 - Google (Calendar): `google_list_calendar_events`
 - ClickUp: `clickup_search_tasks`, `clickup_get_tasks`, `clickup_list_lists`, `clickup_get_maintenance_field_options`, `clickup_create_task`, `clickup_update_task`, `clickup_set_task_custom_field`
 
-Hidden Apps backend tools (model can't reach): `_confirm_send_sms`, `_confirm_send_email`.
+Card-only confirm tools, given only to clients that draw cards (the client keeps them from its model): `_confirm_send_sms`, `_confirm_send_email`, `_confirm_delete_quo_task`.
 
 ---
 

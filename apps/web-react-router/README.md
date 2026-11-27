@@ -67,6 +67,7 @@ and have no redirects.
 
 | Page | Address |
 |---|---|
+| Tasks (My Tasks, all team tasks, and ClickUp creation) | `/team/tasks` |
 | Team home: approvals waiting, open tasks, every team page, the notifications prompt | `/team` |
 | Sernia AI chat (`?id=<conversation>`) | `/team/chat` |
 | General agent settings | `/team/settings` |
@@ -105,7 +106,7 @@ and have no redirects.
 - Approvals and open tasks: the team layout reads `GET /api/sernia-ai/workflow/pending`
   (conversations among the 50 most recent with a step waiting for approval) and
   `GET /api/team-tasks` once, in `components/team-counts.tsx`. The navigation
-  shows them as badges beside Sernia AI and Tasks; the team home shows them on
+  counts the signed-in person's open assignments for the Tasks badge; the team home shows them on
   those two cards and lists the conversations to approve while there are any;
   the chat's conversation list and the conversations table mark those
   conversations "To approve" (the history list's own `has_pending` is only
