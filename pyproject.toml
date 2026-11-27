@@ -33,7 +33,7 @@ dependencies = [
     # harness release pins one exact pydantic-ai-slim, so the two upgrade together.
     "pydantic-ai-harness[skills]>=0.68.0,<1",
     "pydantic-monty>=1.6.0,<2",
-    "fastmcp[apps]>=3.2.4",
+    "fastmcp[apps]>=4.1.3,<5",
     # Jev decisions through OpenRouter (TypeSafe SDK uses httpx2).
     "typesafe-sdk>=0.7,<0.8",
     "httpx2>=2.12,<3",
