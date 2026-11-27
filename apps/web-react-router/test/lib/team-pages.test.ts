@@ -160,13 +160,14 @@ test("the team home lists the conversations with something to approve, most rece
 });
 
 function task(id: string, due: string | null, completed = false): TeamTask {
-  return { source: "clickup", id, title: id, description: "", due, assignees: [], status: "to do", completed, url: null };
+  return { source: "clickup", list_id: "test", mine: true, id, title: id, description: "", due, assignees: [], status: "to do", completed, url: null };
 }
 
 test("the Tasks badge counts open tasks, and the overdue ones by the reader's calendar day", () => {
   const now = new Date("2026-11-24T15:00:00Z");
   const view = {
     tasks: [
+      { ...task("another", "2026-11-01T12:00:00Z"), mine: false },
       task("late", "2026-11-20T12:00:00Z"),
       // Late on the 23rd in New York, the 24th in UTC.
       task("yesterday-in-new-york", "2026-11-24T03:00:00Z"),
@@ -180,14 +181,14 @@ test("the Tasks badge counts open tasks, and the overdue ones by the reader's ca
   };
   const counts = taskCounts(view, now, "America/New_York");
   assert.deepEqual(counts, { open: 4, overdue: 2, partial: [] });
-  assert.equal(tasksText(counts), "4 open, 2 overdue");
+  assert.equal(tasksText(counts), "4 assigned to you, 2 overdue");
   assert.equal(taskCounts(view, now, "UTC").overdue, 1);
 
   // A source not read whole: the count is at least this many.
   const partial = taskCounts({ tasks: [task("a", null)], unavailable: ["quo"], incomplete: ["quo"] }, now);
   assert.deepEqual(partial.partial, ["quo"]);
-  assert.equal(openText(partial), "1+ open");
-  assert.equal(openText(taskCounts({ tasks: [], unavailable: [], incomplete: [] }, now)), "No open tasks");
+  assert.equal(openText(partial), "1+ assigned to you");
+  assert.equal(openText(taskCounts({ tasks: [], unavailable: [], incomplete: [] }, now)), "No tasks assigned to you");
   assert.equal(openText(taskCounts({ tasks: [], unavailable: ["clickup"], incomplete: [] }, now)), "Tasks not read");
 });
 

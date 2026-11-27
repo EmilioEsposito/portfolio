@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/react-router";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 
+import { CreateTask } from "~/sites/team/components/create-task";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "~/components/ui/tabs";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { cn } from "~/lib/utils";
@@ -9,13 +11,13 @@ import { useTeamCounts } from "~/sites/team/components/team-counts";
 import { teamTitle } from "~/sites/team/lib/team-meta";
 import {
   assigneeText,
-  countBySource,
+  openCount,
+  type TaskDraft,
   dueLabel,
   SOURCE_NAME,
   statusText,
   taskKey,
   withStatus,
-  type TaskSource,
   type TasksView,
   type TeamTask,
 } from "~/sites/team/lib/team-tasks";
@@ -114,9 +116,39 @@ function useTasks() {
     [done, getToken],
   );
 
-  /** A status change is on its way: no reload until it has answered. */
+  async function create(draft: TaskDraft) {
+    if (reloading.current) throw new Error("Wait for the refresh to finish.");
+    changes.current += 1;
+    try {
+      const token = await getToken();
+      const response = await fetch(`${API}/clickup`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      }).catch(() => {
+        throw new Error("Could not confirm creation. Check ClickUp before trying again.");
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(typeof body?.detail === "string" ? body.detail : "Could not confirm creation. Check ClickUp before trying again.");
+      }
+      const task: TeamTask = await response.json();
+      setLoaded((current) => {
+        if (current.state !== "loaded") return current;
+        const tasks = [...current.view.tasks, task].sort((a, b) => {
+          if (!a.due || !b.due) return Number(Boolean(b.due)) - Number(Boolean(a.due));
+          return Date.parse(a.due) - Date.parse(b.due);
+        });
+        return { ...current, view: { ...current.view, tasks } };
+      });
+      return task;
+    } finally {
+      changes.current -= 1;
+    }
+  }
+
   const changing = Object.keys(working).length > 0;
-  return { loaded, refreshing, changing, working, problems, reload: load, setCompleted };
+  return { loaded, refreshing, changing, working, problems, reload: load, setCompleted, create };
 }
 
 const DUE_TONE = {
@@ -126,14 +158,9 @@ const DUE_TONE = {
   none: "text-muted-foreground",
 } as const;
 
-function SourceTag({ source }: { source: TaskSource }) {
-  return (
-    <span className="rounded border px-1.5 py-0.5 text-xs font-medium text-muted-foreground">{SOURCE_NAME[source]}</span>
-  );
-}
-
 function TaskRow(props: {
   task: TeamTask;
+  listName: string;
   working: boolean;
   /** The list is being reloaded: no change can start until it is back. */
   paused: boolean;
@@ -174,7 +201,7 @@ function TaskRow(props: {
           <span className={DUE_TONE[due.tone]}>{due.text}</span>
           <span className="text-muted-foreground">{assigneeText(task.assignees)}</span>
           {status && <span className="text-muted-foreground">{status}</span>}
-          <SourceTag source={task.source} />
+          <span className="rounded border px-1.5 py-0.5 text-xs font-medium text-muted-foreground">{props.listName}</span>
           {task.url && (
             <a
               href={task.url}
@@ -213,44 +240,54 @@ function TaskRow(props: {
   );
 }
 
-type Filter = "all" | TaskSource;
-
 export default function TeamTasks() {
-  const { loaded, refreshing, changing, working, problems, reload, setCompleted } = useTasks();
-  const [filter, setFilter] = useState<Filter>("all");
-  // The navigation's Tasks badge follows this list, completions included.
+  const { loaded, refreshing, changing, working, problems, reload, setCompleted, create } = useTasks();
+  const [scope, setScope] = useState("mine");
+  const [list, setList] = useState("all");
+  const [notice, setNotice] = useState("");
   const { reportTasks } = useTeamCounts();
   useEffect(() => {
     if (loaded.state === "loaded") reportTasks(loaded.view);
   }, [loaded, reportTasks]);
-  const tasks = loaded.state === "loaded" ? loaded.view.tasks : [];
-  const counts = countBySource(tasks);
-  const shown = filter === "all" ? tasks : tasks.filter((task) => task.source === filter);
-  const filters: { value: Filter; label: string }[] = [
-    { value: "all", label: `All ${tasks.length}` },
-    { value: "clickup", label: `${SOURCE_NAME.clickup} ${counts.clickup}` },
-    { value: "quo", label: `${SOURCE_NAME.quo} ${counts.quo}` },
-  ];
+
+  const view = loaded.state === "loaded" ? loaded.view : null;
+  const lists = view?.clickup_lists ?? [];
+  const scoped = (view?.tasks ?? []).filter((task) => list === "all" || (task.list_id ?? task.source) === list);
+  const mine = scoped.filter((task) => task.mine);
+  const shown = scope === "mine" ? mine : scoped;
+  const listName = (id: string | null) => lists.find((item) => item.id === id)?.name;
+  const warnings = lists.filter((item) => item.state !== "ready").map((item) =>
+    item.state === "unavailable" ? `${item.name} could not be loaded.` : `Some ${item.name} tasks may be missing.`);
+  if (view?.unavailable.includes("quo")) warnings.push("Quo could not be loaded.");
+  if (view?.incomplete.includes("quo")) warnings.push("Some Quo tasks may be missing.");
+  const partial = list === "all" ? warnings.length > 0 : list === "quo"
+    ? Boolean(view?.unavailable.includes("quo") || view?.incomplete.includes("quo"))
+    : lists.find((item) => item.id === list)?.state !== "ready";
+
+  async function addTask(draft: TaskDraft) {
+    const task = await create(draft);
+    if (!task.mine) setScope("all");
+    if (list !== "all") setList(draft.list_id);
+    setNotice(`Created “${task.title}” in ${listName(draft.list_id)}.`);
+  }
   return (
     // The team layout's SidebarInset is the page's <main>.
     <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-8 sm:px-6 sm:py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
-          <p className="text-sm text-muted-foreground">
-            Open maintenance tasks from ClickUp and tasks from Quo, soonest due first.
-          </p>
+        <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={refreshing || changing || loaded.state === "loading"}
+            onClick={() => void reload(true)}
+          >
+            <RefreshCw className={cn("size-4", refreshing && "animate-spin")} aria-hidden="true" />
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </Button>
+          {lists.length > 0 && <CreateTask lists={lists} defaultList={listName(list) ? list : lists[0].id} disabled={refreshing} onCreate={addTask} />}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          disabled={refreshing || changing || loaded.state === "loading"}
-          onClick={() => void reload(true)}
-        >
-          <RefreshCw className={cn("size-4", refreshing && "animate-spin")} aria-hidden="true" />
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </Button>
       </div>
 
       {loaded.state === "loading" && (
@@ -272,60 +309,55 @@ export default function TeamTasks() {
 
       {loaded.state === "loaded" && (
         <>
-          {loaded.view.unavailable.map((source) => (
-            <p key={source} role="alert" className="rounded-lg border border-amber-500/50 p-4 text-sm">
-              {SOURCE_NAME[source]} could not be read just now, so its tasks are missing from this list. Refresh to try
-              again.
-            </p>
-          ))}
-
-          {loaded.view.incomplete.map((source) => (
-            <p key={source} role="alert" className="rounded-lg border border-amber-500/50 p-4 text-sm">
-              {SOURCE_NAME[source]} has more tasks than this page reads, so some open ones may be missing. Check{" "}
-              {SOURCE_NAME[source]} for the rest.
-            </p>
-          ))}
-
-          <div role="group" aria-label="Show tasks from" className="flex flex-wrap gap-2">
-            {filters.map((option) => (
-              <Button
-                key={option.value}
-                variant={filter === option.value ? "secondary" : "ghost"}
-                size="sm"
-                aria-pressed={filter === option.value}
-                onClick={() => setFilter(option.value)}
-              >
-                {option.label}
-              </Button>
-            ))}
-          </div>
-
-          {shown.length === 0 ? (
-            <p className="rounded-lg border p-4 text-sm text-muted-foreground">
-              {tasks.length === 0 ? "No open tasks." : `No open ${SOURCE_NAME[filter as TaskSource]} tasks.`}
-            </p>
-          ) : (
-            <ul className="divide-y rounded-lg border">
-              {shown.map((task) => {
-                const key = taskKey(task);
-                return (
-                  <TaskRow
-                    key={key}
-                    task={task}
-                    working={working[key] === true}
-                    paused={refreshing}
-                    problem={problems[key]}
-                    onComplete={() => void setCompleted(task, true)}
-                    onUndo={() => void setCompleted(task, false)}
-                  />
-                );
-              })}
-            </ul>
+          {warnings.length > 0 && (
+            <p role="alert" className="rounded-lg border border-amber-500/50 p-3 text-sm">{warnings.join(" ")} Refresh to try again.</p>
           )}
-
-          <p className="text-xs text-muted-foreground">
-            To add or change a task, use ClickUp or Quo, or ask Sernia AI. Completing one here completes it there.
-          </p>
+          {notice && <p role="status" className="text-sm">{notice}</p>}
+          <Tabs value={scope} onValueChange={setScope}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <TabsList aria-label="Task ownership">
+                {[
+                  { value: "mine", label: "My Tasks", count: openCount(mine) },
+                  { value: "all", label: "All tasks", count: openCount(scoped) },
+                ].map(({ value, label, count }) => (
+                  <TabsTrigger key={value} value={value} className="gap-2">
+                    {label}<span className="text-xs tabular-nums text-muted-foreground">{count}{partial ? "+" : ""}</span>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              <select aria-label="Filter by list" value={list} onChange={(event) => setList(event.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm">
+                <option value="all">All lists</option>
+                {lists.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                <option value="quo">Quo</option>
+              </select>
+            </div>
+            <TabsContent key={scope} value={scope} className="mt-4">
+              {shown.length === 0 ? (
+                <p className="rounded-lg border p-4 text-sm text-muted-foreground">
+                  {partial ? "No matching tasks in the results available." : scope === "mine" ? "No open tasks assigned to you in this view." : "No open tasks in this view."}
+                </p>
+              ) : (
+                <ul className="divide-y rounded-lg border">
+                  {shown.map((task) => {
+                    const key = taskKey(task);
+                    return (
+                      <TaskRow
+                        key={key}
+                        task={task}
+                        listName={listName(task.list_id) ?? SOURCE_NAME[task.source]}
+                        working={working[key] === true}
+                        paused={refreshing}
+                        problem={problems[key]}
+                        onComplete={() => void setCompleted(task, true)}
+                        onUndo={() => void setCompleted(task, false)}
+                      />
+                    );
+                  })}
+                </ul>
+              )}
+            </TabsContent>
+          </Tabs>
         </>
       )}
     </div>

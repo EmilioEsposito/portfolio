@@ -47,8 +47,8 @@ export type TaskCounts = {
   partial: TaskSource[];
 };
 
-export function taskCounts(view: TasksView, now: Date, timeZone?: string): TaskCounts {
-  const open = view.tasks.filter((task) => !task.completed);
+export function taskCounts(view: Pick<TasksView, "tasks" | "unavailable" | "incomplete">, now: Date, timeZone?: string): TaskCounts {
+  const open = view.tasks.filter((task) => task.mine && !task.completed);
   return {
     open: open.length,
     overdue: open.filter((task) => dueLabel(task.due, now, timeZone).tone === "overdue").length,
@@ -63,8 +63,8 @@ export function approvalsText(count: number): string {
 
 /** "14 open" or "14+ open" where a source was not read whole. */
 export function openText(counts: TaskCounts): string {
-  if (counts.open === 0) return counts.partial.length ? "Tasks not read" : "No open tasks";
-  return `${counts.open}${counts.partial.length ? "+" : ""} open`;
+  if (counts.open === 0) return counts.partial.length ? "Tasks not read" : "No tasks assigned to you";
+  return `${counts.open}${counts.partial.length ? "+" : ""} assigned to you`;
 }
 
 /** "14 open, 3 overdue" */
