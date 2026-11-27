@@ -8,17 +8,18 @@ tool action is automatically replayed after a process restart.
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Never
 
 import logfire
 from fastapi import HTTPException
 from pydantic_ai import CallToolsNode, CancellationToken, ModelRequestNode, capture_run_messages
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.capabilities.abstract import AgentNode, NodeResult
-from pydantic_ai.exceptions import RunCancelled, RunTimedOut
+from pydantic_ai.exceptions import ModelHTTPError, RunCancelled, RunTimedOut
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
 from pydantic_ai.tools import RunContext
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
@@ -69,11 +70,35 @@ async def cancel_run(conversation_id: str, request_id: str) -> dict | None:
         return run
 
 
+def openrouter_credit_limit(error: BaseException) -> dict | None:
+    """Recognize the provider's key-spend refusal before the adapter flattens it to SSE text."""
+    if not isinstance(error, ModelHTTPError) or error.status_code not in (402, 403):
+        return None
+    if not isinstance(error.body, dict):
+        return None
+    detail = error.body.get("error", error.body)
+    if not isinstance(detail, dict):
+        return None
+    metadata = detail.get("metadata")
+    if not isinstance(metadata, dict) or metadata.get("limit_source") != "openrouter_key_limit":
+        return None
+    message = detail.get("message")
+    message = message if isinstance(message, str) else ""
+    key = re.search(r"https://openrouter\.ai/workspaces/default/keys/([a-f0-9]{64})\b", message)
+    return {"daily": "(daily limit)" in message.lower(), "key_id": key[1] if key else None}
+
+
 @dataclass
 class ConversationCheckpoint(AbstractCapability[SerniaDeps]):
-    """The Rentium checkpoint pattern, targeting Sernia's conversation row."""
+    """Keep step checkpoints and terminal model failures on the web run."""
 
     save: Callable[[list[ModelMessage]], Awaitable[None]]
+    run: dict
+
+    async def on_run_error(self, ctx: RunContext[SerniaDeps], *, error: BaseException) -> Never:
+        if limit := openrouter_credit_limit(error):
+            self.run["credit_limit"] = limit
+        raise error
 
     async def after_node_run(
         self, ctx: RunContext[SerniaDeps], *, node: AgentNode, result: NodeResult
@@ -218,13 +243,17 @@ class ChatRun:
                         usage_limits=UsageLimits(request_limit=50),
                         capabilities=[
                             ChatSteering(self.run["id"]),
-                            ConversationCheckpoint(save=self.checkpoint),
+                            ConversationCheckpoint(save=self.checkpoint, run=self.run),
                         ],
                         on_complete=self.complete,
                         on_cancel=self.cancelled,
                         metadata={"trigger_source": "api/sernia-ai/chat"},
                         **kwargs,
                     ):
+                        if isinstance(chunk, ErrorChunk) and self.run.get("credit_limit"):
+                            chunk = ErrorChunk(
+                                error_text="Sernia AI reached its OpenRouter credit limit."
+                            )
                         self.emit(chunk)
             # The adapter encodes provider exceptions as SSE error chunks.
             if not self.finished:
