@@ -9,6 +9,7 @@ import {
   TEAM_HOME_URL,
   teamHref,
   teamRedirect,
+  wwwTwinHost,
   teamSiteServed,
 } from "~/sites/site";
 
@@ -275,4 +276,21 @@ test("the team's pages are at the addresses the backend links to", () => {
   const writeUp = routes.find((route) => route.path === "/systems/leasing-leads");
   assert.equal(writeUp?.file, "sites/portfolio/routes/systems/leasing-leads.tsx");
   assert.deepEqual(writeUp?.parents, []);
+});
+
+test("a Sernia host names its www twin when Sernia serves both", () => {
+  assert.equal(wwwTwinHost("https://serniacapital.com/team"), "www.serniacapital.com");
+  assert.equal(wwwTwinHost("https://SerniaCapital.com:8443/team/chat?id=1"), "www.serniacapital.com:8443");
+  for (const url of [
+    // The twin itself, a Sernia host with no twin, and a host that is not Sernia's.
+    "https://www.serniacapital.com/team",
+    "http://serniacapital.localhost:5293/team",
+    "https://eesposito.com/team",
+  ]) {
+    assert.equal(wwwTwinHost(url), null, url);
+  }
+  assert.equal(
+    wwwTwinHost("https://sernia.example.test/team", { hostsSetting: "sernia.example.test,www.sernia.example.test" }),
+    "www.sernia.example.test",
+  );
 });
