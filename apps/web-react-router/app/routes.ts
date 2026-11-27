@@ -54,6 +54,7 @@ export default [
       route("admin", "sites/team/routes/admin.tsx"),
       route("tenants", "sites/team/routes/tenants.tsx"),
       route("scheduler", "sites/team/routes/scheduler.tsx"),
+      route("clear-cache", "sites/team/routes/clear-cache.ts"),
       route("leads", "sites/team/routes/leads/layout.tsx", [
         index("sites/team/routes/leads/overview.tsx"),
         route("listings", "sites/team/routes/leads/listings.tsx"),

@@ -65,7 +65,7 @@ export default function TeamLayout({ loaderData }: Route.ComponentProps) {
   const ownSidebar = useMatches().some((match) => (match.handle as TeamPageHandle | undefined)?.ownSidebar);
   const publicSiteAtRoot = loaderData.publicSiteHref === "/";
   useEffect(retireRootServiceWorkerOnce, []);
-  // So the "Public site" link stops opening the resident portal it once redirected to.
+  // So serniacapital.com stops opening the resident portal it once redirected to.
   useEffect(() => {
     if (publicSiteAtRoot) forgetOldHomeRedirectOnce();
   }, [publicSiteAtRoot]);
