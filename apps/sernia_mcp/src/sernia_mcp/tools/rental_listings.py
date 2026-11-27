@@ -207,9 +207,7 @@ def _approval_card(title: str, lines: list[str], pending_id: str) -> PrefabApp:
                             "_confirm_rental_change",
                             arguments={"pending_id": pending_id, "decision": "approve"},
                             on_success=ShowToast("Saved", variant="success"),
-                            on_error=ShowToast(
-                                "Not saved. Ask the assistant why.", variant="error"
-                            ),
+                            on_error=ShowToast("Save failed: {{ $error }}", variant="error"),
                         ),
                     ],
                     disabled=Rx("decided"),
@@ -218,12 +216,15 @@ def _approval_card(title: str, lines: list[str], pending_id: str) -> PrefabApp:
                     "Reject",
                     variant="destructive",
                     on_click=[
+                        SetState("decided", True),
                         CallTool(
                             "_confirm_rental_change",
                             arguments={"pending_id": pending_id, "decision": "reject"},
+                            on_success=ShowToast("Cancelled", variant="warning"),
+                            on_error=ShowToast(
+                                "Cancellation failed: {{ $error }}", variant="error"
+                            ),
                         ),
-                        SetState("decided", True),
-                        ShowToast("Cancelled", variant="warning"),
                     ],
                     disabled=Rx("decided"),
                 )
@@ -275,7 +276,7 @@ async def rental_listing_update(
     tenant, lead or vendor wrote.
 
     Args:
-        unit: The unit as it is named on file, e.g. "12-A". Call rental_listings_read for the names.
+        unit: Call rental_listings_read for the unit names on file. If the requested unit differs from the address or linked ad, clarify before proposing a change.
         create: True to add a listing for a unit that has none on file yet. Leave False to change an existing one.
         address: The address as a lead would write it, e.g. "12 Example St #A".
         asking_rent: The monthly rent we are asking for the next lease, in whole dollars. Not what the current resident pays.
@@ -381,9 +382,13 @@ async def _confirm_rental_change(pending_id: str, decision: str) -> str:
     Approve, or cancelled on Reject. Anything else raises, so the card shows
     an error, never "Saved", when nothing was saved.
     """
-    record = _PENDING.pop(pending_id, None)
+    record = _PENDING.get(pending_id)
     if not record or record.get("type") not in ("rental_listing", "showing_rules"):
         raise ToolError(f"Not saved: unknown pending change id={pending_id} (may have expired).")
+    token, email = _caller()
+    if email != record["email"]:
+        raise ToolError("Not saved: this change was proposed in another user's session.")
+    del _PENDING[pending_id]
     age = time.time() - record.get("created_at", 0)
     if age > _PENDING_TTL_SECONDS:
         raise ToolError(
@@ -391,9 +396,6 @@ async def _confirm_rental_change(pending_id: str, decision: str) -> str:
         )
     if decision != "approve":
         return f"Cancelled; nothing was saved (decision={decision!r})."
-    token, email = _caller()
-    if email != record["email"]:
-        raise ToolError("Not saved: this change was proposed in another user's session.")
     plan = record["plan"]
     try:
         if record["type"] == "rental_listing":

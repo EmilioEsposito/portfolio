@@ -1,6 +1,6 @@
 """Apps-based approval flows for external writes.
 
-Pattern (deterministic server-side enforcement via tool-visibility split):
+Approval flow:
 
   1. Model calls ``@app.ui()`` entry-point tool (e.g. ``quo_send_sms``).
   2. Tool queues the send into an in-memory pending dict, keyed by UUID,
@@ -9,16 +9,11 @@ Pattern (deterministic server-side enforcement via tool-visibility split):
      which is a hidden ``@app.tool()`` — not exposed to the model at all.
   4. The confirm tool looks up the pending row and performs the real send.
 
-The ordinary model tool surface has no path to ``_confirm_send_sms``:
-
-  - It isn't in ``tools/list`` (enforced by our approval provider).
-  - Direct calls via ``tools/call`` raise ``Unknown tool`` (verified in tests).
-The Apps host uses FastMCP's hashed backend address for button actions. This
-preserves the pre-v4 tool-surface split; FastMCP 4's visibility metadata alone
-does not hide or reject backend tools. A hashed address is routing identity,
-not proof of a human click: a trusted Apps host must keep app-only calls out
-of the model's tool surface. An authenticated arbitrary MCP client can still
-reproduce a UI call. Do not treat this split as cryptographic approval.
+Confirmation callbacks are advertised to the host under the same hashed names
+the buttons call, with app-only visibility. Hosts that check tools/list before
+dispatching a button need those descriptors. A trusted host keeps the callbacks
+out of the model's tool surface. A hashed address identifies a route and cannot
+attest to a human click. Direct raw-name calls are refused.
 
 State (``_PENDING``) is in-memory; restart loses pending approvals. Each row
 carries a timestamp; rows older than ``_PENDING_TTL_SECONDS`` are rejected on
@@ -34,7 +29,7 @@ from collections.abc import Sequence
 from fastmcp import FastMCPApp
 from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_access_token
-from fastmcp.server.providers.addressing import is_app_tool_with_identity
+from fastmcp.server.providers.addressing import hashed_backend_name, is_app_tool_with_identity
 from fastmcp.tools import Tool
 from fastmcp.utilities.versions import VersionSpec
 from prefab_ui import PrefabApp
@@ -81,15 +76,22 @@ def _is_app_only(tool: Tool) -> bool:
 
 
 class ApprovalApp(FastMCPApp):
-    """Keep confirmation tools off the ordinary surface while routing UI calls.
-
-    FastMCP 4 deliberately lists app-only tools and accepts their raw names.
-    These provider hooks retain our existing narrower contract. Hashed lookup
-    still goes through FastMCP's normal transform and authorization pipeline.
-    """
+    """Advertise app-only callbacks at their dispatch addresses and refuse raw names."""
 
     async def _list_tools(self) -> Sequence[Tool]:
-        return [tool for tool in await super()._list_tools() if not _is_app_only(tool)]
+        listed = []
+        for tool in await super()._list_tools():
+            if _is_app_only(tool):
+                # Also mark the callback private for hosts using ChatGPT's older metadata.
+                meta = {
+                    **(tool.meta or {}),
+                    "openai/visibility": "private",
+                    "openai/widgetAccessible": True,
+                }
+                name = hashed_backend_name(self.name, tool.name)
+                tool = tool.model_copy(update={"name": name, "meta": meta})
+            listed.append(tool)
+        return listed
 
     async def _get_tool(self, name: str, version: VersionSpec | None = None) -> Tool | None:
         tool = await super()._get_tool(name, version)

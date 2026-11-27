@@ -24,7 +24,8 @@ async def test_expected_tools_exposed():
     from sernia_mcp.server import mcp
 
     async with Client(mcp) as c:
-        names = {t.name for t in await c.list_tools()}
+        catalog = await c.list_tools()
+        names = {t.name for t in catalog}
 
     expected_visible = {
         "sernia_context",
@@ -58,6 +59,8 @@ async def test_expected_tools_exposed():
         "quo_create_task",
         "quo_update_task",
         "quo_delete_task",
+        "rental_listing_update",
+        "showing_rules_update",
         "quo_create_contact",
         "quo_send_sms",
         "google_send_email",
@@ -65,10 +68,20 @@ async def test_expected_tools_exposed():
     missing = expected_visible - names
     assert not missing, f"Missing tools from /tools/list: {missing}"
 
-    # Hidden backend tools must NOT appear in tools/list.
-    assert "_confirm_delete_quo_task" not in names
-    assert "_confirm_send_sms" not in names
-    assert "_confirm_send_email" not in names
+    # Apps hosts discover every button target, but raw callback names stay unavailable.
+    from fastmcp.server.providers.addressing import hashed_backend_name
+
+    callbacks = {
+        "_confirm_delete_quo_task",
+        "_confirm_send_sms",
+        "_confirm_send_email",
+        "_confirm_rental_change",
+    }
+    assert names.isdisjoint(callbacks)
+    app_only = {
+        t.name for t in catalog if (t.meta or {}).get("ui", {}).get("visibility") == ["app"]
+    }
+    assert {hashed_backend_name("sernia_approvals", name) for name in callbacks} <= app_only
 
 
 @pytest.mark.asyncio

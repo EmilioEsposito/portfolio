@@ -323,6 +323,8 @@ class TestTools:
             for a in _actions(result.structured_content)
             if a["arguments"]["decision"] == "approve"
         )
+        catalog = {tool.name: tool for tool in await client.list_tools()}
+        assert catalog[approve["tool"]].meta["ui"]["visibility"] == ["app"]
         with pytest.raises(ToolError, match="Unknown tool"):
             await client.call_tool("_confirm_rental_change", approve["arguments"])
 
@@ -386,12 +388,17 @@ class TestTools:
             for a in _actions(result.structured_content)
             if a["arguments"]["decision"] == "approve"
         )
-        monkeypatch.setattr(tools, "_caller", lambda: ("oat_other", "sam@serniacapital.com"))
-
-        with pytest.raises(ToolError, match="another user"):
-            await client.call_tool(approve["tool"], approve["arguments"])
+        with monkeypatch.context() as other:
+            other.setattr(tools, "_caller", lambda: ("oat_other", "sam@serniacapital.com"))
+            for decision in ("approve", "reject"):
+                with pytest.raises(ToolError, match="another user"):
+                    await client.call_tool(
+                        approve["tool"], {**approve["arguments"], "decision": decision}
+                    )
 
         assert api.saves == []
+        await client.call_tool(approve["tool"], approve["arguments"])
+        assert api.saves == [("PUT", "/listings/12-A")]
 
     @pytest.mark.asyncio
     async def test_an_expired_card_saves_nothing(self, api, client):
@@ -438,6 +445,7 @@ class TestTools:
         assert call["action"] == "toolCall"
         assert call["onSuccess"]["message"] == "Saved"
         assert call["onError"]["variant"] == "error"
+        assert "{{ $error }}" in call["onError"]["message"]
 
     @pytest.mark.asyncio
     async def test_the_confirm_tool_is_not_listed(self, client):

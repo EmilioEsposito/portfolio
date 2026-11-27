@@ -4,7 +4,7 @@ HTTP [Model Context Protocol](https://modelcontextprotocol.io/) server exposing 
 
 Self-contained Python service, deployable as its own Railway service with separate production and development endpoints. Uses [FastMCP](https://gofastmcp.com/) with Clerk OAuth for auth and the [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) extension for human-in-the-loop approvals on destructive sends.
 
-> **Design intent:** read-mostly with a small, gated surface for writes. External SMS / email sends use an interactive Approve / Reject card. The approval provider hides confirmation tools from ordinary tool listings and rejects their raw names; trusted Apps hosts invoke them through the card's hashed route. This routing split is not cryptographic proof of a human click from an arbitrary authenticated client.
+> **Design intent:** read-mostly with a small, gated surface for writes. External SMS / email sends use an interactive Approve / Reject card. The server advertises each button's hashed callback in `tools/list` with app-only visibility and rejects its raw name. Apps hosts use the descriptor to dispatch clicks and keep the callback out of the model's tools. This routing split is not cryptographic proof of a human click from an arbitrary authenticated client.
 
 ## Tools
 

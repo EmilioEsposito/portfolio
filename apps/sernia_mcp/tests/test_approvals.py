@@ -5,8 +5,7 @@ Covers:
   * Backend ``_confirm_send_sms`` / ``_confirm_send_email`` approve / reject /
     unknown-id paths (with send_*_core mocked — we test wiring, not the
     upstream API).
-  * Structural isolation: hidden ``@app.tool()`` tools are absent from
-    ``tools/list`` AND not callable via ``tools/call`` over the protocol.
+  * Structural isolation: callback addresses are listed for apps only and raw names are refused.
   * Entry-point tools queue a pending row and return a PrefabApp payload.
   * TTL: pending rows older than the TTL are rejected even with a valid id.
 
@@ -247,6 +246,11 @@ async def test_card_action_routes_once_but_raw_name_cannot_send(
     send.assert_not_awaited()
     actions = list(_card_actions(result.structured_content))
     action = next(a for a in actions if a["arguments"]["decision"] == decision)
+    catalog = {tool.name: tool for tool in await mcp_client.list_tools()}
+    callback_meta = catalog[action["tool"]].meta
+    assert callback_meta["ui"]["visibility"] == ["app"]
+    assert callback_meta["openai/visibility"] == "private"
+    assert callback_meta["openai/widgetAccessible"] is True
     raw_name = f"_confirm_send_{kind}"
     assert action["tool"] != raw_name
     assert action["tool"].endswith(raw_name)

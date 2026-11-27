@@ -69,8 +69,8 @@ Sends use the Apps approval flow:
 
 1. A model-visible UI tool queues a pending action and returns an approval card.
 2. A hidden confirmation tool performs the send after the Apps action.
-3. `ApprovalApp` hides confirmation tools from listing and rejects raw-name calls,
-   while allowing hashed UI dispatch.
+3. `ApprovalApp` lists hashed callback names with app-only visibility so hosts can
+   dispatch card clicks. It rejects raw-name calls.
 
 Hashed addresses identify routes; they do not prove a human click. An authenticated
 custom client can reproduce an Apps call. Preserve raw-name isolation, domain
