@@ -9,6 +9,7 @@ import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { useScrollToBottom } from "~/sites/team/hooks/use-scroll-to-bottom";
 import { NotificationsButton, TeamDeviceBanner } from "~/sites/team/components/team-device";
+import { ChatRunNotice } from "~/sites/team/components/chat-run-notice";
 import { TeamHomeButton } from "~/sites/team/components/team-nav";
 import { useVisualViewportHeight } from "~/sites/team/hooks/use-visual-viewport-height";
 import { useConversationPresence } from "~/sites/team/hooks/use-conversation-presence";
@@ -1465,21 +1466,7 @@ function ChatView({
                 {activityLabel}
               </span>
             )}
-          {serverRun &&
-            ["failed", "cancelled", "interrupted"].includes(
-              serverRun.status,
-            ) && (
-              <p
-                role="status"
-                className="rounded-lg border px-4 py-3 text-sm text-muted-foreground"
-              >
-                {serverRun.status === "cancelled"
-                  ? "Response cancelled."
-                  : "The response stopped early."}{" "}
-                Your message and saved progress are kept. You can send a
-                follow-up. Actions already completed are not undone.
-              </p>
-            )}
+          {serverRun && <ChatRunNotice run={serverRun} />}
           {serverRun?.follow_ups
             ?.filter(
               (entry) =>
