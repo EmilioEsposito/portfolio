@@ -13,12 +13,20 @@ listing data and consult the same leasing policy, but it does not receive those
 queued threads. Lead approvals are handled by `../zillow_leads/handle.py`, without
 resuming the general agent.
 
+A person can hand a lead to the general agent. A message typed in a lead
+conversation opens a new chat whose first message is their words followed by
+the lead context (`lead_hand_off.py`); the lead conversation is not continued.
+Nothing starts until the person sends that message, and the new chat is an
+ordinary one: every gated tool waits for approval. See
+[Handing a lead to the general agent](../zillow_leads/README.md#handing-a-lead-to-the-general-agent).
+
 ## Where to work
 
 | Concern | Owner |
 | --- | --- |
 | General agent, tools, memory, model selection | `general_agent.py`, `instructions.py`, `tools/`, `model_config.py` |
 | Lead case, reply decision, fixed recipient, approval | [`../zillow_leads/`](../zillow_leads/README.md) |
+| Lead hand-off to the general agent: its opening block and the chat endpoint's `handoff_from` | `lead_hand_off.py`, `routes.py`; the lead side is `../zillow_leads/handoff.py` |
 | Listing schema, validation, history, HTTP API | [`../rental_listings/`](../rental_listings/README.md) |
 | Listing editor | `/team/leads/listings`; standalone page with Sernia authentication |
 | Lead batching and email approval | `/team/leads/settings`; dedicated agent settings; separate from general automation |

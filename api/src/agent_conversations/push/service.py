@@ -426,18 +426,26 @@ async def notify_pending_approval(
     conversation_id: str,
     tool_name: str,
     tool_args: dict | None = None,
+    title: str | None = None,
+    body: str | None = None,
 ) -> None:
-    """Send a push notification for a pending HITL approval."""
-    friendly_name = tool_name.replace("_", " ").title()
-    title = f"Approval Needed: {friendly_name}"
+    """Send a push notification for a pending HITL approval.
 
-    # Build a concise body from tool args
-    body_parts = []
-    if tool_args:
-        for key in ("to", "recipient", "name", "subject", "task_name"):
-            if key in tool_args:
-                body_parts.append(f"{key}: {tool_args[key]}")
-    body = ", ".join(body_parts) if body_parts else "Action requires your approval"
+    ``title`` and ``body`` replace the default wording, for a card that waits
+    for a person without being an approval (a lead escalation).
+    """
+    if title is None:
+        friendly_name = tool_name.replace("_", " ").title()
+        title = f"Approval Needed: {friendly_name}"
+
+    if body is None:
+        # Build a concise body from tool args
+        body_parts = []
+        if tool_args:
+            for key in ("to", "recipient", "name", "subject", "task_name"):
+                if key in tool_args:
+                    body_parts.append(f"{key}: {tool_args[key]}")
+        body = ", ".join(body_parts) if body_parts else "Action requires your approval"
 
     data = {
         "url": team_links.chat_path(conversation_id),

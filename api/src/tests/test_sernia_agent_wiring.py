@@ -328,6 +328,37 @@ class TestInstructionsStableWithinRun:
         assert "MEMORY.md" not in str(search_return.content)
 
     @pytest.mark.asyncio
+    async def test_a_lead_hand_off_names_tools_the_agent_has(self, deps):
+        """The hand-off block tells the model which tools to call, by name."""
+        import re
+
+        from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
+        from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+        from api.src.sernia_ai import lead_hand_off
+
+        seen: list[AgentInfo] = []
+
+        def model(_messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            seen.append(info)
+            return ModelResponse(parts=[TextPart("ok")])
+
+        with sernia_agent.override(native_tools=[]):
+            await sernia_agent.run("hello", deps=deps, model=FunctionModel(model))
+
+        from api.src.sernia_ai.tools.rental_listing_tools import rental_listing_toolset
+
+        named = set(re.findall(r"`([a-z_]+)`", lead_hand_off.GUIDANCE))
+        assert named == {"google_send_email", "rental_listing_update"}
+        # The email tool is there from the start. The listing tool arrives with
+        # the capability the block tells the model to load.
+        assert "google_send_email" in {tool.name for tool in seen[0].function_tools}
+        assert "rental_listing_update" in rental_listing_toolset.tools
+        assert f"`{lead_hand_off.LISTING_TOOLS}` capability" in lead_hand_off.block(
+            lead_hand_off.LeadContext(conversation_id="c", thread_id="t", text=""), by="Pat"
+        )
+
+    @pytest.mark.asyncio
     async def test_agent_offers_skills_and_loads_one_with_load_capability(self, deps):
         """The path a scheduled run takes: read the catalog, load a skill, act on it."""
         from pydantic_ai.messages import (

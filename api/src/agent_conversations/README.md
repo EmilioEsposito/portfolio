@@ -34,6 +34,12 @@ access, and error status codes are unchanged.
 | POST | `/conversation/{conversation_id}/approve` |
 | DELETE | `/conversation/{conversation_id}` |
 
+The messages response also carries `lead_conversation` (a Zillow lead
+conversation, which chat cannot continue) and the two sides of a hand-off,
+`hand_off_to` and `hand_off_from`, so the page can link a lead conversation and
+the general-agent chat it was handed to
+([details](../zillow_leads/README.md#handing-a-lead-to-the-general-agent)).
+
 General chat, cancellation, context inspection, and general-agent settings remain
 in `sernia_ai/routes.py` under `/api/sernia-ai`. Web Push keeps its existing
 `/api/sernia-ai/push` mount. No table, stored identifier, migration, or client
@@ -48,7 +54,7 @@ conversations retain the general continuation path in
 [`sernia_ai/conversation_handler.py`](../sernia_ai/conversation_handler.py).
 
 Zillow approval sends only the approved text to the stored route, or records a
-rejection/acknowledgment without sending. Its row lock still serializes decisions
+rejection, or an escalation marked handled, without sending. Its row lock still serializes decisions
 across both URL mounts. It never resumes a model with general tools.
 
 The general handler owns deps, model selection, captured run messages, approval

@@ -419,7 +419,7 @@ class TestApplyApproval:
         assert len(row.metadata_["approval"]) == 1
 
     @pytest.mark.asyncio
-    async def test_acknowledging_an_escalation_sends_nothing(self, conversation_id, monkeypatch):
+    async def test_marking_an_escalation_handled_sends_nothing(self, conversation_id, monkeypatch):
         row, card = await self.pending_reply(conversation_id, monkeypatch, outcome("escalate"))
         assert card["tool_name"] == handle.ASK_TEAM
 
@@ -428,7 +428,7 @@ class TestApplyApproval:
         )
 
         handle.send_reply.assert_not_called()
-        assert result["output"] == "Acknowledged."
+        assert result["output"] == "Marked handled by Pat."
 
 
 def test_only_lead_conversations_are_marked():
