@@ -17,6 +17,8 @@ from api.src.rental_listings.schema import PreferredWindow, RentalListing, Showi
 from api.src.tests.test_rental_listings import clear_rental_data
 from api.src.zillow_leads import listing_data
 from api.src.zillow_leads.case import (
+    DESCRIPTION_LABEL,
+    INTERNAL_NOTES_LABEL,
     Listing,
     ListingData,
     ShowingWindow,
@@ -36,6 +38,7 @@ LISTING = RentalListing(
     off_market_on=date(2027, 6, 1),
     showing_booking_url="https://book.example.com/12-a",
     preferred_showing_times=[AFTERNOONS],
+    listing_description="Sunny one bedroom near the park.\n\nHeat and hot water included.",
     public_facts=["1 bedroom, second floor", "Dishwasher"],
     internal_notes=["Resident wants 48 hours' notice where possible"],
 )
@@ -45,6 +48,30 @@ RULES = ShowingRules(
     blackout_dates=[date(2027, 7, 4)],
     showing_booking_url="https://book.example.com",
 )
+
+
+LEAD = LeadThread(
+    mailbox="all@serniacapital.com",
+    thread_id="T",
+    messages=[
+        LeadMessage(
+            message_id="m0",
+            rfc_message_id="<m0@x>",
+            sent_at=datetime(2027, 5, 3, 13, tzinfo=UTC),
+            from_address="lead@convo.zillow.com",
+            reply_to=None,
+            from_sernia=False,
+            subject="12 Example St inquiry",
+            body="Is it still available?",
+        )
+    ],
+)
+
+
+def rendered(listing: RentalListing) -> bytes:
+    """The case a lead's first message gets, with this one listing on file."""
+    data = listing_data.as_listing_data([listing], RULES)
+    return render_case(build_case(LEAD, data, upto=0)).encode()
 
 
 @pytest_asyncio.fixture
@@ -73,6 +100,9 @@ class TestShape:
                     rented_on=date(2027, 6, 1),
                     booking_url="https://book.example.com/12-a",
                     facts="1 bedroom, second floor\nDishwasher",
+                    description=(
+                        "Sunny one bedroom near the park.\n\nHeat and hot water included."
+                    ),
                     internal_notes="Resident wants 48 hours' notice where possible",
                     preferred_times=[AFTERNOONS],
                 )
@@ -96,6 +126,7 @@ class TestShape:
             "off_market_on",
             "showing_booking_url",
             "preferred_showing_times",
+            "listing_description",
             "public_facts",
             "internal_notes",
         }
@@ -120,29 +151,30 @@ class TestShape:
                 "zillow_listing_url_internal_editor_view": "https://www.zillow.com/rental-manager/x",
             }
         )
-        lead = LeadThread(
-            mailbox="all@serniacapital.com",
-            thread_id="T",
-            messages=[
-                LeadMessage(
-                    message_id="m0",
-                    rfc_message_id="<m0@x>",
-                    sent_at=datetime(2027, 5, 3, 13, tzinfo=UTC),
-                    from_address="lead@convo.zillow.com",
-                    reply_to=None,
-                    from_sernia=False,
-                    subject="12 Example St inquiry",
-                    body="Is it still available?",
-                )
-            ],
-        )
-
-        def rendered(listing: RentalListing) -> bytes:
-            data = listing_data.as_listing_data([listing], RULES)
-            return render_case(build_case(lead, data, upto=0)).encode()
-
         assert rendered(with_links) == rendered(LISTING)
         assert "zillow.com" not in rendered(with_links).decode()
+
+    def test_the_description_is_in_the_unit_entry_between_the_facts_and_the_notes(self):
+        listing = LISTING.model_copy(update={"off_market_on": None})
+        text = rendered(listing).decode()
+
+        entry = text.split("## Listings\n")[1].split("\n\n")[0]
+        assert entry.splitlines()[1:] == [
+            "  - 1 bedroom, second floor",
+            "  - Dishwasher",
+            f"  - {DESCRIPTION_LABEL}",
+            "    Sunny one bedroom near the park.",
+            "    Heat and hot water included.",
+            f"  - {INTERNAL_NOTES_LABEL}",
+            "    - Resident wants 48 hours' notice where possible",
+        ]
+
+    def test_without_a_description_the_entry_has_no_label(self):
+        listing = LISTING.model_copy(update={"off_market_on": None, "listing_description": ""})
+        blank = listing.model_copy(update={"listing_description": "  \n\n  "})
+
+        assert rendered(blank) == rendered(listing)
+        assert DESCRIPTION_LABEL not in rendered(listing).decode()
 
     def test_the_defaults_match_what_the_evals_have_always_used(self):
         assert listing_data.as_listing_data([], ShowingRules()) == ListingData()

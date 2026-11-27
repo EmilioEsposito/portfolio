@@ -458,11 +458,12 @@ async def serve(args: argparse.Namespace) -> None:
 async def write_synthetic(args: argparse.Namespace) -> None:
     from api.src.zillow_leads.evals import synthetic
 
-    for path in synthetic.write(args.out):
+    out = args.out or DATA_DIR / ("synthetic" if args.set == "booking" else f"synthetic-{args.set}")
+    for path in synthetic.write(out, args.set):
         print(f"wrote {path}")
     print(
-        f"run: --scenarios {args.out}/scenarios.jsonl --listings {args.out}/listings.json "
-        f"--case-edits {args.out}/case-edits.json"
+        f"run: --scenarios {out}/scenarios.jsonl --listings {out}/listings.json "
+        f"--case-edits {out}/case-edits.json --expected {out}/expected.json"
     )
 
 
@@ -569,9 +570,17 @@ def main() -> None:
     judge_parser.set_defaults(handler=judge_runs)
 
     synthetic_parser = commands.add_parser(
-        "synthetic", help="Write the made-up booking scenarios as files `run` reads"
+        "synthetic", help="Write a set of made-up scenarios as files `run` reads"
     )
-    synthetic_parser.add_argument("--out", type=Path, default=DATA_DIR / "synthetic")
+    synthetic_parser.add_argument(
+        "--set",
+        choices=["booking", "description"],
+        default="booking",
+        help="booking: a lead's own showings; description: a unit's Zillow ad description",
+    )
+    synthetic_parser.add_argument(
+        "--out", type=Path, help="Default: data/synthetic, or data/synthetic-<set>"
+    )
     synthetic_parser.set_defaults(handler=write_synthetic)
 
     serve_parser = commands.add_parser("serve", help="Serve the pages on this machine only")

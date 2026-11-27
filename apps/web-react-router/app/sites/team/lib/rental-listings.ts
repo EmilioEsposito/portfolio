@@ -39,8 +39,18 @@ export interface RentalListing {
   zillow_listing_url_public_view: string;
   zillow_listing_url_internal_editor_view: string;
   preferred_showing_times: PreferredWindow[];
+  // The Zillow ad's description as published, several lines. Told to leads.
+  listing_description: string;
   public_facts: string[];
   internal_notes: string[];
+}
+
+/** The longest listing description the API saves, in characters (checks.py). */
+export const MAX_DESCRIPTION_LENGTH = 5000;
+
+/** Characters as the API counts them: an emoji is one, not two. */
+export function characterCount(text: string): number {
+  return [...text].length;
 }
 
 export interface ShowingRules {
@@ -82,6 +92,7 @@ export function newListing(name: string): RentalListing {
     zillow_listing_url_public_view: "",
     zillow_listing_url_internal_editor_view: "",
     preferred_showing_times: [],
+    listing_description: "",
     public_facts: [],
     internal_notes: [],
   };
@@ -112,6 +123,7 @@ export function cleanListing(unit: RentalListing): RentalListing {
     next_lease_start_earliest: unit.next_lease_start_earliest || null,
     next_lease_start_latest: unit.next_lease_start_latest || null,
     off_market_on: unit.off_market_on || null,
+    listing_description: unit.listing_description.trim(),
     preferred_showing_times: unit.preferred_showing_times.map((window) => ({
       days: WEEKDAYS.filter((day) => window.days.includes(day)),
       start: shortTime(window.start),
@@ -247,6 +259,7 @@ const UNIT_FIELD_LABELS: Record<string, string> = {
   zillow_listing_url_public_view: "Zillow ad (public)",
   zillow_listing_url_internal_editor_view: "Zillow ad (editor)",
   preferred_showing_times: "Preferred showing times",
+  listing_description: "Listing description",
   public_facts: "Public facts",
   internal_notes: "Internal notes",
   timezone: "Time zone",
@@ -271,6 +284,19 @@ export function describeWindow(window: PreferredWindow): string {
 }
 
 const LINE_FIELDS = new Set(["public_facts", "internal_notes", "blackout_dates"]);
+// Text too long to show whole in a history line. A snapshot saved before the
+// field existed has none, which reads as empty.
+const LONG_TEXT_FIELDS = new Set(["listing_description"]);
+
+function describeLongText(label: string, was: unknown, now: unknown): string | null {
+  const before = typeof was === "string" ? was : "";
+  const after = typeof now === "string" ? now : "";
+  if (before === after) return null;
+  const size = (text: string) => characterCount(text).toLocaleString("en-US");
+  if (!before) return `${label}: added (${size(after)} characters)`;
+  if (!after) return `${label}: removed`;
+  return `${label}: changed (${size(before)} → ${size(after)} characters)`;
+}
 
 /**
  * What one saved change did, as short lines, by comparing its snapshot with
@@ -287,6 +313,11 @@ export function describeChange(
     const now = after[field];
     if (JSON.stringify(was) === JSON.stringify(now)) continue;
     const label = UNIT_FIELD_LABELS[field] ?? field;
+    if (LONG_TEXT_FIELDS.has(field)) {
+      const line = describeLongText(label, was, now);
+      if (line) lines.push(line);
+      continue;
+    }
     if (LINE_FIELDS.has(field) && Array.isArray(was) && Array.isArray(now)) {
       const added = now.filter((line) => !was.includes(line));
       const removed = was.filter((line) => !now.includes(line));

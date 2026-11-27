@@ -47,7 +47,7 @@ const nodes: Node[] = [
   },
   {
     id: "listings", title: "Rental listing data", subtitle: "Rent, facts, showing rules", icon: Database, tone: "listing", box: [538, 44, 230, 82],
-    detail: "One Postgres store holds asking rent, lease dates, unit facts, booking links, and showing rules. Each change records who made it and what changed. The lead agent and the booking page read this data.",
+    detail: "One Postgres store holds asking rent, lease dates, the Zillow ad's description, unit facts, booking links, and showing rules. Each change records who made it and what changed. The lead agent and the booking page read this data.",
   },
   {
     id: "editor", title: "Team editor & MCP", subtitle: "Maintain the same records", icon: Settings2, tone: "listing", box: [860, 44, 230, 82],
@@ -63,7 +63,7 @@ const nodes: Node[] = [
   },
   {
     id: "agent", title: "Zillow Leads Agent", subtitle: "Thread + listing facts + open times", icon: MessageSquare, tone: "lead", box: [538, 239, 230, 116],
-    detail: "The specialist answers from the conversation, the listing facts, and the open showing times it is given. It has no tools and sees no private company data, so its replies can be sent without a person reading each one. Each run ends one of three ways: a reply, no reply when none is needed, or a hand-off to the team.",
+    detail: "The specialist answers from the conversation, the listing facts and ad description, and the open showing times it is given. It has no tools and sees no private company data, so its replies can be sent without a person reading each one. Each run ends one of three ways: a reply, no reply when none is needed, or a hand-off to the team.",
   },
   {
     id: "team", title: "Hand to the team", subtitle: "Anything it should not answer", icon: Users, tone: "lead", box: [860, 209, 230, 84],

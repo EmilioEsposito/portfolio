@@ -26,9 +26,9 @@ from pathlib import Path
 from api.src.zillow_leads import agent
 
 DIFF = Path(__file__).with_name("zillow_instructions_change.diff")
-# The joined instructions on main at 7a31ad3 ("Lead agent: a moved showing keeps
-# the lead's details (#421)"), before the details line was dropped for such a move.
-BEFORE_SHA256 = "805233253d117336eccce304ea3b9dd338fc4f7ddd3f8e138f527e46ebb6fb0f"
+# The joined instructions on main at 28f99ab ("Send no push about a conversation
+# its reader has open (#453)"), before the rules for a unit's Zillow ad description.
+BEFORE_SHA256 = "ffff66bb04e8dcb169caf3525cab5885de829ec553ded84c0c23bf4c2d4c97b2"
 PATHS = [agent.ROLE_PATH, agent.POLICY_PATH, agent.RECORD_PATH]
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 

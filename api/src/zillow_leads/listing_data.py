@@ -6,6 +6,9 @@ the ``ListingData`` the case builder takes (``case.py``):
 
 - a listing's public facts become the unit's fact sheet, which the agent may
   repeat;
+- its listing description, the Zillow ad as published, goes into the case
+  after the facts, under its own label: the agent answers from it too, and
+  the typed terms and the facts win where it differs;
 - its internal notes go into the case under their own label, for the agent
   to decide with and never repeat (see ``prompts/policy.md``);
 - a listing with an off-market date stops being offered from that date.
@@ -59,6 +62,7 @@ def as_listing_data(listings: list[RentalListing], rules: ShowingRules) -> Listi
                 rented_on=unit.off_market_on,
                 booking_url=unit.showing_booking_url,
                 facts="\n".join(unit.public_facts),
+                description=unit.listing_description,
                 internal_notes="\n".join(unit.internal_notes),
                 preferred_times=unit.preferred_showing_times,
             )

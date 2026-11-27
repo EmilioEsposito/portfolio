@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   type Change,
   type RentalListing,
+  MAX_DESCRIPTION_LENGTH,
+  characterCount,
   cleanRules,
   cleanListing,
   describeChange,
@@ -161,6 +163,34 @@ test("the Zillow ad links are trimmed and named in history", () => {
     ),
     ["Zillow ad (public): none → https://www.zillow.com/x"],
   );
+});
+
+test("the listing description is trimmed at its ends and keeps its line breaks", () => {
+  const ad = "Sunny one bedroom.\n\n- Dishwasher\n- Hardwood floors";
+  assert.equal(cleanListing(unit({ listing_description: `\n  ${ad}  \n` })).listing_description, ad);
+  assert.ok(sameListing(unit({ listing_description: ad }), unit({ listing_description: `${ad}\n` })));
+  assert.ok(!sameListing(unit({ listing_description: ad }), unit({ listing_description: `${ad}.` })));
+  assert.equal(newListing("12-B").listing_description, "");
+});
+
+test("the description is counted as the API counts it", () => {
+  assert.equal(characterCount("Cats welcome 🐈"), 14);
+  assert.equal(characterCount(""), 0);
+  assert.equal(MAX_DESCRIPTION_LENGTH, 5000);
+});
+
+test("a description change is summed up in history, not shown whole", () => {
+  const ad = "a".repeat(1200);
+  const longer = `${ad} More.`;
+  const listed = (text: string) => ({ ...newListing("12-A"), listing_description: text });
+  assert.deepEqual(describeChange(listed(ad), listed("")), ["Listing description: added (1,200 characters)"]);
+  assert.deepEqual(describeChange(listed(longer), listed(ad)), [
+    "Listing description: changed (1,200 → 1,206 characters)",
+  ]);
+  assert.deepEqual(describeChange(listed(""), listed(ad)), ["Listing description: removed"]);
+  // A snapshot saved before the field existed has none: that is no change.
+  const { listing_description: _, ...older } = listed("");
+  assert.deepEqual(describeChange(listed(""), older), ["No change"]);
 });
 
 test("an off-market date that cancels showings is asked about with the counts", () => {
