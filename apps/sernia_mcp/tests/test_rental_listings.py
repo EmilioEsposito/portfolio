@@ -155,6 +155,38 @@ class TestPlans:
         assert plan.based_on is None and plan.listing["unit"] == "12-C"
         assert plan.changes == ["New listing for unit 12-C", "asking_rent: None -> 1300"]
 
+    AD = "Bright one-bedroom on the second floor.\nHeat and water included."
+
+    def test_a_listing_description_is_added_changed_and_removed(self):
+        """Described by size: an ad is too long to print in the answer twice."""
+        data = self.data()
+        added = core.plan_listing_change(data, unit="12-A", listing_description=f"  {self.AD}\n")
+        assert added.listing["listing_description"] == self.AD
+        assert added.changes == [f"listing_description: added ({len(self.AD)} characters)"]
+
+        data["listings"][0]["listing_description"] = self.AD
+        changed = core.plan_listing_change(data, unit="12-A", listing_description="Shorter.")
+        assert changed.changes == [f"listing_description: changed ({len(self.AD)} -> 8 characters)"]
+        removed = core.plan_listing_change(data, unit="12-A", listing_description="")
+        assert removed.listing["listing_description"] == ""
+        assert removed.changes == ["listing_description: removed"]
+        with pytest.raises(core.RefusedError, match="already reads that way"):
+            core.plan_listing_change(data, unit="12-A", listing_description=self.AD)
+
+    def test_a_listing_description_is_sent_only_when_given(self):
+        """So a new listing still saves against an API that does not have the field yet."""
+        without = core.plan_listing_change(self.data(), unit="12-C", create=True, asking_rent=1300)
+        given = core.plan_listing_change(
+            self.data(), unit="12-C", create=True, listing_description=self.AD
+        )
+
+        assert "listing_description" not in without.listing
+        assert given.listing["listing_description"] == self.AD
+        assert given.changes == [
+            "New listing for unit 12-C",
+            f"listing_description: added ({len(self.AD)} characters)",
+        ]
+
     def test_lines_are_added_once_and_removed_by_their_text(self):
         plan = core.plan_listing_change(
             self.data(),
@@ -270,6 +302,20 @@ class TestTools:
 
         assert api.saves == [("PUT", "/listings/12-A")]
         assert line in result.data
+
+    @pytest.mark.asyncio
+    async def test_a_listing_description_is_saved_at_once(self, api, client):
+        ad = "Bright one-bedroom on the second floor.\nHeat and water included."
+
+        result = await client.call_tool(
+            "rental_listing_update", {"unit": "12-A", "listing_description": ad}
+        )
+
+        assert api.saves == [("PUT", "/listings/12-A")]
+        assert api.listings["12-a"]["listing_description"] == ad
+        assert f"- listing_description: added ({len(ad)} characters)" in result.data
+        on_file = json.loads(result.data.split("Now on file:\n", 1)[1])
+        assert on_file["listing_description"] == ad
 
     @pytest.mark.asyncio
     async def test_a_new_listing_is_saved_at_once(self, api, client):
