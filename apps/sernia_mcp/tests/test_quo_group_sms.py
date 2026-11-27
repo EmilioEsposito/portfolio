@@ -205,7 +205,10 @@ class TestSendGroupSms:
 
 class TestGroupApprovalFlow:
     @pytest.fixture(autouse=True)
-    def _clear_pending(self):
+    def _clear_pending(self, monkeypatch):
+        # These call the entry tool as a plain function, outside any request,
+        # so there is no client to ask: stand in for one that draws cards.
+        monkeypatch.setattr(approvals, "client_draws_cards", lambda: True)
         approvals._PENDING.clear()
         yield
         approvals._PENDING.clear()

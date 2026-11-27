@@ -10,8 +10,9 @@ What this does:
   * Browser opens automatically. The picker lists the ``@app.ui()`` tools
     (including ``quo_delete_task``, ``quo_send_sms``, and ``google_send_email``). Pick one, fill in the form,
     launch.
-  * The approval card renders. Click Approve or Reject; the inspector panel
-    shows the ``CallTool → _confirm_send_*`` traffic.
+  * The approval card renders. Click Approve or Reject; the MCP Log panel
+    shows the ``tools/call _confirm_send_*`` traffic and the card shows a
+    toast with the outcome.
 
 Quo task lookups, deletions, and upstream sends are MOCKED. Nothing hits OpenPhone or Gmail — safe to
 exercise with any phone/email. Mocks print to stdout so you can confirm what
@@ -91,6 +92,10 @@ async def _fake_task_client():
         yield client
 
 
+# FastMCP's dev UI draws cards but does not declare the MCP Apps extension, so
+# the check that keeps confirm tools from clients without cards would refuse
+# it. Here every client is the dev UI.
+approvals.client_draws_cards = lambda: True
 approvals.task_client = _fake_task_client
 approvals.resolve_sms_routing_core = _fake_resolve_sms_routing_core  # type: ignore[assignment]
 approvals.send_sms_core = _fake_send_sms_core  # type: ignore[assignment]

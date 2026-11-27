@@ -1,4 +1,4 @@
-"""Rental listing tools: what is saved at once, what waits for a card, what is refused.
+"""Rental listing tools: every change is saved at once, or refused with the reason.
 
 The API is replaced by an in-memory fake with the same paths and answers as
 ``api/src/rental_listings/routes.py``; nothing leaves the process. All unit
@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import copy
 import json
-import time
 from datetime import date
 from typing import Any
 from urllib.parse import unquote
@@ -22,7 +21,6 @@ from fastmcp.exceptions import ToolError
 
 from sernia_mcp.core import rental_listings as core
 from sernia_mcp.core.errors import ExternalServiceError, ValidationError
-from sernia_mcp.tools import approvals
 from sernia_mcp.tools import rental_listings as tools
 
 LISTING = {
@@ -58,10 +56,11 @@ class FakeApi:
     def __init__(self) -> None:
         self.listings: dict[str, dict] = {"12-a": copy.deepcopy(LISTING)}
         self.rules = copy.deepcopy(RULES)
-        self.saves: list[tuple[str, str]] = []  # (method, path) of real saves
-        self.dry_runs = 0
+        self.saves: list[tuple[str, str]] = []  # (method, path) of saves
         self.tokens: set[str] = set()
         self.ad_requests: list[str] = []
+        # Called once after the next read, to change what is on file in between.
+        self.after_read = None
 
     def _refuse(self, listing: dict) -> None:
         for line in listing.get("public_facts", []) + listing.get("internal_notes", []):
@@ -70,12 +69,16 @@ class FakeApi:
 
     async def __call__(self, method, path, token, *, json=None, params=None, timeout=None):
         self.tokens.add(token)
-        dry = bool(params and params.get("dry_run"))
+        assert not (params and "dry_run" in params)  # a save is a save: no dry run first
         if method == "GET" and path == "":
-            return {
+            read = {
                 "listings": [copy.deepcopy(item) for _, item in sorted(self.listings.items())],
                 "showing_rules": copy.deepcopy(self.rules),
             }
+            if self.after_read:
+                self.after_read()
+                self.after_read = None
+            return read
         if method == "GET" and path == "/history":
             return [
                 {
@@ -106,9 +109,6 @@ class FakeApi:
             listing = None
         else:
             raise AssertionError(f"unexpected {method} {path}")
-        if dry:
-            self.dry_runs += 1
-            return json.get("listing") or json.get("showing_rules")
         self.saves.append((method, path))
         if listing is None:
             self.rules = json["showing_rules"]
@@ -121,97 +121,39 @@ class FakeApi:
 def api(monkeypatch) -> FakeApi:
     fake = FakeApi()
     monkeypatch.setattr(core, "_request", fake)
-    monkeypatch.setattr(tools, "_caller", lambda: ("oat_test", "pat@serniacapital.com"))
+    monkeypatch.setattr(tools, "_caller", lambda: "oat_test")
     return fake
 
 
-@pytest.fixture(autouse=True)
-def _clear_pending():
-    approvals._PENDING.clear()
-    yield
-    approvals._PENDING.clear()
+READS = ["rental_listings_read", "rental_listing_history", "rental_listing_zillow_ad_read"]
+SAVES = ["rental_listing_update", "showing_rules_update"]
 
 
 @pytest_asyncio.fixture
 async def client():
+    """A plain client: these tools need no card, so they work in any client."""
     server = FastMCP("test_rental_listings")
-    server.add_tool(tools.rental_listings_read)
-    server.add_tool(tools.rental_listing_history)
-    server.add_tool(tools.rental_listing_zillow_ad_read)
-    server.add_provider(approvals.approvals_app)
+    for name in READS + SAVES:
+        server.add_tool(getattr(tools, name))
     async with Client(server) as connected:
         yield connected
-
-
-def _actions(value):
-    if isinstance(value, dict):
-        if value.get("action") == "toolCall":
-            yield value
-        for child in value.values():
-            yield from _actions(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from _actions(child)
-
-
-def _nodes(value):
-    if isinstance(value, dict):
-        yield value
-        for child in value.values():
-            yield from _nodes(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from _nodes(child)
-
-
-def _texts(value) -> str:
-    """Every piece of text on a card, joined."""
-    found: list[str] = []
-
-    def walk(node):
-        if isinstance(node, dict):
-            for key, child in node.items():
-                if key in ("content", "text") and isinstance(child, str):
-                    found.append(child)
-                walk(child)
-        elif isinstance(node, list):
-            for child in node:
-                walk(child)
-
-    walk(value)
-    return "\n".join(found)
 
 
 class TestPlans:
     def data(self) -> dict[str, Any]:
         return {"listings": [copy.deepcopy(LISTING)], "showing_rules": copy.deepcopy(RULES)}
 
-    def test_a_typed_change_does_not_need_a_person(self):
+    def test_a_change_is_planned_from_what_is_on_file(self):
         plan = core.plan_listing_change(self.data(), unit="12-a", asking_rent=1550)
 
-        assert not plan.needs_person
         assert plan.listing["asking_rent"] == 1550 and plan.based_on == LISTING
         assert plan.changes == ["asking_rent: 1500 -> 1550"]
 
-    @pytest.mark.parametrize(
-        "change",
-        [
-            {"unit": "12-C", "create": True},
-            {"unit": "12-A", "address": "12 Example Street"},
-            {"unit": "12-A", "showing_booking_url": "https://book.example.com"},
-            {"unit": "12-A", "zillow_listing_url_public_view": ""},
-            {
-                "unit": "12-A",
-                "zillow_listing_url_internal_editor_view": "https://www.zillow.com/rental-manager/x",
-            },
-            {"unit": "12-A", "add_public_facts": ["Cats allowed"]},
-            {"unit": "12-A", "remove_public_facts": ["Dishwasher"]},
-            {"unit": "12-A", "add_internal_notes": ["Lease start can move"]},
-            {"unit": "12-A", "asking_rent": 1600, "add_public_facts": ["Cats allowed"]},
-        ],
-    )
-    def test_free_text_a_link_or_a_new_listing_needs_a_person(self, change):
-        assert core.plan_listing_change(self.data(), **change).needs_person
+    def test_a_new_listing_is_based_on_nothing(self):
+        plan = core.plan_listing_change(self.data(), unit="12-C", create=True, asking_rent=1300)
+
+        assert plan.based_on is None and plan.listing["unit"] == "12-C"
+        assert plan.changes == ["New listing for unit 12-C", "asking_rent: None -> 1300"]
 
     def test_lines_are_added_once_and_removed_by_their_text(self):
         plan = core.plan_listing_change(
@@ -246,7 +188,7 @@ class TestPlans:
 
         plan = core.plan_listing_change(data, unit="12-A", clear=["off_market_on"])
 
-        assert plan.listing["off_market_on"] is None and not plan.needs_person
+        assert plan.listing["off_market_on"] is None
 
     def test_rules_changes(self):
         from datetime import time
@@ -260,10 +202,6 @@ class TestPlans:
 
         assert plan.rules["earliest_start"] == "10:00:00"
         assert plan.rules["blackout_dates"] == ["2027-05-31"]
-        assert not plan.needs_person
-        assert core.plan_rules_change(
-            self.data(), showing_booking_url="https://book.example.com"
-        ).needs_person
         with pytest.raises(core.RefusedError, match="already read that way"):
             core.plan_rules_change(self.data(), add_blackout_dates=[date(2027, 7, 4)])
 
@@ -299,152 +237,100 @@ class TestTools:
         assert api.ad_requests == []
 
     @pytest.mark.asyncio
-    async def test_a_typed_change_is_checked_then_saved_at_once(self, api, client):
+    async def test_a_change_is_saved_at_once_and_the_answer_says_what_was_saved(self, api, client):
         result = await client.call_tool(
             "rental_listing_update", {"unit": "12-A", "off_market_on": "2027-06-01"}
         )
 
-        assert api.dry_runs == 1 and api.saves == [("PUT", "/listings/12-A")]
-        assert api.listings["12-a"]["off_market_on"] == "2027-06-01"
-        assert "Saved: 12-A" in _texts(result.structured_content)
-        assert list(_actions(result.structured_content)) == []
-        assert approvals._PENDING == {}
-
-    @pytest.mark.asyncio
-    async def test_a_fact_waits_for_approve_and_then_is_saved(self, api, client):
-        result = await client.call_tool(
-            "rental_listing_update", {"unit": "12-A", "add_public_facts": ["Cats allowed"]}
-        )
-
-        assert api.dry_runs == 1 and api.saves == []
-        assert "Add public fact: Cats allowed" in _texts(result.structured_content)
-        approve = next(
-            a
-            for a in _actions(result.structured_content)
-            if a["arguments"]["decision"] == "approve"
-        )
-        with pytest.raises(ToolError, match="Unknown tool"):
-            await client.call_tool("_confirm_rental_change", approve["arguments"])
-
-        said = await client.call_tool(approve["tool"], approve["arguments"])
-
-        assert "Saved the listing for 12-A" in said.data
-        assert api.listings["12-a"]["public_facts"][-1] == "Cats allowed"
         assert api.saves == [("PUT", "/listings/12-A")]
+        assert api.listings["12-a"]["off_market_on"] == "2027-06-01"
+        said = result.data
+        assert said.startswith("Saved the listing for 12-A.")
+        assert "- off_market_on: None -> '2027-06-01'" in said
+        on_file = json.loads(said.split("Now on file:\n", 1)[1])
+        assert on_file == api.listings["12-a"]
 
     @pytest.mark.asyncio
-    async def test_a_rejected_change_is_not_saved(self, api, client):
+    @pytest.mark.parametrize(
+        ("change", "line"),
+        [
+            ({"add_public_facts": ["Cats allowed"]}, "- Add public fact: Cats allowed"),
+            ({"remove_public_facts": ["Dishwasher"]}, "- Remove public fact: Dishwasher"),
+            (
+                {"add_internal_notes": ["Lease start can move"]},
+                "- Add internal note: Lease start can move",
+            ),
+            ({"address": "12 Example Street"}, "- address: '12 Example St #A' -> "),
+            ({"showing_booking_url": "https://book.example.com"}, "- showing_booking_url: "),
+            ({"zillow_listing_url_public_view": ""}, "- zillow_listing_url_public_view: "),
+        ],
+    )
+    async def test_free_text_and_links_are_saved_at_once_too(self, api, client, change, line):
+        result = await client.call_tool("rental_listing_update", {"unit": "12-A", **change})
+
+        assert api.saves == [("PUT", "/listings/12-A")]
+        assert line in result.data
+
+    @pytest.mark.asyncio
+    async def test_a_new_listing_is_saved_at_once(self, api, client):
         result = await client.call_tool(
             "rental_listing_update", {"unit": "12-C", "create": True, "asking_rent": 1300}
         )
-        reject = next(
-            a for a in _actions(result.structured_content) if a["arguments"]["decision"] == "reject"
-        )
 
-        said = await client.call_tool(reject["tool"], reject["arguments"])
-
-        assert said.data.startswith("Cancelled") and api.saves == []
-        assert "12-c" not in api.listings
+        assert api.saves == [("POST", "/listings")]
+        assert api.listings["12-c"]["asking_rent"] == 1300
+        assert "- New listing for unit 12-C" in result.data
 
     @pytest.mark.asyncio
-    async def test_a_change_the_api_would_refuse_never_reaches_a_card(self, api, client):
+    async def test_a_change_the_api_refuses_says_why_and_saves_nothing(self, api, client):
         with pytest.raises(ToolError, match="access code"):
             await client.call_tool(
                 "rental_listing_update", {"unit": "12-A", "add_public_facts": ["Door code 4821"]}
             )
 
-        assert approvals._PENDING == {} and api.saves == []
+        assert api.listings["12-a"] == LISTING
 
     @pytest.mark.asyncio
-    async def test_a_change_made_while_the_card_waited_is_not_overwritten(self, api, client):
-        result = await client.call_tool(
-            "rental_listing_update", {"unit": "12-A", "add_public_facts": ["Cats allowed"]}
-        )
-        api.listings["12-a"]["asking_rent"] = 1700  # someone else's edit, meanwhile
-        approve = next(
-            a
-            for a in _actions(result.structured_content)
-            if a["arguments"]["decision"] == "approve"
-        )
+    async def test_a_change_made_since_the_read_is_not_overwritten(self, api, client):
+        def someone_else_edits():
+            api.listings["12-a"]["asking_rent"] = 1700
+
+        api.after_read = someone_else_edits
 
         with pytest.raises(ToolError, match=r"Not saved.*changed this"):
-            await client.call_tool(approve["tool"], approve["arguments"])
+            await client.call_tool(
+                "rental_listing_update", {"unit": "12-A", "add_public_facts": ["Cats allowed"]}
+            )
 
         assert api.listings["12-a"]["asking_rent"] == 1700
         assert "Cats allowed" not in api.listings["12-a"]["public_facts"]
 
     @pytest.mark.asyncio
-    async def test_a_card_is_only_approved_in_the_session_that_asked(
-        self, api, client, monkeypatch
-    ):
+    async def test_showing_rules_are_saved_at_once_a_link_included(self, api, client):
         result = await client.call_tool(
-            "rental_listing_update",
-            {"unit": "12-A", "add_internal_notes": ["Lease start can move"]},
-        )
-        approve = next(
-            a
-            for a in _actions(result.structured_content)
-            if a["arguments"]["decision"] == "approve"
-        )
-        monkeypatch.setattr(tools, "_caller", lambda: ("oat_other", "sam@serniacapital.com"))
-
-        with pytest.raises(ToolError, match="another user"):
-            await client.call_tool(approve["tool"], approve["arguments"])
-
-        assert api.saves == []
-
-    @pytest.mark.asyncio
-    async def test_an_expired_card_saves_nothing(self, api, client):
-        result = await client.call_tool(
-            "rental_listing_update", {"unit": "12-A", "add_public_facts": ["Cats allowed"]}
-        )
-        approve = next(
-            a
-            for a in _actions(result.structured_content)
-            if a["arguments"]["decision"] == "approve"
-        )
-        approvals._PENDING[approve["arguments"]["pending_id"]]["created_at"] = time.time() - 3600
-
-        with pytest.raises(ToolError, match="expired"):
-            await client.call_tool(approve["tool"], approve["arguments"])
-
-        assert api.saves == []
-
-    @pytest.mark.asyncio
-    async def test_showing_rules_window_saves_at_once_and_a_link_waits(self, api, client):
-        saved = await client.call_tool("showing_rules_update", {"earliest_start": "10:00"})
-        waiting = await client.call_tool(
-            "showing_rules_update", {"showing_booking_url": "https://book.example.com"}
+            "showing_rules_update",
+            {"earliest_start": "10:00", "showing_booking_url": "https://book.example.com"},
         )
 
+        assert api.saves == [("PUT", "/showing-rules")]
         assert api.rules["earliest_start"] == "10:00:00"
-        assert "Saved: showing rules" in _texts(saved.structured_content)
-        assert api.rules["showing_booking_url"] == ""
-        assert len(list(_actions(waiting.structured_content))) == 2
+        assert api.rules["showing_booking_url"] == "https://book.example.com"
+        assert result.data.startswith("Saved the showing rules.")
+        assert "- earliest_start: '09:00:00' -> '10:00:00'" in result.data
 
     @pytest.mark.asyncio
-    async def test_approve_shows_saved_only_when_the_save_succeeds(self, api, client):
-        result = await client.call_tool(
-            "rental_listing_update", {"unit": "12-A", "add_public_facts": ["Cats allowed"]}
-        )
-        (button,) = [
-            node
-            for node in _nodes(result.structured_content)
-            if node.get("label") == "Approve & Save"
-        ]
-        first, call = button["onClick"]
+    async def test_a_client_is_told_which_tools_read_and_which_save(self, client):
+        """A client's own permission prompt is the approval step, so it must tell them apart."""
+        listed = {tool.name: tool for tool in await client.list_tools()}
 
-        assert first["action"] == "setState"  # disabled whatever happens
-        assert call["action"] == "toolCall"
-        assert call["onSuccess"]["message"] == "Saved"
-        assert call["onError"]["variant"] == "error"
-
-    @pytest.mark.asyncio
-    async def test_the_confirm_tool_is_not_listed(self, client):
-        names = {tool.name for tool in await client.list_tools()}
-
-        assert {"rental_listing_update", "showing_rules_update"} <= names
-        assert "_confirm_rental_change" not in names
+        assert set(listed) == set(READS + SAVES)
+        for name in READS:
+            assert listed[name].annotations.read_only_hint is True
+        for name in SAVES:
+            assert listed[name].annotations.read_only_hint is False
+            assert listed[name].annotations.destructive_hint is False
+            # No card, so nothing for a card to call.
+            assert "ui" not in (listed[name].meta or {})
 
 
 class TestRequest:
@@ -518,11 +404,37 @@ class TestRequest:
     @pytest.mark.asyncio
     async def test_a_unit_name_with_a_slash_is_one_path_segment(self, answer):
         answer.append(httpx.Response(200, json=LISTING))
-        plan = core.ListingPlan(
-            listing=LISTING, based_on={**LISTING, "unit": "12/14"}, needs_person=False, changes=[]
-        )
+        plan = core.ListingPlan(listing=LISTING, based_on={**LISTING, "unit": "12/14"}, changes=[])
 
         await core.save_listing("oat_test", plan)
+
+    @pytest.mark.asyncio
+    async def test_an_off_market_date_that_cancels_showings_is_sent_to_the_screen(self, answer):
+        """Saving it texts the people booked, so only a person on the screen confirms it."""
+        answer.append(
+            httpx.Response(
+                409,
+                json={
+                    "detail": {
+                        "code": "cancels_showings",
+                        "message": "Not saved. This cancels 1 showing and texts 1 person. "
+                        "Confirm to save.",
+                        "problems": [],
+                        "showings": 1,
+                        "people": 1,
+                    }
+                },
+            )
+        )
+        plan = core.ListingPlan(
+            listing={**LISTING, "off_market_on": "2027-06-01"}, based_on=LISTING, changes=[]
+        )
+
+        with pytest.raises(core.RefusedError) as caught:
+            await core.save_listing("oat_test", plan)
+
+        assert "cancels 1 showing and texts 1 person" in str(caught.value)
+        assert "Rental Listings screen" in str(caught.value)
 
     @pytest.mark.asyncio
     async def test_no_base_url_turns_the_tools_off(self, monkeypatch):
