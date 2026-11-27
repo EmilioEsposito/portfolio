@@ -164,6 +164,6 @@ The standalone MCP service has the same five tools as the general agent
 (`apps/sernia_mcp/src/sernia_mcp/tools/rental_listings.py`). It has no
 database access, so it calls the endpoints above with the signed-in user's
 Clerk token. It saves every change at once, with no approval card: a call
-there comes from a person's own chat, where the client's permission prompt
-asks them, while the general agent can run with nobody watching. Its
+there comes from a person's own chat, and whether they are asked first is
+their client's setting, while the general agent can run with nobody watching. Its
 [README](../../../apps/sernia_mcp/README.md#rental-listings) says what protects a listing instead.

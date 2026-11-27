@@ -237,6 +237,7 @@ class TestGroupApprovalFlow:
     async def test_confirm_approve_routes_to_group_send(self):
         approvals._PENDING["gid"] = {
             "type": "sms",
+            "owner": "local",
             "group": True,
             "to_phones": [TENANT_320_02_A, TENANT_320_02_B],
             "message": "group hello",
@@ -266,6 +267,7 @@ class TestGroupApprovalFlow:
     async def test_confirm_reject_group_does_not_send(self):
         approvals._PENDING["gid"] = {
             "type": "sms",
+            "owner": "local",
             "group": True,
             "to_phones": [TENANT_320_02_A, TENANT_320_02_B],
             "message": "group hello",

@@ -16,8 +16,13 @@ Covers:
     the confirm tool returned;
   * the confirm tools raise whenever the decision was not carried out
     (unknown, already decided, expired, another user's, a failed send);
-  * a plain client can neither list nor call a confirm tool, by name or by
-    hash, and its request is never queued.
+  * a plain client is not told the confirm tools exist and its request is
+    never queued; a confirm tool acts only on a queued request, for the
+    signed-in user who asked.
+
+These run in memory. ``test_approvals_http.py`` runs the same flow through the
+real app, its auth middleware and stateless HTTP, which is where a client's
+declaration has to arrive on every request.
 
 NOT covered (needs a real MCP Apps host): how a specific client draws the
 card, and whether that client really keeps app-only tools from its model.
@@ -35,7 +40,6 @@ import pytest_asyncio
 from fastmcp import Client, FastMCP
 from fastmcp.apps.config import UI_EXTENSION_ID
 from fastmcp.exceptions import ToolError
-from fastmcp.server.providers.addressing import hashed_backend_name
 from mcp.client import advertise
 
 from sernia_mcp.core.errors import ExternalServiceError
@@ -60,12 +64,15 @@ def _server() -> FastMCP:
     return server
 
 
-@pytest_asyncio.fixture(params=["auto", "legacy"])
-async def card_client(request):
-    """A client that declares MCP Apps, in the modern and the legacy protocol."""
-    async with Client(
-        _server(), mode=request.param, extensions=[advertise(UI_EXTENSION_ID, {})]
-    ) as connected:
+@pytest_asyncio.fixture
+async def card_client():
+    """A client that declares MCP Apps, in the protocol production clients speak.
+
+    Not run in the legacy protocol: that would pass here, where one in-memory
+    session keeps what the client declared when it connected, and say nothing
+    of production, where the stateless server treats such a client as plain.
+    """
+    async with Client(_server(), extensions=[advertise(UI_EXTENSION_ID, {})]) as connected:
         yield connected
 
 
@@ -232,8 +239,13 @@ async def test_a_card_says_done_only_when_the_confirm_tool_returned(card_client,
         assert first["action"] == "setState"  # both buttons go dead on the first click
         assert call["action"] == "toolCall"
         assert call["onSuccess"]["action"] == "showToast"
-        # The reason comes from the confirm tool, or from the client if the call never arrived.
-        assert call["onError"]["variant"] == "error" and "$error" in call["onError"]["message"]
+        failed = call["onError"]
+        assert failed["variant"] == "error"
+        # Holds whether or not anything went out: a long text can fail after its first part.
+        assert failed["message"] in ("The send did not complete", "The deletion was not confirmed")
+        # The reason, from the confirm tool or from the client if the call never arrived.
+        # Prefab fills $error only in a string that is nothing else, so it stands alone.
+        assert failed["description"] == "{{ $error }}"
         assert button["disabled"] == "{{ decided }}"
 
 
@@ -269,8 +281,36 @@ async def test_a_send_that_fails_is_reported_as_failed(card_client, upstream, ki
     card = await card_client.call_tool(*CARDS[kind])
     action = _action(card, "approve")
 
-    with pytest.raises(ToolError, match="The send failed: upstream said no"):
+    with pytest.raises(ToolError, match=r"The send failed: upstream said no$"):
         await card_client.call_tool(action["tool"], action["arguments"])
+
+
+@pytest.mark.asyncio
+async def test_a_long_text_that_fails_part_way_says_some_of_it_went_out(card_client, upstream):
+    """Its earlier parts were delivered, so "not sent" would be false and a retry would repeat them."""
+    upstream["sms"].side_effect = ExternalServiceError("Quo API HTTP 500 on part 2: no")
+    long_text = "A sentence that fills the text. " * 20  # over the split threshold
+    card = await card_client.call_tool(
+        "quo_send_sms", {"to_phone": "+15551230000", "message": long_text}
+    )
+    action = _action(card, "approve")
+
+    with pytest.raises(ToolError, match=r"on part 2.*any part before the one named was sent"):
+        await card_client.call_tool(action["tool"], action["arguments"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["sms", "group", "email"])
+async def test_only_the_user_who_asked_can_decide(card_client, upstream, monkeypatch, kind):
+    card = await card_client.call_tool(*CARDS[kind])
+    action = _action(card, "approve")
+    monkeypatch.setattr(approvals, "_signed_in_user", lambda: "other@example.test")
+
+    with pytest.raises(ToolError, match="another user"):
+        await card_client.call_tool(action["tool"], action["arguments"])
+
+    upstream[kind].assert_not_awaited()
+    assert action["arguments"]["pending_id"] in approvals._PENDING  # left for the user who asked
 
 
 @pytest.mark.asyncio
@@ -286,7 +326,7 @@ async def test_quo_task_deletion_card(card_client, upstream, monkeypatch, decisi
         with pytest.raises(ToolError, match="expired"):
             await card_client.call_tool(action["tool"], args)
     elif decision == "different_user":
-        monkeypatch.setattr(approvals, "_task_approver", lambda: "other@example.test")
+        monkeypatch.setattr(approvals, "_signed_in_user", lambda: "other@example.test")
         with pytest.raises(ToolError, match="another user"):
             await card_client.call_tool(action["tool"], args)
         assert methods == ["GET"]
@@ -303,7 +343,7 @@ async def test_quo_task_deletion_card(card_client, upstream, monkeypatch, decisi
 
 
 class TestAPlainClient:
-    """For a client that does not draw cards, the confirm tools do not exist."""
+    """A client that does not draw cards is not told of the confirm tools and can queue nothing."""
 
     @pytest.mark.asyncio
     async def test_is_given_the_entry_tools_only(self, plain_client):
@@ -314,15 +354,28 @@ class TestAPlainClient:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("name", sorted(CONFIRM_TOOLS))
-    async def test_cannot_call_a_confirm_tool_by_name_or_by_hash(self, plain_client, name):
-        approvals._PENDING["pid"] = {"type": "sms", "created_at": time.time()}
-        arguments = {"pending_id": "pid", "decision": "approve"}
+    async def test_a_confirm_tool_does_nothing_without_a_queued_request(self, plain_client, name):
+        """It is callable, so a forwarded click is never lost, and useless without a card's id."""
+        with pytest.raises(ToolError, match="unknown or already decided"):
+            await plain_client.call_tool(name, {"pending_id": "guess", "decision": "approve"})
 
-        for address in (name, hashed_backend_name(approvals.approvals_app.name, name)):
-            with pytest.raises(ToolError, match="Unknown tool"):
-                await plain_client.call_tool(address, arguments)
+    @pytest.mark.asyncio
+    async def test_cannot_decide_another_user_s_request(self, plain_client, upstream):
+        approvals._PENDING["pid"] = {
+            "type": "sms",
+            "owner": "pat@serniacapital.com",
+            "to_phone": "+15551230000",
+            "message": "hello",
+            "created_at": time.time(),
+        }
+
+        with pytest.raises(ToolError, match="another user"):
+            await plain_client.call_tool(
+                "_confirm_send_sms", {"pending_id": "pid", "decision": "approve"}
+            )
 
         assert "pid" in approvals._PENDING
+        upstream["sms"].assert_not_awaited()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("kind", list(CARDS))
@@ -341,6 +394,7 @@ class TestConfirmSendSms:
     def pending(self, **more) -> None:
         approvals._PENDING["pid"] = {
             "type": "sms",
+            "owner": "local",
             "to_phone": "+15551230001",
             "message": "hi",
             "contact_name": "Alice",
@@ -406,6 +460,7 @@ class TestConfirmSendEmail:
     def pending(self, **more) -> None:
         approvals._PENDING["eid"] = {
             "type": "email",
+            "owner": "local",
             "to": ["ok@serniacapital.com"],
             "subject": "ping",
             "body": "b",
@@ -456,6 +511,7 @@ class TestEntryToolsQueueARequest:
 
         (request,) = approvals._PENDING.values()
         assert request["type"] == "sms"
+        assert request["owner"] == "local"  # auth is off in tests
         assert request["to_phone"] == "+15551230000"
         assert request["message"] == "hello"
         assert request["contact_name"] == "Alice"

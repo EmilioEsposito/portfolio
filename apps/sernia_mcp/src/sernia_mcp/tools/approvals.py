@@ -16,15 +16,25 @@ such a tool to the card and never to the model. A client can only forward a
 card's call to a tool it was given in ``tools/list``, so the confirm tools
 have to be listed. They are listed for the clients that declare the MCP Apps
 extension, which is how a client says it draws cards and honours that
-marking. For every other client they do not exist (not listed, not callable
-by name or by hash), and the entry tools refuse before anything is queued,
-because nobody could click.
+marking. Every other client is not told they exist, and the entry tools
+refuse it before anything is queued, because nobody could click.
+
+A confirm tool does nothing without a request an entry tool queued: it needs
+that request's random id, which only the card holds, and the same signed-in
+user who asked. So a call to one is not checked against the client again. The
+click a client forwards for a card is trusted to be that client's, and a
+client that did not say so on that one call must not lose the click.
 
 This is a client's promise plus this server's checks (single use, expiry,
-the same signed-in user for a deletion). It is not proof of a click: a client
-that declares the extension and then hands the confirm tools to its model
-could approve its own request. Anything that must hold against that needs an
-approval outside the chat.
+the same signed-in user). It is not proof of a click: a client that declares
+the extension and then hands the confirm tools to its model could approve its
+own request. Anything that must hold against that needs an approval outside
+the chat.
+
+The check reads what the client declared on the request itself, which the
+2026-07-28 protocol carries on every request. This service is stateless, so
+an older client, which declares only once when it connects, is treated as one
+that cannot show a card.
 
 From the FastMCP 4 upgrade until this was fixed, the confirm tools were kept
 out of ``tools/list`` for every client. That also hid them from the client
@@ -48,7 +58,6 @@ from fastmcp.apps.config import UI_EXTENSION_ID
 from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_access_token, get_context
 from fastmcp.tools import Tool
-from fastmcp.utilities.versions import VersionSpec
 from prefab_ui import PrefabApp
 from prefab_ui.actions import SetState, ShowToast
 from prefab_ui.actions.mcp import CallTool
@@ -71,6 +80,7 @@ from sernia_mcp.core.errors import CoreError, NotFoundError, ValidationError
 from sernia_mcp.core.google.gmail import send_email_core
 from sernia_mcp.core.quo import tasks
 from sernia_mcp.core.quo.send_sms import (
+    SMS_SPLIT_THRESHOLD,
     resolve_group_sms_routing_core,
     resolve_sms_routing_core,
     send_group_sms_core,
@@ -98,13 +108,12 @@ def _is_app_only(tool: Tool) -> bool:
 
 
 class ApprovalApp(FastMCPApp):
-    """Give the confirm tools only to clients that draw cards.
+    """List the confirm tools only for clients that draw cards.
 
     FastMCP lists app-only tools for every client and leaves hiding them from
     the model to the client. A client that never heard of MCP Apps would hand
     them to its model as ordinary tools, so for those clients they are left
-    out of the listing and of lookup by name. FastMCP's lookup by hash goes
-    through ``_get_tool`` too, so it is closed the same way.
+    out of the listing.
     """
 
     async def _list_tools(self) -> Sequence[Tool]:
@@ -112,12 +121,6 @@ class ApprovalApp(FastMCPApp):
         draws = client_draws_cards()
         logfire.debug("approval cards: client draws cards = {draws}", draws=draws)
         return tools if draws else [tool for tool in tools if not _is_app_only(tool)]
-
-    async def _get_tool(self, name: str, version: VersionSpec | None = None) -> Tool | None:
-        tool = await super()._get_tool(name, version)
-        if tool is not None and _is_app_only(tool) and not client_draws_cards():
-            return None
-        return tool
 
 
 approvals_app = ApprovalApp("sernia_approvals")
@@ -133,23 +136,38 @@ def _require_cards(doing: str) -> None:
         )
 
 
+def _signed_in_user() -> str:
+    """Who is asking or deciding: their email, or "local" with auth switched off for development."""
+    token = get_access_token()
+    if token is None and local_auth_bypass_enabled():
+        return "local"
+    if token and (email := (token.claims or {}).get("email")):
+        return str(email).strip().lower()
+    raise ToolError("Sign in to ask for or decide an approval.")
+
+
 def _queue(kind: str, **request: object) -> str:
-    """Keep a request until someone decides it. Returns its single-use id."""
+    """Keep a request, under the user who asked, until they decide it. Returns its single-use id."""
     pending_id = uuid.uuid4().hex
-    _PENDING[pending_id] = {"type": kind, "created_at": time.time(), **request}
+    _PENDING[pending_id] = {
+        "type": kind,
+        "owner": _signed_in_user(),
+        "created_at": time.time(),
+        **request,
+    }
     return pending_id
 
 
-def _take(pending_id: str, kind: str, what: str, *, owner: str | None = None) -> dict:
+def _take(pending_id: str, kind: str, what: str) -> dict:
     """The request a decision is for, taken out so it is decided once.
 
-    Raises when there is none to decide: unknown, decided already, another
-    user's (left in place for its owner), or expired.
+    Raises when there is none for this user to decide: unknown, decided
+    already, another user's (left in place for its owner), or expired.
     """
     record = _PENDING.get(pending_id)
     if not record or record["type"] != kind:
         raise ToolError(f"This {what} is unknown or already decided. Ask for a new card.")
-    if owner is not None and record["owner"] != owner:
+    if record["owner"] != _signed_in_user():
         raise ToolError(f"This {what} was requested by another user.")
     del _PENDING[pending_id]
     age = time.time() - record["created_at"]
@@ -176,7 +194,13 @@ def _decision_buttons(
 
     A click disables both buttons, then calls the confirm tool. The toast
     reports what came back: ``done`` only when the confirm tool returned, and
-    ``failed`` with the reason when it raised or the call did not arrive.
+    ``failed`` with the reason under it when it raised or the call did not
+    arrive. ``failed`` must hold whether or not anything went out, since a
+    long text can fail after its first part.
+
+    The reason is a toast description of its own. Prefab fills ``$error`` only
+    in a string that is nothing but that template; mixed into other words it
+    comes out empty.
     """
 
     def click(decision: str, toast: ShowToast) -> list:
@@ -186,7 +210,7 @@ def _decision_buttons(
                 confirm_tool,
                 arguments={"pending_id": pending_id, "decision": decision},
                 on_success=toast,
-                on_error=ShowToast(f"{failed} {{{{ $error }}}}", variant="error"),
+                on_error=ShowToast(failed, description="{{ $error }}", variant="error"),
             ),
         ]
 
@@ -295,7 +319,7 @@ async def quo_send_sms(to_phone: str | list[str], message: str) -> PrefabApp:
                 pending_id,
                 approve="Approve & Send",
                 done=done,
-                failed="Not sent.",
+                failed="The send did not complete",
             )
     return PrefabApp(view=view, state={"decided": False})
 
@@ -316,7 +340,18 @@ async def _confirm_send_sms(pending_id: str, decision: str) -> str:
         else:
             result = await send_sms_core(request["to_phone"], request["message"])
     except CoreError as e:
-        raise ToolError(f"The send failed: {e}") from e
+        # A long text goes out in parts, and the parts before the one that
+        # failed were delivered. Say so, or a second try sends them twice.
+        in_parts = len(request["message"]) > SMS_SPLIT_THRESHOLD
+        raise ToolError(
+            f"The send failed: {e}"
+            + (
+                " This text goes out in parts, and any part before the one named was sent. "
+                "Read the thread before sending again."
+                if in_parts
+                else ""
+            )
+        ) from e
     kind = "Group SMS (one shared thread)" if is_group else "SMS"
     return (
         f"{kind} sent to {result.contact_name or result.to_phone} via {result.line_name} "
@@ -366,7 +401,7 @@ async def google_send_email(to: list[str], subject: str, body: str) -> PrefabApp
                 pending_id,
                 approve="Approve & Send",
                 done="Email sent",
-                failed="Not sent.",
+                failed="The send did not complete",
             )
     return PrefabApp(view=view, state={"decided": False})
 
@@ -394,23 +429,14 @@ async def _confirm_send_email(pending_id: str, decision: str) -> str:
 # -----------------------------------------------------------------------------
 
 
-def _task_approver() -> str:
-    token = get_access_token()
-    if token is None and local_auth_bypass_enabled():
-        return "local"
-    if token and (email := token.claims.get("email")):
-        return email.strip().lower()
-    raise ToolError("Sign in to approve a Quo task deletion.")
-
-
 @approvals_app.ui()
 async def quo_delete_task(task_id: tasks.TaskId) -> PrefabApp:
     """Request approval to delete a Quo task. The card shows its current title and TK ID."""
     _require_cards("Deleting a Quo task")
-    owner = _task_approver()
+    _signed_in_user()  # refused before the task is looked up
     async with task_client() as client:
         task = await tasks.get_task(client, task_id)
-    pending_id = _queue("quo_delete_task", task_id=task_id, owner=owner)
+    pending_id = _queue("quo_delete_task", task_id=task_id)
     with Card(css_class="max-w-xl") as view:
         with CardHeader():
             CardTitle("Delete this Quo task?")
@@ -425,7 +451,7 @@ async def quo_delete_task(task_id: tasks.TaskId) -> PrefabApp:
                 approve="Delete task",
                 approve_variant="destructive",
                 done="Task deleted",
-                failed="Not deleted.",
+                failed="The deletion was not confirmed",
                 reject="Cancel",
                 reject_variant="secondary",
             )
@@ -435,7 +461,7 @@ async def quo_delete_task(task_id: tasks.TaskId) -> PrefabApp:
 @approvals_app.tool()
 async def _confirm_delete_quo_task(pending_id: str, decision: str) -> str:
     """Called only by the deletion card's buttons. Applies the decision once."""
-    request = _take(pending_id, "quo_delete_task", "task deletion", owner=_task_approver())
+    request = _take(pending_id, "quo_delete_task", "task deletion")
     if decision != "approve":
         return "Quo task deletion cancelled."
     async with task_client() as client:

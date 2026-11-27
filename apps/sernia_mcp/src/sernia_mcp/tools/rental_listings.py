@@ -12,8 +12,10 @@ The same five tools and parameter names as
 The approval rule differs from the Sernia agent's on purpose. That agent can
 run with nobody watching (a text arrives, a schedule fires), so a change it
 makes to free text waits for a person in the team app. A call here comes from
-a person's own chat, and the client's own permission prompt is the step that
-asks them, so this service adds no second one. What protects a listing here:
+a person's own chat, and whether they are asked first is their client's
+setting (Claude asks before a tool set to "Always ask", and in its default
+Auto mode may run one without asking). This service adds no step of its own.
+What protects a listing here:
 
 - the API's checks, which refuse a phone number, email address, link or
   access code in a fact or note, whoever saves it;
@@ -45,7 +47,7 @@ from sernia_mcp.core.errors import CoreError
 from sernia_mcp.core.rental_listings import ClearableField, PreferredWindow
 from sernia_mcp.server import mcp
 
-# What a client is told about each tool, so its own permission prompt can tell
+# What a client is told about each tool, so its permission settings can tell
 # a read from a write. A save overwrites the listing as it stands, but nothing
 # is lost: every earlier state stays in the history.
 _READS = ToolAnnotations(read_only_hint=True, open_world_hint=False)

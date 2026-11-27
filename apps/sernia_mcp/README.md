@@ -4,7 +4,7 @@ HTTP [Model Context Protocol](https://modelcontextprotocol.io/) server exposing 
 
 Self-contained Python service, deployable as its own Railway service with separate production and development endpoints. Uses [FastMCP](https://gofastmcp.com/) with Clerk OAuth for auth and the [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) extension for human-in-the-loop approvals on destructive sends.
 
-> **Design intent:** read-mostly with a small, gated surface for writes. What a write needs depends on what a mistake costs. A change that stays inside the team and can be put back (a rental listing, a task) is saved at once, and the client's own permission prompt is the approval step. An action that reaches people outside the team or cannot be undone (an SMS, an email, a deletion) waits for a click on an Approve / Reject card. See [Approval cards](#approval-cards) for what a card does and does not guarantee.
+> **Design intent:** read-mostly with a small, gated surface for writes. What a write needs depends on what a mistake costs. A change that stays inside the team and can be put back (a rental listing, a task) is saved at once; whether the person is asked first is the client's setting, not this service's. An action that reaches people outside the team or cannot be undone (an SMS, an email, a deletion) waits for a click on an Approve / Reject card. See [Approval cards](#approval-cards) for what a card does and does not guarantee.
 
 ## Tools
 
@@ -61,8 +61,10 @@ the API records each change under that person's name with the source
 - **No card.** Every change is saved when the tool is called. The Sernia
   agent's rule is different on purpose: it can run with nobody watching, so
   its changes to free text wait for a person in the team app. A call here
-  comes from a person's own chat, where the client's permission prompt asks
-  them. The tools carry `readOnlyHint` so a client can tell a read from a save.
+  comes from a person's own chat, and whether they are asked first is the
+  client's setting: Claude asks before a tool set to "Always ask" in the
+  connector's settings, and in its default Auto mode may save without asking.
+  The tools carry `readOnlyHint` so a client can tell a read from a save.
 - What protects a listing: the API's checks refuse a phone number, email
   address, link or access code in a fact or note; the history keeps every
   earlier state under the user's name, so a change can be put back; and the
@@ -127,11 +129,21 @@ card's call only to a tool it was given in `tools/list`. So:
 
 | Client | Confirm tools | Entry tools |
 |---|---|---|
-| Declares the MCP Apps extension (Claude on the web, desktop, phone) | Listed, callable | Queue the request and return the card |
-| Any other | Not listed, not callable by name or hash | Refuse, and queue nothing |
+| Declares the MCP Apps extension (Claude on the web, desktop, phone) | Listed | Queue the request and return the card |
+| Any other | Not listed | Refuse, and queue nothing |
+
+A confirm tool does nothing without a request an entry tool queued: it needs
+that request's random id, which only the card holds, and the same signed-in
+user who asked. A call to one is therefore not checked against the client a
+second time, so a forwarded click is never lost to that check.
+
+The check reads what the client declared on the request itself, which the
+2026-07-28 protocol carries on every request. This service is stateless, so
+an older client, which declares once when it connects, is treated as one that
+cannot show a card. Every production client seen so far speaks 2026-07-28.
 
 What a card guarantees: single use, a 10-minute life, the same signed-in
-user for a deletion, and the deterministic recipient checks. What it does not:
+user, and the deterministic recipient checks. What it does not:
 a client that declares the extension and then hands the confirm tools to its
 model could approve its own request. Keeping the model away from them is the
 client's job. An action that must hold against that needs an approval outside

@@ -68,8 +68,9 @@ require the email-domain identity check. Preserve the tests in `test_auth.py`.
 Which writes need a card: an action that reaches people outside the team or
 cannot be undone (an SMS, an email, a deletion). A change that stays inside
 the team and can be put back (a rental listing, a task) is saved at once, and
-the client's own permission prompt is the approval step; give such tools
-accurate `ToolAnnotations`. Do not add a card to a reversible internal write,
+whether the person is asked first is the client's setting, not this service's
+(Claude asks before a tool set to "Always ask", and in its default Auto mode may
+run one without asking); give such tools accurate `ToolAnnotations`. Do not add a card to a reversible internal write,
 and do not introduce an unguarded tool for the other kind.
 
 A card works like this (README, "Approval cards", has the full account):
@@ -78,17 +79,19 @@ A card works like this (README, "Approval cards", has the full account):
 2. A click calls a confirm tool marked `visibility: ["app"]`.
 3. The confirm tool carries out the decision once, and raises unless it did.
 
-`ApprovalApp` gives the confirm tools only to clients that declare the MCP
+`ApprovalApp` lists the confirm tools only for clients that declare the MCP
 Apps extension, and the entry tools refuse every other client before queuing.
+A confirm tool acts only on a queued request, by its random id and for the
+signed-in user who asked.
 The confirm tools must stay in `tools/list` for card clients: a client forwards
 a card's call only to a listed tool, and hiding them is what broke every
 Approve click from the FastMCP 4 upgrade until November 2026. Keeping the model
 away from them is the client's job, so a card is not proof of a human click.
 
-Preserve: the card-client check on listing, lookup and entry tools; domain
-authorization; one-time pending IDs; expiry; `disabled=Rx("decided")`; and
-`on_success` / `on_error` toasts through `_decision_buttons`, so a card never
-says "sent" when nothing was. Fixed reminders are a separate, code-owned
+Preserve: the card-client check on listing and entry tools; domain
+authorization; one-time pending IDs bound to the user who asked; expiry;
+`disabled=Rx("decided")`; and `on_success` / `on_error` toasts through
+`_decision_buttons`, so a card never says "sent" when nothing was. Fixed reminders are a separate, code-owned
 exception documented in README.
 
 ## Context and workspace

@@ -320,7 +320,7 @@ class TestTools:
 
     @pytest.mark.asyncio
     async def test_a_client_is_told_which_tools_read_and_which_save(self, client):
-        """A client's own permission prompt is the approval step, so it must tell them apart."""
+        """Asking first is the client's setting, so it must be able to tell them apart."""
         listed = {tool.name: tool for tool in await client.list_tools()}
 
         assert set(listed) == set(READS + SAVES)
