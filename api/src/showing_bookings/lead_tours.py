@@ -28,8 +28,7 @@ to the lead's thread:
 - ``booking_links``: each unit's booking page with the thread's own token
   (``zillow_leads.lead_links``), ``<public base URL>/showings/<unit>?t=<token>``.
   A booking made through it is tied to the thread (``bookings.book``). Only for a
-  page that would answer (``_page_answers``); for any other unit the case falls
-  back to the listing's own link, unless that is such a page too.
+  page that would answer (``_page_answers``); other units receive no booking link.
 - ``own_showings``: the thread's own upcoming showings, booked or cancelled,
   from the attendee rows tied to it. Unit, start, and whether it is still
   booked or who cancelled it; nothing about the host or anyone else booked.
@@ -137,21 +136,14 @@ def _page_answers(settings: ShowingBookingSettings, unit: str, has_place: bool) 
     )
 
 
-def _is_unit_page(url: str) -> bool:
-    """Whether a listing's own link is a unit's page of this site."""
-    return url.startswith(f"{bookings.public_base_url()}/showings/")
-
-
 def _links(
     settings: ShowingBookingSettings, listing_data: ListingData, token: str, booked: set[str]
 ) -> dict[str, str]:
-    """Each unit's link for one lead; empty for a unit to be given no link at all."""
+    """Each unit's link for one lead; only for units whose booking page answers."""
     links: dict[str, str] = {}
     for listing in listing_data.listings:
         if _page_answers(settings, listing.unit, listing.unit.casefold() in booked):
             links[listing.unit] = lead_link(listing.unit, token)
-        elif _is_unit_page(listing.booking_url or listing_data.booking_url):
-            links[listing.unit] = ""
     return links
 
 

@@ -91,7 +91,11 @@ async def read_showing_rules(session: AsyncSession, *, lock: bool = False) -> Sh
     if value is None:
         return ShowingRules()
     try:
-        rules = ShowingRules.model_validate(value)
+        rules = ShowingRules.model_validate(
+            {k: v for k, v in value.items() if k != "showing_booking_url"}
+            if isinstance(value, dict)
+            else value
+        )
     except ValueError as error:
         raise RentalDataInvalid([f"showing rules: {error}"]) from error
     if problems := rules_problems(rules):

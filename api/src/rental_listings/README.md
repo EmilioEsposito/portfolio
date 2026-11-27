@@ -27,7 +27,7 @@ rental_listings/
 | `rental_listings` | One unit's listing as it stands now. A unit has one listing and keeps it from season to season: when the unit goes back on offer, the asking rent and dates change and the facts carry over |
 | `rental_listing_changes` | One saved change, never updated: who made it, when, from where, and the whole listing (or the showing rules) as it read afterwards |
 
-The showing rules (showing window, blackout dates, shared booking link, time
+The showing rules (showing window, blackout dates, time
 zone, and the notice before a showing, `showing_notice_hours`, 24 by default)
 are one row in `app_settings`, key `rental_showing_rules`. Their changes
 go into `rental_listing_changes` with the subject `showing_rules`.
@@ -46,7 +46,6 @@ is its latest row in `rental_listing_changes` on or before that day.
 | `next_lease_start_earliest`, `next_lease_start_latest` | When the next lease can start |
 | `virtual_tours_allowed` | Whether a virtual tour may be offered |
 | `off_market_on` | From this date the unit is no longer on offer, usually because the next lease is signed. Cleared when it goes back on offer. Saving it cancels the scheduled showings from that day ([showing bookings](../showing_bookings/README.md#cancelling)); when there are any, the listings screen asks first and the general agent waits for approval |
-| `showing_booking_url` | Where a prospect books a showing themselves |
 | `showing_notice_hours` | Hours of notice before a showing, when this unit's resident needs more than the showing rules give. Empty uses the rules'; a shorter value has no effect. From 1 to 336. Used by the booking system's open times; the lead agent keeps its own 24-hour floor |
 | `zillow_listing_url_public_view`, `zillow_listing_url_internal_editor_view` | The unit's Zillow ad: the page a lead sees, and the Zillow Rental Manager page where the team edits it. Given by a person; an ad keeps its link from season to season. For the team and the ad check below. The lead agent is not given them |
 | `preferred_showing_times` | Weekly windows we would like it shown in: a nudge, never a limit |
@@ -81,8 +80,7 @@ in any of the three kinds of text.
   the same transaction.
 - `checks.py` refuses values that make no sense and any free text holding a
   phone number, an email address, a link or access-code wording. A refused
-  description is named with the start of the line to trim. The booking
-  link must be plain https; the Zillow links must also be on `zillow.com` or
+  description is named with the start of the line to trim. Zillow ad links must use HTTPS on `zillow.com` or
   a subdomain, since the public one is fetched. Rows are
   checked again on read, so a hand edit in the database that breaks a rule is
   refused, not passed on.

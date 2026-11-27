@@ -36,7 +36,6 @@ LISTING = RentalListing(
     next_lease_start_latest=date(2027, 8, 1),
     virtual_tours_allowed=True,
     off_market_on=date(2027, 6, 1),
-    showing_booking_url="https://book.example.com/12-a",
     preferred_showing_times=[AFTERNOONS],
     listing_description="Sunny one bedroom near the park.\n\nHeat and hot water included.",
     public_facts=["1 bedroom, second floor", "Dishwasher"],
@@ -46,7 +45,6 @@ RULES = ShowingRules(
     earliest_start=time(10),
     latest_start=time(17),
     blackout_dates=[date(2027, 7, 4)],
-    showing_booking_url="https://book.example.com",
 )
 
 
@@ -98,7 +96,6 @@ class TestShape:
                     lease_start_latest=date(2027, 8, 1),
                     virtual_tours=True,
                     rented_on=date(2027, 6, 1),
-                    booking_url="https://book.example.com/12-a",
                     facts="1 bedroom, second floor\nDishwasher",
                     description=(
                         "Sunny one bedroom near the park.\n\nHeat and hot water included."
@@ -107,7 +104,6 @@ class TestShape:
                     preferred_times=[AFTERNOONS],
                 )
             ],
-            booking_url="https://book.example.com",
             showing_window=ShowingWindow(earliest_start=time(10), latest_start=time(17)),
             blackout_dates=[date(2027, 7, 4)],
         )
@@ -124,7 +120,6 @@ class TestShape:
             "next_lease_start_latest",
             "virtual_tours_allowed",
             "off_market_on",
-            "showing_booking_url",
             "preferred_showing_times",
             "listing_description",
             "public_facts",

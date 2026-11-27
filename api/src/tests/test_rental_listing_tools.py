@@ -51,7 +51,6 @@ ON_FILE = [
         unit="12-B",
         asking_rent=1400,
         off_market_on=date(2026, 6, 1),
-        showing_booking_url="https://book.example.com/12-b",
     ),
 ]
 RULES = ShowingRules(blackout_dates=[date(2027, 7, 4)])
@@ -189,8 +188,6 @@ class TestFreeTextWaitsForAPerson:
                 "unit": "12-A",
                 "remove_internal_notes": ["Resident wants 48 hours' notice where possible"],
             },
-            {"unit": "12-A", "showing_booking_url": "https://book.example.com/12-a"},
-            {"unit": "12-B", "showing_booking_url": ""},  # taking a link off
             {
                 "unit": "12-A",
                 "zillow_listing_url_public_view": "https://www.zillow.com/homedetails/x/1_zpid/",
@@ -277,17 +274,6 @@ class TestFreeTextWaitsForAPerson:
         names = [item.unit.lower() for item in await units()]
         assert names == ["12-a", "12-b", "12-c"]
 
-    @pytest.mark.asyncio
-    async def test_the_shared_booking_link_waits_too(self):
-        with pytest.raises(ApprovalRequired):
-            await tools.showing_rules_update(ctx(), showing_booking_url="https://book.example.com")
-        assert await rules() == RULES
-
-        await tools.showing_rules_update(
-            ctx(approved=True), showing_booking_url="https://book.example.com"
-        )
-        assert (await rules()).showing_booking_url == "https://book.example.com"
-
 
 @pytest.mark.usefixtures("on_file")
 class TestRefusals:
@@ -302,7 +288,6 @@ class TestRefusals:
                 {"listing_description": "Sunny one bedroom.\nCall 412-555-0134 to see it."},
                 "listing description 'Call 412-555-0134 to see it.': holds a phone number",
             ),
-            ({"showing_booking_url": "http://book.example.com"}, "https"),
             ({"zillow_listing_url_public_view": "https://example.com/ad"}, "zillow.com"),
             ({"asking_rent": -5}, "asking_rent"),
         ],

@@ -52,12 +52,11 @@ SIGNED = "\n\nSernia Capital Team"
 
 
 def _cases() -> dict[str, LeadCase]:
-    linked = LISTING_DATA.model_copy(update={"booking_url": "https://book.example/tours"})
+    links = {unit.unit: "https://book.example/tours" for unit in LISTING_DATA.listings}
     per_unit = LISTING_DATA.model_copy(
         update={
-            "booking_url": "https://book.example/any",
             "listings": [
-                Listing(unit="12-A", booking_url="https://book.example/12a", rent=1500),
+                Listing(unit="12-A", rent=1500),
                 Listing(unit="12-C", address="12 Example St, Unit C"),
                 Listing(unit="12-D", rented_on=date(2026, 5, 4)),
             ],
@@ -90,8 +89,13 @@ def _cases() -> dict[str, LeadCase]:
     )
     return {
         "plain": build_case(thread(message(0)), LISTING_DATA, upto=0),
-        "shared_link": build_case(thread(message(0)), linked, upto=0),
-        "per_unit_links_and_rented": build_case(thread(message(0)), per_unit, upto=0),
+        "shared_link": build_case(thread(message(0)), LISTING_DATA, booking_links=links, upto=0),
+        "per_unit_links_and_rented": build_case(
+            thread(message(0)),
+            per_unit,
+            upto=0,
+            booking_links={"12-A": "https://book.example/12a", "12-C": "https://book.example/any"},
+        ),
         "rich_listing_booked_and_preferred": build_case(
             thread(message(0, body="Tuesday afternoon?")),
             rich,
@@ -111,8 +115,10 @@ def _cases() -> dict[str, LeadCase]:
                 TourSlot(start=TUESDAY_10, agent="Casey Agent"),
             ],
         ),
-        "no_tour_source": build_case(thread(message(0)), linked, upto=0, slots=[]),
-        "history_cut_at_a_decision": build_case(history, linked, upto=3),
+        "no_tour_source": build_case(
+            thread(message(0)), LISTING_DATA, booking_links=links, upto=0, slots=[]
+        ),
+        "history_cut_at_a_decision": build_case(history, LISTING_DATA, booking_links=links, upto=3),
         "nothing_listed": build_case(
             thread(message(0)),
             LISTING_DATA.model_copy(update={"listings": [], "rented_units": []}),

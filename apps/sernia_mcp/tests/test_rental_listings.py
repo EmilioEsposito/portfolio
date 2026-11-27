@@ -31,7 +31,6 @@ LISTING = {
     "next_lease_start_latest": None,
     "virtual_tours_allowed": False,
     "off_market_on": None,
-    "showing_booking_url": "",
     "zillow_listing_url_public_view": "https://www.zillow.com/homedetails/x/123_zpid/",
     "zillow_listing_url_internal_editor_view": "",
     "preferred_showing_times": [],
@@ -43,7 +42,6 @@ RULES = {
     "earliest_start": "09:00:00",
     "latest_start": "18:00:00",
     "blackout_dates": ["2027-07-04"],
-    "showing_booking_url": "",
 }
 
 
@@ -293,7 +291,6 @@ class TestTools:
                 "- Add internal note: Lease start can move",
             ),
             ({"address": "12 Example Street"}, "- address: '12 Example St #A' -> "),
-            ({"showing_booking_url": "https://book.example.com"}, "- showing_booking_url: "),
             ({"zillow_listing_url_public_view": ""}, "- zillow_listing_url_public_view: "),
         ],
     )
@@ -355,12 +352,11 @@ class TestTools:
     async def test_showing_rules_are_saved_at_once_a_link_included(self, api, client):
         result = await client.call_tool(
             "showing_rules_update",
-            {"earliest_start": "10:00", "showing_booking_url": "https://book.example.com"},
+            {"earliest_start": "10:00"},
         )
 
         assert api.saves == [("PUT", "/showing-rules")]
         assert api.rules["earliest_start"] == "10:00:00"
-        assert api.rules["showing_booking_url"] == "https://book.example.com"
         assert result.data.startswith("Saved the showing rules.")
         assert "- earliest_start: '09:00:00' -> '10:00:00'" in result.data
 

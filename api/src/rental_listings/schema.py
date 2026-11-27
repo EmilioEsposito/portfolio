@@ -65,8 +65,6 @@ class RentalListing(BaseModel):
     # From this date the unit is no longer on offer, usually because the next
     # lease is signed. Cleared when it goes back on offer.
     off_market_on: date | None = None
-    # Where a prospect books a showing of this unit themselves.
-    showing_booking_url: str = ""
     # Hours of notice before a showing of this unit, when its resident needs
     # more than the showing rules give every unit. Empty uses the rules' notice;
     # a value shorter than the rules' has no effect.
@@ -97,8 +95,6 @@ class ShowingRules(BaseModel):
     # The least notice before a showing, in hours, so a resident is told in
     # time. A listing may ask for more (``RentalListing.showing_notice_hours``).
     showing_notice_hours: int = 24
-    # The booking page for any unit without its own link.
-    showing_booking_url: str = ""
 
 
 class Change(BaseModel):

@@ -24,7 +24,10 @@ async def test_expected_tools_exposed():
     from sernia_mcp.server import mcp
 
     async with Client(mcp) as c:
-        names = {t.name for t in await c.list_tools()}
+        tools = {tool.name: tool for tool in await c.list_tools()}
+        names = set(tools)
+        for name in ("rental_listing_update", "showing_rules_update"):
+            assert "showing_booking_url" not in tools[name].inputSchema["properties"]
 
     expected_visible = {
         "sernia_context",

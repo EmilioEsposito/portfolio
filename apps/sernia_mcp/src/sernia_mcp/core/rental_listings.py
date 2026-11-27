@@ -243,7 +243,6 @@ def plan_listing_change(
     next_lease_start_latest: date | None = None,
     virtual_tours_allowed: bool | None = None,
     off_market_on: date | None = None,
-    showing_booking_url: str | None = None,
     zillow_listing_url_public_view: str | None = None,
     zillow_listing_url_internal_editor_view: str | None = None,
     listing_description: str | None = None,
@@ -284,7 +283,6 @@ def plan_listing_change(
         "next_lease_start_latest": None,
         "virtual_tours_allowed": False,
         "off_market_on": None,
-        "showing_booking_url": "",
         "zillow_listing_url_public_view": "",
         "zillow_listing_url_internal_editor_view": "",
         "preferred_showing_times": [],
@@ -300,7 +298,6 @@ def plan_listing_change(
             "next_lease_start_latest": _iso(next_lease_start_latest),
             "virtual_tours_allowed": virtual_tours_allowed,
             "off_market_on": _iso(off_market_on),
-            "showing_booking_url": _stripped(showing_booking_url),
             "zillow_listing_url_public_view": _stripped(zillow_listing_url_public_view),
             "zillow_listing_url_internal_editor_view": _stripped(
                 zillow_listing_url_internal_editor_view
@@ -358,7 +355,6 @@ def plan_rules_change(
     latest_start: time | None = None,
     add_blackout_dates: list[date] | None = None,
     remove_blackout_dates: list[date] | None = None,
-    showing_booking_url: str | None = None,
 ) -> RulesPlan:
     """Work out a change to the showing rules, from what is on file."""
     current = data["showing_rules"]
@@ -369,8 +365,6 @@ def plan_rules_change(
         updated["earliest_start"] = _iso(earliest_start)
     if latest_start is not None:
         updated["latest_start"] = _iso(latest_start)
-    if showing_booking_url is not None:
-        updated["showing_booking_url"] = showing_booking_url.strip()
     described = [
         f"{name}: {current.get(name)!r} -> {value!r}"
         for name, value in updated.items()

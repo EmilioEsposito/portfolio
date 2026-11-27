@@ -166,7 +166,7 @@ gate is the setting alone, so a preview follows the row it copied.
 | `GET /public/units` | is left out |
 | `GET /public/units/{unit}` and `POST .../bookings`, joins included | 404 `unknown_unit` |
 | the lead agent's open times and booked tours | are left out |
-| the lead agent's link for the unit | is the listing's own link instead, or none when that is a unit's page here too |
+| the lead agent's link for the unit | is omitted unless the lead already has a booking there and public booking is enabled |
 | a reply that would book it, or move a showing to a new time there | is held, as for a time that is gone |
 
 It never asks for anything that exists: a showing booked there stays, with its
@@ -573,16 +573,15 @@ and `lead_booking_for` adds what belongs to the lead's thread:
   (`zillow_leads/lead_links.py`), `<SHOWING_PUBLIC_BASE_URL>/showings/<unit>?t=<token>`,
   as the case's booking link. Only for a page that answers: public booking is on,
   and the unit may be booked or the lead has a place there, which the page then
-  shows. For any other unit the case keeps the listing's own link, and has none
-  when that is a unit's page of this site too;
+  shows. Other units receive no booking link;
 - the thread's own upcoming showings, from the attendee rows tied to it
   (`zillow_thread_id`): unit, start, and booked or the cancel reason. Nothing
   about the host or anyone else booked. A place cancelled because the reply
   that booked it was never sent (`reply_not_sent`) is left out: the lead never
   heard of it.
 
-If the token or those rows cannot be read, the case keeps the listings' own
-links and has no own-showings section, and the error is logged.
+If the token or those rows cannot be read, the case has no booking links or
+own-showings section, and the error is logged.
 
 The source passes on only times that pass the lead agent's own fixed rules
 (`case.within_showing_rules`: its 24-hour floor `case.MIN_NOTICE`, the window,

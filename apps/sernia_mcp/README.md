@@ -56,7 +56,7 @@ the API records each change under that person's name with the source
 | `rental_listing_history` | read | Changes, newest first, with who and from where |
 | `rental_listing_zillow_ad_read` | read | A unit's live Zillow ad beside its listing on file, to propose changes from. The API reads the ad (`GET /api/rental-listings/zillow-ad/{unit}`, through Jina Reader); this service never calls Zillow |
 | `rental_listing_update` | write | Changes a listing, or adds one, including `listing_description` (the Zillow ad's description as published; public facts add to it or correct it). Saved at once; the answer lists each change and the listing as it now reads |
-| `showing_rules_update` | write | The showing window, blackout dates and the shared booking link. Saved at once |
+| `showing_rules_update` | write | The showing window and blackout dates. Saved at once |
 
 - **No card.** Every change is saved when the tool is called. The Sernia
   agent's rule is different on purpose: it can run with nobody watching, so

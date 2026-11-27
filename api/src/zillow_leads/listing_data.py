@@ -60,7 +60,6 @@ def as_listing_data(listings: list[RentalListing], rules: ShowingRules) -> Listi
                 lease_start_latest=unit.next_lease_start_latest,
                 virtual_tours=unit.virtual_tours_allowed,
                 rented_on=unit.off_market_on,
-                booking_url=unit.showing_booking_url,
                 facts="\n".join(unit.public_facts),
                 description=unit.listing_description,
                 internal_notes="\n".join(unit.internal_notes),
@@ -68,7 +67,6 @@ def as_listing_data(listings: list[RentalListing], rules: ShowingRules) -> Listi
             )
             for unit in listings
         ],
-        booking_url=rules.showing_booking_url,
         showing_window=ShowingWindow(
             earliest_start=rules.earliest_start, latest_start=rules.latest_start
         ),

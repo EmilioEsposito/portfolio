@@ -71,7 +71,6 @@ PUBLIC = "/api/showing-bookings/public"
 BOOK = f"{PUBLIC}/units/{UNIT}/bookings"
 ALEX_THREAD = "thread-alex-0001"
 ROBIN_THREAD = "thread-robin-0002"
-LISTING_LINK = "https://book.example/320-03"
 LINK_LINE = f"- {UNIT}: https://serniacapital.com/showings/{UNIT}?t="
 SIGNED = "\n\nSernia Capital Team"
 
@@ -85,7 +84,6 @@ async def world(monkeypatch):
     await clear_showing_data()
     await _forget_links()
     state = PublicWorld()
-    state.listing = state.listing.model_copy(update={"showing_booking_url": LISTING_LINK})
     install(state, monkeypatch)
     await add_world_rows(state)
     yield state
@@ -222,7 +220,7 @@ async def test_with_the_switch_off_the_case_is_as_before_and_no_token_is_made(wo
     before = build_case(lead_thread(ALEX_THREAD), data, now=NOW, slots=[], booked_tours=[])
     assert render_case(case) == render_case(before)
     assert case.own_showings is None and case.offerable_slots == []
-    assert [listing.booking_url for listing in case.listings] == [LISTING_LINK]
+    assert [listing.booking_url for listing in case.listings] == [""]
     assert OWN_SHOWINGS_HEADING not in render_case(case)
     assert await token_of(ALEX_THREAD) is None
     # The structured case is saved with the outcome, and rebuilds the same case.
