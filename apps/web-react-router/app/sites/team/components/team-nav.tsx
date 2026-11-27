@@ -36,6 +36,8 @@ export const TEAM_LAYOUT_ROUTE = "sites/team/routes/layout";
 export type TeamLayoutData = {
   /** The Sernia public site from this host, or null where it is not served. */
   publicSiteHref: string | null;
+  /** What the layout asks for once to clear this browser's cache of the site; see forget-old-home-redirect. */
+  clearSiteCacheUrls: string[];
 };
 
 /** Whether the signed-in user is the admin, who also sees settings and every conversation. */

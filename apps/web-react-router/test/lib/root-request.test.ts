@@ -109,6 +109,8 @@ async function request(url: string, init?: RequestInit) {
     status: response.status,
     clerk: response.headers.get("x-test-clerk") === "ran",
     location: response.headers.get("location"),
+    cacheControl: response.headers.get("cache-control"),
+    clearSiteData: response.headers.get("clear-site-data"),
     body: await response.text(),
   };
 }
@@ -314,9 +316,22 @@ test("in production a team path on another host is the portfolio's 404, without 
 
 test("a team page on www.serniacapital.com moves to serniacapital.com before Clerk runs", async () => {
   const page = await request("https://www.serniacapital.com/team/chat?id=conversation-1");
-  assert.deepEqual([page.status, page.clerk, page.location], [308, false, "//serniacapital.com/team/chat?id=conversation-1"]);
+  assert.deepEqual([page.status, page.clerk, page.location], [307, false, "//serniacapital.com/team/chat?id=conversation-1"]);
+  // Temporary and never stored, so a browser asks again each time; see ~/lib/moved.
+  assert.equal(page.cacheControl, "no-store");
   const publicPage = await request("https://www.serniacapital.com/privacy");
   assert.deepEqual([publicPage.status, publicPage.clerk, publicPage.location], [200, false, null]);
+});
+
+test("www.serniacapital.com answers the cache-clearing request itself, so the browser clears www", async () => {
+  const twin = await request("https://www.serniacapital.com/team/clear-cache");
+  assert.deepEqual(
+    [twin.status, twin.clerk, twin.location, twin.clearSiteData, twin.cacheControl],
+    [204, false, null, '"cache"', "no-store"],
+  );
+  // Only that exact path: its neighbours move like any team path.
+  const near = await request("https://www.serniacapital.com/team/clear-cache/more");
+  assert.deepEqual([near.status, near.clearSiteData], [307, null]);
 });
 
 test("the team layout says where the public site is from each host", async () => {
