@@ -184,6 +184,7 @@ mcp = FastMCP(
     instructions=(
         "Sernia Capital MCP server. Read/write a shared workspace (MEMORY.md, "
         "skills/, areas/), search Gmail / OpenPhone contacts / ClickUp tasks, "
+        "read and change rental listings (a change is saved at once), "
         "and send SMS/email through an Approve/Reject card. Use ClickUp for general task requests. "
         "Use Quo tasks when the user chooses Quo or refers to an existing Quo task. "
         "Create a task in both only when asked. Code-owned fixed "
@@ -211,7 +212,7 @@ mcp = FastMCP(
 # Side-effect imports register @mcp.tool functions on the instance above.
 import sernia_mcp.tools  # noqa: E402,F401
 
-# FastMCPApp-based approval flow (tool-visibility split for deterministic HITL).
+# Approve / Reject cards for sends and deletions (see tools/approvals.py).
 from sernia_mcp.tools.approvals import approvals_app  # noqa: E402
 
 mcp.add_provider(approvals_app)

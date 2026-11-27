@@ -4,7 +4,7 @@ HTTP [Model Context Protocol](https://modelcontextprotocol.io/) server exposing 
 
 Self-contained Python service, deployable as its own Railway service with separate production and development endpoints. Uses [FastMCP](https://gofastmcp.com/) with Clerk OAuth for auth and the [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) extension for human-in-the-loop approvals on destructive sends.
 
-> **Design intent:** read-mostly with a small, gated surface for writes. External SMS / email sends use an interactive Approve / Reject card. The approval provider hides confirmation tools from ordinary tool listings and rejects their raw names; trusted Apps hosts invoke them through the card's hashed route. This routing split is not cryptographic proof of a human click from an arbitrary authenticated client.
+> **Design intent:** read-mostly with a small, gated surface for writes. What a write needs depends on what a mistake costs. A change that stays inside the team and can be put back (a rental listing, a task) is saved at once; whether the person is asked first is the client's setting, not this service's. An action that reaches people outside the team or cannot be undone (an SMS, an email, a deletion) waits for a click on an Approve / Reject card. See [Approval cards](#approval-cards) for what a card does and does not guarantee.
 
 ## Tools
 
@@ -30,8 +30,8 @@ The tool surface mirrors Claude Code's `Read` / `Edit` / `Write` so models that 
 | `quo_list_active_sms_threads` | read | Mirrors the Quo active inbox — non-'done' threads sorted by recency, with one-line snippet |
 | `quo_list_tasks`, `quo_get_task` | read | Find an existing Quo task and its TK ID |
 | `quo_create_task`, `quo_update_task` | write | Manage explicitly selected Quo tasks, including completion, assignment, due date, and conversation links. General task requests use ClickUp. |
-| `quo_delete_task` | **UI-gated** | Review the current task title and ID before deleting it. |
-| `quo_send_sms` | **UI-gated** | Returns Approve/Reject card. No send without click. |
+| `quo_delete_task` | **card** | Review the current task title and ID before deleting it. |
+| `quo_send_sms` | **card** | Returns Approve/Reject card. No send without click. |
 
 ### Google Workspace
 
@@ -39,12 +39,11 @@ The tool surface mirrors Claude Code's `Read` / `Edit` / `Write` so models that 
 |------|------|-------|
 | `google_search_emails` | read | Gmail search syntax (`from:`, `subject:`, etc.) |
 | `google_read_email` | read | Full body + headers by message ID |
-| `google_send_email` | **UI-gated** | Returns Approve/Reject card. No send without click. |
+| `google_send_email` | **card** | Returns Approve/Reject card. No send without click. |
 
 ### Rental listings
 
-The same five tools, parameter names and approval rule as the Sernia
-agent's. Each unit's listing (the next lease on offer, public facts, internal
+The same five tools and parameter names as the Sernia agent's. Each unit's listing (the next lease on offer, public facts, internal
 notes) is what the Zillow lead agent answers leads from. The data lives in
 the API's database, which this service does not reach: the tools call
 `/api/rental-listings` with the signed-in user's own Clerk OAuth token, and
@@ -56,14 +55,26 @@ the API records each change under that person's name with the source
 | `rental_listings_read` | read | Every listing and the showing rules |
 | `rental_listing_history` | read | Changes, newest first, with who and from where |
 | `rental_listing_zillow_ad_read` | read | A unit's live Zillow ad beside its listing on file, to propose changes from. The API reads the ad (`GET /api/rental-listings/zillow-ad/{unit}`, through Jina Reader); this service never calls Zillow |
-| `rental_listing_update` | write / **UI-gated** | Typed fields (asking rent, dates, off-market date, virtual tours, preferred showing times) save at once and return a "Saved" card. A new listing, an address, a public fact, an internal note, a booking link or a Zillow ad link returns an Approve/Reject card |
-| `showing_rules_update` | write / **UI-gated** | The showing window and blackout dates save at once; a booking link returns an Approve/Reject card |
+| `rental_listing_update` | write | Changes a listing, or adds one. Saved at once; the answer lists each change and the listing as it now reads |
+| `showing_rules_update` | write | The showing window, blackout dates and the shared booking link. Saved at once |
 
-- Every change is sent to the API as a dry run first, so a card is never
-  shown for a change the API would refuse.
+- **No card.** Every change is saved when the tool is called. The Sernia
+  agent's rule is different on purpose: it can run with nobody watching, so
+  its changes to free text wait for a person in the team app. A call here
+  comes from a person's own chat, and whether they are asked first is the
+  client's setting: Claude asks before a tool set to "Always ask" in the
+  connector's settings, and in its default Auto mode may save without asking.
+  The tools carry `readOnlyHint` so a client can tell a read from a save.
+- What protects a listing: the API's checks refuse a phone number, email
+  address, link or access code in a fact or note; the history keeps every
+  earlier state under the user's name, so a change can be put back; and the
+  tool descriptions tell the model to ask before saving a unit the person did
+  not name, or anything read from a Zillow ad.
 - A save sends the listing as it was read. If someone changed it in between,
   the API refuses the save and nothing is overwritten.
-- The hidden confirm tool saves only in the session of the user who asked.
+- An off-market date that cancels booked showings is refused: saving it texts
+  the people booked, and only the Rental Listings screen collects a person's
+  confirmation of that.
 - Configuration: `SERNIA_MCP_API_BASE_URL` on this service (empty turns the
   tools off), and `SERNIA_MCP_CLERK_OAUTH_CLIENT_ID` on the API, set to this
   service's `FASTMCP_SERVER_AUTH_CLERK_CLIENT_ID`. Without the second, the
@@ -100,6 +111,51 @@ SERNIA_MCP_DISABLE_AUTH=true uv run fastmcp dev apps src/sernia_mcp/dev_server.p
 ```
 
 Spawns an MCP server on :8000 and the FastMCP browser inspector on :8080. Choose `quo_delete_task` and enter `TKdemo` to preview the deletion card, or choose `quo_send_sms` or `google_send_email` to preview a send. The harness mocks task lookups, deletions, and sends.
+
+### Approval cards
+
+`tools/approvals.py` holds the three cards (SMS, email, Quo task deletion):
+
+1. The model calls an entry tool (`quo_send_sms`). The request is kept in
+   memory under a random single-use id, and the answer is a card.
+2. The person clicks Approve or Reject. The card calls a confirm tool
+   (`_confirm_send_sms`) with the id and the decision.
+3. The confirm tool carries out the decision once. A card says "sent" only
+   when the confirm tool returned; otherwise it shows the reason.
+
+The confirm tools are marked `visibility: ["app"]`. A client that implements
+MCP Apps shows such a tool to the card and never to its model, and forwards a
+card's call only to a tool it was given in `tools/list`. So:
+
+| Client | Confirm tools | Entry tools |
+|---|---|---|
+| Declares the MCP Apps extension (Claude on the web, desktop, phone) | Listed | Queue the request and return the card |
+| Any other | Not listed | Refuse, and queue nothing |
+
+A confirm tool does nothing without a request an entry tool queued: it needs
+that request's random id, which only the card holds, and the same signed-in
+user who asked. A call to one is therefore not checked against the client a
+second time, so a forwarded click is never lost to that check.
+
+The check reads what the client declared on the request itself, which the
+2026-07-28 protocol carries on every request. This service is stateless, so
+an older client, which declares once when it connects, is treated as one that
+cannot show a card. Every production client seen so far speaks 2026-07-28.
+
+What a card guarantees: single use, a 10-minute life, the same signed-in
+user, and the deterministic recipient checks. What it does not:
+a client that declares the extension and then hands the confirm tools to its
+model could approve its own request. Keeping the model away from them is the
+client's job. An action that must hold against that needs an approval outside
+the chat, which this service does not have.
+
+From the FastMCP 4 upgrade until November 27, 2026 the confirm tools were
+left out of `tools/list` for every client, so the client had nothing to
+forward a click to and no Approve reached the server. `test_approvals.py`
+now asserts that every button on every card calls a listed tool. No test can
+show that a particular client draws the card and forwards the click: check
+that with a real click (Reject is enough, and sends nothing) and the
+service's logs after any FastMCP, protocol or client change.
 
 ## Security model
 
@@ -315,11 +371,11 @@ apps/sernia_mcp/
 │       ├── google.py
 │       ├── quo.py
 │       ├── clickup.py
-│       └── approvals.py         #   FastMCPApp HITL flow for SMS / email
+│       └── approvals.py         #   Approve / Reject cards: SMS, email, Quo task deletion
 └── tests/                       # uv run pytest -v  (80 tests at last count)
     ├── test_smoke.py            #   Imports + expected tool registration
     ├── test_context.py          #   Doorway, resources, edit/write_resource (Edit-style + Write-style)
-    ├── test_approvals.py        #   In-memory FastMCP Client + hidden-tool isolation
+    ├── test_approvals.py        #   Cards: a click reaches a listed tool and decides once
     ├── test_auth.py             #   Email-domain check + ui:// bypass + hashed-app-tool bypass
     ├── test_disable_auth.py     #   SERNIA_MCP_DISABLE_AUTH flag + Railway boot guard
     ├── test_http_app.py         #   ASGI lifespan + /mcp /health /icon.png
@@ -330,7 +386,7 @@ apps/sernia_mcp/
 ## Out of scope (v1)
 
 - Feature parity with the Sernia AI agent (deliberately a smaller surface — `mass_text_tenants`, scheduling, Calendar, Drive, DB search, Python sandbox all live in `api/src/sernia_ai/` for now).
-- External SMS / email sending without UI approval (deferred — DB-backed queue).
+- External SMS / email sending without a card, and an approval outside the chat that would hold for unattended clients (deferred — DB-backed queue).
 - Calendar / Drive **write** tools (deferred; read-only for now).
 - Per-user / per-tool authorization (today: email-domain allowlist gates *all* tools uniformly; per-tool roles or org-level scoping not modeled).
 

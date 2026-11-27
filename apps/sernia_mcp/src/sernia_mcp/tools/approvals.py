@@ -1,28 +1,49 @@
-"""Apps-based approval flows for external writes.
+"""Approve / Reject cards for actions that reach people outside the team or cannot be undone.
 
-Pattern (deterministic server-side enforcement via tool-visibility split):
+How a card works:
 
-  1. Model calls ``@app.ui()`` entry-point tool (e.g. ``quo_send_sms``).
-  2. Tool queues the send into an in-memory pending dict, keyed by UUID,
-     and returns a PrefabApp approval card. No external API call yet.
-  3. User clicks Approve → the card fires ``CallTool("_confirm_send_sms", ...)``
-     which is a hidden ``@app.tool()`` — not exposed to the model at all.
-  4. The confirm tool looks up the pending row and performs the real send.
+  1. The model calls an entry tool (``quo_send_sms``). The tool checks the
+     request, keeps it in ``_PENDING`` under a random single-use id, and
+     answers with a card. Nothing has been sent.
+  2. The person clicks Approve or Reject. The card calls a confirm tool
+     (``_confirm_send_sms``) with that id and the decision.
+  3. The confirm tool takes the request out of ``_PENDING`` and carries out
+     the decision, once.
 
-The ordinary model tool surface has no path to ``_confirm_send_sms``:
+What keeps the model away from the confirm tools is the client. They are
+marked ``visibility: ["app"]``, and a client that implements MCP Apps shows
+such a tool to the card and never to the model. A client can only forward a
+card's call to a tool it was given in ``tools/list``, so the confirm tools
+have to be listed. They are listed for the clients that declare the MCP Apps
+extension, which is how a client says it draws cards and honours that
+marking. Every other client is not told they exist, and the entry tools
+refuse it before anything is queued, because nobody could click.
 
-  - It isn't in ``tools/list`` (enforced by our approval provider).
-  - Direct calls via ``tools/call`` raise ``Unknown tool`` (verified in tests).
-The Apps host uses FastMCP's hashed backend address for button actions. This
-preserves the pre-v4 tool-surface split; FastMCP 4's visibility metadata alone
-does not hide or reject backend tools. A hashed address is routing identity,
-not proof of a human click: a trusted Apps host must keep app-only calls out
-of the model's tool surface. An authenticated arbitrary MCP client can still
-reproduce a UI call. Do not treat this split as cryptographic approval.
+A confirm tool does nothing without a request an entry tool queued: it needs
+that request's random id, which only the card holds, and the same signed-in
+user who asked. So a call to one is not checked against the client again. The
+click a client forwards for a card is trusted to be that client's, and a
+client that did not say so on that one call must not lose the click.
 
-State (``_PENDING``) is in-memory; restart loses pending approvals. Each row
-carries a timestamp; rows older than ``_PENDING_TTL_SECONDS`` are rejected on
-confirmation. DB-backed durability is a later concern.
+This is a client's promise plus this server's checks (single use, expiry,
+the same signed-in user). It is not proof of a click: a client that declares
+the extension and then hands the confirm tools to its model could approve its
+own request. Anything that must hold against that needs an approval outside
+the chat.
+
+The check reads what the client declared on the request itself, which the
+2026-07-28 protocol carries on every request. This service is stateless, so
+an older client, which declares only once when it connects, is treated as one
+that cannot show a card.
+
+From the FastMCP 4 upgrade until this was fixed, the confirm tools were kept
+out of ``tools/list`` for every client. That also hid them from the client
+that had to forward the click, so no Approve reached this server. A test now
+asserts that every button on a card calls a listed tool.
+
+``_PENDING`` is in memory: a restart loses what is waiting, and the card then
+says the request is unknown. A request older than ``_PENDING_TTL_SECONDS`` is
+refused.
 """
 
 from __future__ import annotations
@@ -31,12 +52,12 @@ import time
 import uuid
 from collections.abc import Sequence
 
+import logfire
 from fastmcp import FastMCPApp
+from fastmcp.apps.config import UI_EXTENSION_ID
 from fastmcp.exceptions import ToolError
-from fastmcp.server.dependencies import get_access_token
-from fastmcp.server.providers.addressing import is_app_tool_with_identity
+from fastmcp.server.dependencies import get_access_token, get_context
 from fastmcp.tools import Tool
-from fastmcp.utilities.versions import VersionSpec
 from prefab_ui import PrefabApp
 from prefab_ui.actions import SetState, ShowToast
 from prefab_ui.actions.mcp import CallTool
@@ -59,6 +80,7 @@ from sernia_mcp.core.errors import CoreError, NotFoundError, ValidationError
 from sernia_mcp.core.google.gmail import send_email_core
 from sernia_mcp.core.quo import tasks
 from sernia_mcp.core.quo.send_sms import (
+    SMS_SPLIT_THRESHOLD,
     resolve_group_sms_routing_core,
     resolve_sms_routing_core,
     send_group_sms_core,
@@ -67,40 +89,144 @@ from sernia_mcp.core.quo.send_sms import (
 from sernia_mcp.identity import resolve_user_email_for_request
 from sernia_mcp.tools.quo import task_client
 
-# Single-use pending actions shared by the approval tools, keyed by UUID.
+# Requests waiting for a decision, by id. Each is taken out when decided.
 _PENDING: dict[str, dict] = {}
 _PENDING_TTL_SECONDS = 600  # 10 minutes
 
 
-# =============================================================================
-# Single FastMCPApp holding the approval flows.
-# =============================================================================
+def client_draws_cards() -> bool:
+    """Whether the client behind this request declared the MCP Apps extension."""
+    try:
+        return get_context().client_supports_extension(UI_EXTENSION_ID)
+    except RuntimeError:  # not inside a request
+        return False
+
+
 def _is_app_only(tool: Tool) -> bool:
     ui = (tool.meta or {}).get("ui", {})
     return ui.get("visibility") == ["app"]
 
 
 class ApprovalApp(FastMCPApp):
-    """Keep confirmation tools off the ordinary surface while routing UI calls.
+    """List the confirm tools only for clients that draw cards.
 
-    FastMCP 4 deliberately lists app-only tools and accepts their raw names.
-    These provider hooks retain our existing narrower contract. Hashed lookup
-    still goes through FastMCP's normal transform and authorization pipeline.
+    FastMCP lists app-only tools for every client and leaves hiding them from
+    the model to the client. A client that never heard of MCP Apps would hand
+    them to its model as ordinary tools, so for those clients they are left
+    out of the listing.
     """
 
     async def _list_tools(self) -> Sequence[Tool]:
-        return [tool for tool in await super()._list_tools() if not _is_app_only(tool)]
-
-    async def _get_tool(self, name: str, version: VersionSpec | None = None) -> Tool | None:
-        tool = await super()._get_tool(name, version)
-        return None if tool is not None and _is_app_only(tool) else tool
-
-    async def _get_tool_by_hash(self, tool_hash: str, tool_name: str) -> Tool | None:
-        tool = await super()._get_tool(tool_name)
-        return tool if tool is not None and is_app_tool_with_identity(tool, tool_hash) else None
+        tools = await super()._list_tools()
+        draws = client_draws_cards()
+        logfire.debug("approval cards: client draws cards = {draws}", draws=draws)
+        return tools if draws else [tool for tool in tools if not _is_app_only(tool)]
 
 
 approvals_app = ApprovalApp("sernia_approvals")
+
+
+def _require_cards(doing: str) -> None:
+    """Refuse an entry tool for a client that cannot show its card."""
+    if not client_draws_cards():
+        raise ToolError(
+            f"{doing} needs a person to click Approve on a card, and this client cannot "
+            "show one. Nothing was queued. Ask the person to do it from Claude on the web, "
+            "desktop or phone, or through Sernia AI in the team app."
+        )
+
+
+def _signed_in_user() -> str:
+    """Who is asking or deciding: their email, or "local" with auth switched off for development."""
+    token = get_access_token()
+    if token is None and local_auth_bypass_enabled():
+        return "local"
+    if token and (email := (token.claims or {}).get("email")):
+        return str(email).strip().lower()
+    raise ToolError("Sign in to ask for or decide an approval.")
+
+
+def _queue(kind: str, **request: object) -> str:
+    """Keep a request, under the user who asked, until they decide it. Returns its single-use id."""
+    pending_id = uuid.uuid4().hex
+    _PENDING[pending_id] = {
+        "type": kind,
+        "owner": _signed_in_user(),
+        "created_at": time.time(),
+        **request,
+    }
+    return pending_id
+
+
+def _take(pending_id: str, kind: str, what: str) -> dict:
+    """The request a decision is for, taken out so it is decided once.
+
+    Raises when there is none for this user to decide: unknown, decided
+    already, another user's (left in place for its owner), or expired.
+    """
+    record = _PENDING.get(pending_id)
+    if not record or record["type"] != kind:
+        raise ToolError(f"This {what} is unknown or already decided. Ask for a new card.")
+    if record["owner"] != _signed_in_user():
+        raise ToolError(f"This {what} was requested by another user.")
+    del _PENDING[pending_id]
+    age = time.time() - record["created_at"]
+    if age > _PENDING_TTL_SECONDS:
+        raise ToolError(
+            f"This {what} expired ({int(age)}s old; a card lasts {_PENDING_TTL_SECONDS}s). "
+            "Ask for a new card."
+        )
+    return record
+
+
+def _decision_buttons(
+    confirm_tool: str,
+    pending_id: str,
+    *,
+    approve: str,
+    done: str,
+    failed: str,
+    approve_variant: str = "success",
+    reject: str = "Reject",
+    reject_variant: str = "destructive",
+) -> None:
+    """The two buttons of a card. Call inside its ``CardFooter``.
+
+    A click disables both buttons, then calls the confirm tool. The toast
+    reports what came back: ``done`` only when the confirm tool returned, and
+    ``failed`` with the reason under it when it raised or the call did not
+    arrive. ``failed`` must hold whether or not anything went out, since a
+    long text can fail after its first part.
+
+    The reason is a toast description of its own. Prefab fills ``$error`` only
+    in a string that is nothing but that template; mixed into other words it
+    comes out empty.
+    """
+
+    def click(decision: str, toast: ShowToast) -> list:
+        return [
+            SetState("decided", True),
+            CallTool(
+                confirm_tool,
+                arguments={"pending_id": pending_id, "decision": decision},
+                on_success=toast,
+                on_error=ShowToast(failed, description="{{ $error }}", variant="error"),
+            ),
+        ]
+
+    with Row(gap=2):
+        Button(
+            approve,
+            variant=approve_variant,
+            on_click=click("approve", ShowToast(done, variant="success")),
+            disabled=Rx("decided"),
+        )
+        Button(
+            reject,
+            variant=reject_variant,
+            on_click=click("reject", ShowToast("Cancelled", variant="warning")),
+            disabled=Rx("decided"),
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -113,9 +239,9 @@ async def quo_send_sms(to_phone: str | list[str], message: str) -> PrefabApp:
     """Send an SMS to one Quo contact, or a GROUP text to 2-10 contacts.
 
     Returns an Approve / Reject card — the SMS is NOT sent until the user
-    clicks Approve in the card. Only MCP clients that can render PrefabApps
-    (Claude Desktop, Claude app, VS Code Copilot, fastmcp dev apps) can
-    complete the flow.
+    clicks Approve in the card. Only MCP clients that can show the card
+    (Claude on the web, desktop or phone) can send; any other client is
+    refused and nothing is queued.
 
     **Group texts**: pass a list of 2-10 phone numbers to start ONE shared
     thread — all recipients see the message and each other's replies (and
@@ -132,13 +258,13 @@ async def quo_send_sms(to_phone: str | list[str], message: str) -> PrefabApp:
             or a list of 2-10 numbers for a group text (one shared thread).
         message: SMS body (max 1000 chars; auto-split above 500).
     """
+    _require_cards("Sending a text")
     if isinstance(to_phone, list) and len(to_phone) == 1:
         to_phone = to_phone[0]
 
     if len(message) > 1000:
         raise ToolError(f"message is {len(message)} chars, max 1000")
 
-    # ---- Group path ----
     if isinstance(to_phone, list):
         try:
             group = await resolve_group_sms_routing_core(to_phone)
@@ -146,142 +272,86 @@ async def quo_send_sms(to_phone: str | list[str], message: str) -> PrefabApp:
             raise ToolError(str(e)) from e
         except CoreError as e:
             raise ToolError(f"quo_send_sms failed: {e}") from e
-
-        pid = uuid.uuid4().hex[:12]
-        _PENDING[pid] = {
-            "type": "sms",
-            "group": True,
-            "to_phones": group.phones,
-            "message": message,
-            "contact_name": ", ".join(group.recipient_names),
-            "created_at": time.time(),
-        }
-
-        audience = "INTERNAL" if group.all_internal else "EXTERNAL"
-        recipients_label = ", ".join(
+        pending_id = _queue(
+            "sms",
+            group=True,
+            to_phones=group.phones,
+            message=message,
+            contact_name=", ".join(group.recipient_names),
+        )
+        title = f"Send GROUP SMS to {len(group.phones)} recipients?"
+        recipients = ", ".join(
             f"{name} ({phone})"
             for name, phone in zip(group.recipient_names, group.phones, strict=True)
         )
-        with Card(css_class="max-w-xl") as view:
-            with CardHeader():
-                CardTitle(f"Send GROUP SMS to {len(group.phones)} recipients?")
-            with CardContent():
-                with Column(gap=3):
-                    Text(f"**To (one shared thread):** {recipients_label}")
-                    Text(f"**Routing:** {audience} line ({group.line_name})")
-                    Heading("Message", level=4)
-                    Text(message)
-            with CardFooter():
-                with Row(gap=2):
-                    Button(
-                        "Approve & Send",
-                        variant="success",
-                        on_click=[
-                            CallTool(
-                                "_confirm_send_sms",
-                                arguments={"pending_id": pid, "decision": "approve"},
-                            ),
-                            SetState("decided", True),
-                            ShowToast("Group SMS sent", variant="success"),
-                        ],
-                        disabled=Rx("decided"),
-                    )
-                    Button(
-                        "Reject",
-                        variant="destructive",
-                        on_click=[
-                            CallTool(
-                                "_confirm_send_sms",
-                                arguments={"pending_id": pid, "decision": "reject"},
-                            ),
-                            SetState("decided", True),
-                            ShowToast("Cancelled", variant="warning"),
-                        ],
-                        disabled=Rx("decided"),
-                    )
-        return PrefabApp(view=view, state={"decided": False})
+        to_line = f"**To (one shared thread):** {recipients}"
+        internal, line_name, done = group.all_internal, group.line_name, "Group SMS sent"
+    else:
+        try:
+            routing = await resolve_sms_routing_core(to_phone)
+        except NotFoundError as e:
+            raise ToolError(str(e)) from e
+        except CoreError as e:
+            raise ToolError(f"quo_send_sms failed: {e}") from e
+        pending_id = _queue(
+            "sms",
+            to_phone=to_phone,
+            message=message,
+            contact_name=routing.contact_name,
+            is_internal=routing.is_internal,
+        )
+        title = f"Send SMS to {routing.contact_name or to_phone}?"
+        to_line = f"**To:** {routing.contact_name or '(no name)'} — {to_phone}"
+        internal, line_name, done = routing.is_internal, routing.line_name, "SMS sent"
 
-    # ---- Single-recipient path ----
-    try:
-        routing = await resolve_sms_routing_core(to_phone)
-    except NotFoundError as e:
-        raise ToolError(str(e)) from e
-    except CoreError as e:
-        raise ToolError(f"quo_send_sms failed: {e}") from e
-
-    pid = uuid.uuid4().hex[:12]
-    _PENDING[pid] = {
-        "type": "sms",
-        "to_phone": to_phone,
-        "message": message,
-        "contact_name": routing.contact_name,
-        "is_internal": routing.is_internal,
-        "created_at": time.time(),
-    }
-
-    audience = "INTERNAL" if routing.is_internal else "EXTERNAL"
     with Card(css_class="max-w-xl") as view:
         with CardHeader():
-            CardTitle(f"Send SMS to {routing.contact_name or to_phone}?")
+            CardTitle(title)
         with CardContent():
             with Column(gap=3):
-                Text(f"**To:** {routing.contact_name or '(no name)'} — {to_phone}")
-                Text(f"**Routing:** {audience} line ({routing.line_name})")
+                Text(to_line)
+                Text(f"**Routing:** {'INTERNAL' if internal else 'EXTERNAL'} line ({line_name})")
                 Heading("Message", level=4)
                 Text(message)
         with CardFooter():
-            with Row(gap=2):
-                Button(
-                    "Approve & Send",
-                    variant="success",
-                    on_click=[
-                        CallTool(
-                            "_confirm_send_sms",
-                            arguments={"pending_id": pid, "decision": "approve"},
-                        ),
-                        SetState("decided", True),
-                        ShowToast("SMS sent", variant="success"),
-                    ],
-                    disabled=Rx("decided"),
-                )
-                Button(
-                    "Reject",
-                    variant="destructive",
-                    on_click=[
-                        CallTool(
-                            "_confirm_send_sms",
-                            arguments={"pending_id": pid, "decision": "reject"},
-                        ),
-                        SetState("decided", True),
-                        ShowToast("Cancelled", variant="warning"),
-                    ],
-                    disabled=Rx("decided"),
-                )
+            _decision_buttons(
+                "_confirm_send_sms",
+                pending_id,
+                approve="Approve & Send",
+                done=done,
+                failed="The send did not complete",
+            )
     return PrefabApp(view=view, state={"decided": False})
 
 
 @approvals_app.tool()
 async def _confirm_send_sms(pending_id: str, decision: str) -> str:
-    """Hidden backend tool — called only by the approval card's buttons."""
-    rec = _PENDING.pop(pending_id, None)
-    if not rec or rec.get("type") != "sms":
-        return f"Unknown pending SMS id={pending_id} (may have expired)."
-    age = time.time() - rec.get("created_at", 0)
-    if age > _PENDING_TTL_SECONDS:
-        return f"Pending SMS expired ({int(age)}s old, TTL {_PENDING_TTL_SECONDS}s)."
-    is_group = rec.get("group", False)
-    recipient_desc = rec.get("contact_name") or (
-        ", ".join(rec["to_phones"]) if is_group else rec["to_phone"]
+    """Called only by the SMS card's buttons. Raises unless the decision was carried out."""
+    request = _take(pending_id, "sms", "text message")
+    is_group = request.get("group", False)
+    recipient = request.get("contact_name") or (
+        ", ".join(request["to_phones"]) if is_group else request["to_phone"]
     )
     if decision != "approve":
-        return f"Cancelled SMS to {recipient_desc} (decision={decision!r})."
+        return f"Cancelled SMS to {recipient} (decision={decision!r})."
     try:
         if is_group:
-            result = await send_group_sms_core(rec["to_phones"], rec["message"])
+            result = await send_group_sms_core(request["to_phones"], request["message"])
         else:
-            result = await send_sms_core(rec["to_phone"], rec["message"])
+            result = await send_sms_core(request["to_phone"], request["message"])
     except CoreError as e:
-        return f"Send failed: {e}"
+        # A long text goes out in parts, and the parts before the one that
+        # failed were delivered. Say so, or a second try sends them twice.
+        in_parts = len(request["message"]) > SMS_SPLIT_THRESHOLD
+        raise ToolError(
+            f"The send failed: {e}"
+            + (
+                " This text goes out in parts, and any part before the one named was sent. "
+                "Read the thread before sending again."
+                if in_parts
+                else ""
+            )
+        ) from e
     kind = "Group SMS (one shared thread)" if is_group else "SMS"
     return (
         f"{kind} sent to {result.contact_name or result.to_phone} via {result.line_name} "
@@ -299,27 +369,21 @@ async def google_send_email(to: list[str], subject: str, body: str) -> PrefabApp
     """Send an email (internal or external recipients).
 
     Returns an Approve / Reject card — the email is NOT sent until the user
-    clicks Approve. Only MCP clients that can render PrefabApps can complete
-    the flow.
+    clicks Approve. Only MCP clients that can show the card (Claude on the
+    web, desktop or phone) can send; any other client is refused and nothing
+    is queued.
 
     Args:
         to: List of recipient email addresses.
         subject: Email subject.
         body: Plain-text body.
     """
+    _require_cards("Sending an email")
     if not to:
         raise ToolError("to[] is empty")
 
-    pid = uuid.uuid4().hex[:12]
     all_internal = all(addr.strip().lower().endswith(f"@{INTERNAL_EMAIL_DOMAIN}") for addr in to)
-    _PENDING[pid] = {
-        "type": "email",
-        "to": list(to),
-        "subject": subject,
-        "body": body,
-        "all_internal": all_internal,
-        "created_at": time.time(),
-    }
+    pending_id = _queue("email", to=list(to), subject=subject, body=body, all_internal=all_internal)
 
     audience = f"INTERNAL (all @{INTERNAL_EMAIL_DOMAIN})" if all_internal else "EXTERNAL"
     with Card(css_class="max-w-xl") as view:
@@ -332,81 +396,47 @@ async def google_send_email(to: list[str], subject: str, body: str) -> PrefabApp
                 Heading("Body", level=4)
                 Text(body)
         with CardFooter():
-            with Row(gap=2):
-                Button(
-                    "Approve & Send",
-                    variant="success",
-                    on_click=[
-                        CallTool(
-                            "_confirm_send_email",
-                            arguments={"pending_id": pid, "decision": "approve"},
-                        ),
-                        SetState("decided", True),
-                        ShowToast("Email sent", variant="success"),
-                    ],
-                    disabled=Rx("decided"),
-                )
-                Button(
-                    "Reject",
-                    variant="destructive",
-                    on_click=[
-                        CallTool(
-                            "_confirm_send_email",
-                            arguments={"pending_id": pid, "decision": "reject"},
-                        ),
-                        SetState("decided", True),
-                        ShowToast("Cancelled", variant="warning"),
-                    ],
-                    disabled=Rx("decided"),
-                )
+            _decision_buttons(
+                "_confirm_send_email",
+                pending_id,
+                approve="Approve & Send",
+                done="Email sent",
+                failed="The send did not complete",
+            )
     return PrefabApp(view=view, state={"decided": False})
 
 
 @approvals_app.tool()
 async def _confirm_send_email(pending_id: str, decision: str) -> str:
-    """Hidden backend tool — called only by the email approval card's buttons."""
-    rec = _PENDING.pop(pending_id, None)
-    if not rec or rec.get("type") != "email":
-        return f"Unknown pending email id={pending_id} (may have expired)."
-    age = time.time() - rec.get("created_at", 0)
-    if age > _PENDING_TTL_SECONDS:
-        return f"Pending email expired ({int(age)}s old, TTL {_PENDING_TTL_SECONDS}s)."
+    """Called only by the email card's buttons. Raises unless the decision was carried out."""
+    request = _take(pending_id, "email", "email")
     if decision != "approve":
-        return f"Cancelled email {rec['subject']!r} (decision={decision!r})."
+        return f"Cancelled email {request['subject']!r} (decision={decision!r})."
     try:
         result = await send_email_core(
-            to=rec["to"],
-            subject=rec["subject"],
-            body=rec["body"],
+            to=request["to"],
+            subject=request["subject"],
+            body=request["body"],
             user_email=resolve_user_email_for_request(),
         )
     except CoreError as e:
-        return f"Send failed: {e}"
+        raise ToolError(f"The send failed: {e}") from e
     return f"Email sent to {', '.join(result.to)} (message_id={result.message_id})."
 
 
-def _task_approver() -> str:
-    token = get_access_token()
-    if token is None and local_auth_bypass_enabled():
-        return "local"
-    if token and (email := token.claims.get("email")):
-        return email.strip().lower()
-    raise ToolError("Sign in to approve a Quo task deletion.")
+# -----------------------------------------------------------------------------
+# Quo task deletion
+# -----------------------------------------------------------------------------
 
 
 @approvals_app.ui()
 async def quo_delete_task(task_id: tasks.TaskId) -> PrefabApp:
     """Request approval to delete a Quo task. The card shows its current title and TK ID."""
-    owner = _task_approver()
+    _require_cards("Deleting a Quo task")
+    _signed_in_user()  # refused before the task is looked up
     async with task_client() as client:
         task = await tasks.get_task(client, task_id)
-    pid = uuid.uuid4().hex
-    _PENDING[pid] = {
-        "type": "quo_delete_task",
-        "task_id": task_id,
-        "owner": owner,
-        "created_at": time.time(),
-    }
+    pending_id = _queue("quo_delete_task", task_id=task_id)
     with Card(css_class="max-w-xl") as view:
         with CardHeader():
             CardTitle("Delete this Quo task?")
@@ -415,42 +445,24 @@ async def quo_delete_task(task_id: tasks.TaskId) -> PrefabApp:
                 Text(task.get("title") or "(Untitled task)")
                 Text(task_id)
         with CardFooter():
-            with Row(gap=2):
-                for decision, label, variant, message in (
-                    ("approve", "Delete task", "destructive", "Task deleted"),
-                    ("reject", "Cancel", "secondary", "Cancelled"),
-                ):
-                    Button(
-                        label,
-                        variant=variant,
-                        disabled=Rx("decided"),
-                        on_click=[
-                            SetState("decided", True),
-                            CallTool(
-                                "_confirm_delete_quo_task",
-                                arguments={"pending_id": pid, "decision": decision},
-                                on_success=ShowToast(message),
-                                on_error=ShowToast(
-                                    "Check the task and request a new approval.", variant="error"
-                                ),
-                            ),
-                        ],
-                    )
+            _decision_buttons(
+                "_confirm_delete_quo_task",
+                pending_id,
+                approve="Delete task",
+                approve_variant="destructive",
+                done="Task deleted",
+                failed="The deletion was not confirmed",
+                reject="Cancel",
+                reject_variant="secondary",
+            )
     return PrefabApp(view=view, state={"decided": False})
 
 
 @approvals_app.tool()
 async def _confirm_delete_quo_task(pending_id: str, decision: str) -> str:
-    """Apply the decision from a Quo task approval card once."""
-    record = _PENDING.get(pending_id)
-    if not record or record["type"] != "quo_delete_task":
-        raise ToolError("Unknown or already decided Quo task deletion.")
-    if record["owner"] != _task_approver():
-        raise ToolError("This deletion was requested by another user.")
-    del _PENDING[pending_id]
-    if time.time() - record["created_at"] > _PENDING_TTL_SECONDS:
-        raise ToolError("Quo task deletion approval expired.")
+    """Called only by the deletion card's buttons. Applies the decision once."""
+    request = _take(pending_id, "quo_delete_task", "task deletion")
     if decision != "approve":
         return "Quo task deletion cancelled."
     async with task_client() as client:
-        return await tasks.delete_task(client, record["task_id"])
+        return await tasks.delete_task(client, request["task_id"])
