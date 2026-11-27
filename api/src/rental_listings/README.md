@@ -125,7 +125,8 @@ When someone tells the general agent a unit's ad changed, it calls
 `zillow_listing_url_public_view` as text (`zillow_ad.py`) and returns it beside
 the listing on file. The agent proposes every difference in one
 `rental_listing_update` call, so a person reviews the whole change on one
-approval card, and everything passes `checks.py`. The MCP service has the same tool, through the endpoint above.
+approval card, and everything passes `checks.py`. The MCP service has the same tool, through the endpoint above;
+there the model tells the person the differences and saves only after they agree, since its saves have no card.
 It runs on request only. A daily check, if wanted, goes through the general
 agent's existing scheduling tools; there is no job for it here.
 
@@ -162,5 +163,7 @@ How the page is read, and what to expect:
 The standalone MCP service has the same five tools as the general agent
 (`apps/sernia_mcp/src/sernia_mcp/tools/rental_listings.py`). It has no
 database access, so it calls the endpoints above with the signed-in user's
-Clerk token. Its approval cards and their rule are described in its
-[README](../../../apps/sernia_mcp/README.md#rental-listings).
+Clerk token. It saves every change at once, with no approval card: a call
+there comes from a person's own chat, and whether they are asked first is
+their client's setting, while the general agent can run with nobody watching. Its
+[README](../../../apps/sernia_mcp/README.md#rental-listings) says what protects a listing instead.

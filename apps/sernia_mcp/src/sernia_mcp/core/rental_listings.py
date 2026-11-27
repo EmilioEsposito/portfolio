@@ -15,8 +15,10 @@ read (``based_on``); if what is on file changed in between, the API refuses
 it and nothing is overwritten.
 
 ``plan_listing_change`` mirrors ``rental_listing_update`` in
-``api/src/sernia_ai/tools/rental_listing_tools.py``, including which changes
-need a person's approval. Keep the two in step.
+``api/src/sernia_ai/tools/rental_listing_tools.py``: the same parameters make
+the same change. Keep the two in step. Which changes wait for a person is not
+mirrored: that agent's do, this service's are saved at once
+(``tools/rental_listings.py`` says why).
 """
 
 from __future__ import annotations
@@ -37,6 +39,14 @@ _TIMEOUT = 20
 # (api/src/rental_listings/zillow_ad.py); allow that plus the API's own time.
 _ZILLOW_AD_TIMEOUT = 75
 _PREFIX = "/api/rental-listings"
+# The API's code for an off-market date that cancels booked showings. Saving
+# one texts the people booked, so the API wants a person's confirmation of the
+# exact effect, which only the Rental Listings screen collects.
+_CANCELS_SHOWINGS = "cancels_showings"
+_CONFIRM_ON_SCREEN = (
+    "This tool cannot confirm that. A person sets this off-market date on the "
+    "Rental Listings screen (/team/leads/listings), which shows what it cancels and asks first."
+)
 
 Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 ClearableField = Literal[
@@ -72,15 +82,13 @@ class ListingPlan:
 
     listing: dict[str, Any]  # the listing after the change
     based_on: dict[str, Any] | None  # as on file now; None for a new listing
-    needs_person: bool
-    changes: list[str]  # one line per change, for the approval card
+    changes: list[str]  # one line per change, for the answer
 
 
 @dataclass(frozen=True)
 class RulesPlan:
     rules: dict[str, Any]
     based_on: dict[str, Any]
-    needs_person: bool
     changes: list[str]
 
 
@@ -118,7 +126,10 @@ async def _request(
     except ValueError:
         pass
     if response.status_code in (409, 422) and isinstance(detail, dict):
-        raise RefusedError(detail.get("message", "Not saved."), list(detail.get("problems", [])))
+        problems = list(detail.get("problems", []))
+        if detail.get("code") == _CANCELS_SHOWINGS:
+            problems.append(_CONFIRM_ON_SCREEN)
+        raise RefusedError(detail.get("message", "Not saved."), problems)
     if response.status_code in (401, 403):
         raise ExternalServiceError(
             f"The API did not accept this user for rental listings (HTTP {response.status_code})."
@@ -153,30 +164,24 @@ async def read_history(token: str, subject: str | None, limit: int) -> list[dict
     return await _request("GET", "/history", token, params=params)
 
 
-async def save_listing(token: str, plan: ListingPlan, *, dry_run: bool = False) -> dict[str, Any]:
-    """Save a planned listing. ``dry_run`` checks it without saving."""
-    params = {"dry_run": "true"} if dry_run else None
+async def save_listing(token: str, plan: ListingPlan) -> dict[str, Any]:
+    """Save a planned listing. The API checks it and answers with what it saved."""
     if plan.based_on is None:
-        return await _request(
-            "POST", "/listings", token, json={"listing": plan.listing}, params=params
-        )
+        return await _request("POST", "/listings", token, json={"listing": plan.listing})
     return await _request(
         "PUT",
         f"/listings/{quote(plan.based_on['unit'], safe='')}",
         token,
         json={"listing": plan.listing, "based_on": plan.based_on},
-        params=params,
     )
 
 
-async def save_rules(token: str, plan: RulesPlan, *, dry_run: bool = False) -> dict[str, Any]:
-    params = {"dry_run": "true"} if dry_run else None
+async def save_rules(token: str, plan: RulesPlan) -> dict[str, Any]:
     return await _request(
         "PUT",
         "/showing-rules",
         token,
         json={"showing_rules": plan.rules, "based_on": plan.based_on},
-        params=params,
     )
 
 
@@ -326,22 +331,7 @@ def plan_listing_change(
     if existing is not None and updated == existing:
         raise RefusedError("Nothing to change:", [f"{existing['unit']} already reads that way."])
 
-    needs_person = existing is None or any(
-        value is not None and value != []
-        for value in (
-            address,
-            showing_booking_url,
-            zillow_listing_url_public_view,
-            zillow_listing_url_internal_editor_view,
-            add_public_facts,
-            remove_public_facts,
-            add_internal_notes,
-            remove_internal_notes,
-        )
-    )
-    return ListingPlan(
-        listing=updated, based_on=existing, needs_person=needs_person, changes=described
-    )
+    return ListingPlan(listing=updated, based_on=existing, changes=described)
 
 
 def plan_rules_change(
@@ -373,9 +363,4 @@ def plan_rules_change(
     described += [f"Remove blackout date: {day}" for day in sorted(on_file - blackout)]
     if not described:
         raise RefusedError("Nothing to change:", ["the showing rules already read that way."])
-    return RulesPlan(
-        rules=updated,
-        based_on=current,
-        needs_person=showing_booking_url is not None,
-        changes=described,
-    )
+    return RulesPlan(rules=updated, based_on=current, changes=described)

@@ -23,8 +23,8 @@ with the new counts, and the edit screen asks again. A bare ``true`` is
 refused the same way. With nothing booked it is saved as before.
 
 A write with ``?dry_run=true`` runs every check and answers as it would, but
-saves nothing. The Sernia MCP service uses it so a person is never asked to
-approve a change that would be refused.
+saves nothing. Nothing calls it at present: the Sernia MCP service used it
+before an approval card, and now saves at once.
 
 Two kinds of caller (``rental_listing_caller``):
 
@@ -33,8 +33,9 @@ Two kinds of caller (``rental_listing_caller``):
   OAuth access token that user gave it. Only a token issued to the MCP
   service's own OAuth client (``SERNIA_MCP_CLERK_OAUTH_CLIENT_ID``) is
   accepted, and the user's email is checked the same way. Changes are
-  recorded with the source "Sernia MCP". The MCP service asks the person to
-  approve any change to free text or a link before it calls here.
+  recorded with the source "Sernia MCP". The MCP service saves a change at
+  once, with no approval step of its own, so these routes' checks and the
+  history are what stand behind a change made there.
 """
 
 import os
