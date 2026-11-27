@@ -119,17 +119,20 @@ routes (`rental_listing_caller` in `routes.py`):
 - A write records the signed-in person as `changed_by`, and
   `rental listings screen` or `Sernia MCP` as `source`.
 - A write with `?dry_run=true` runs every check, including `based_on`, and
-  answers as a save would, but saves nothing. The MCP service uses it so a
-  person is not asked to approve a change that would be refused.
+  answers as a save would, but saves nothing. Nothing calls it at present:
+  the MCP service used it before showing an approval card, and now saves at
+  once.
 - A failed check answers 422 with `detail.problems`, the reasons.
 - A write may send `based_on`, the listing or rules as last read. If what is
   on file has changed since, nothing is saved and the answer is 409, so a
   stale screen cannot undo someone else's change.
 - A person's own edit needs no approval step. The general agent's tools ask
   for one because the agent may be acting on what a stranger wrote. Here the
-  person is the one typing. The checks still apply. The MCP service is a
-  model acting for a person, so it asks for approval itself, on the same
-  rule as the general agent, before it calls these endpoints.
+  person is the one typing. The checks still apply. The MCP service saves a
+  change at once with no approval step of its own, because a call there
+  comes from a person's own chat and whether they are asked first is their
+  client's setting; these endpoints' checks and the history are what stand
+  behind a change made there.
 - A row broken by a hand edit in the database makes the list answer 409 with
   the reasons. Fix it in the database.
 
