@@ -10,6 +10,7 @@ import { TeamCountsProvider } from "~/sites/team/components/team-counts";
 import { TeamDeviceBanner, TeamDeviceProvider } from "~/sites/team/components/team-device";
 import { TeamGuard } from "~/sites/team/components/team-guard";
 import { TeamSidebar, TeamTopBar, type TeamLayoutData } from "~/sites/team/components/team-nav";
+import { forgetOldHomeRedirectOnce } from "~/sites/team/lib/forget-old-home-redirect";
 import { keepInstallPrompt } from "~/sites/team/lib/install-prompt";
 import { isSerniaHomeRequest, isSerniaHost, rootRequestMode } from "~/sites/site";
 
@@ -58,11 +59,16 @@ function OpeningLine() {
   );
 }
 
-export default function TeamLayout() {
+export default function TeamLayout({ loaderData }: Route.ComponentProps) {
   // The root loader ran Clerk for this request and carries its state.
   const root = useRouteLoaderData("root") as ClerkRootData | undefined;
   const ownSidebar = useMatches().some((match) => (match.handle as TeamPageHandle | undefined)?.ownSidebar);
+  const publicSiteAtRoot = loaderData.publicSiteHref === "/";
   useEffect(retireRootServiceWorkerOnce, []);
+  // So the "Public site" link stops opening the resident portal it once redirected to.
+  useEffect(() => {
+    if (publicSiteAtRoot) forgetOldHomeRedirectOnce();
+  }, [publicSiteAtRoot]);
   // The browser may offer its install prompt before anyone has signed in.
   useEffect(() => keepInstallPrompt(), []);
   const banner = <EnvBanner railwayEnvironmentName={root?.railwayEnvironmentName} />;
