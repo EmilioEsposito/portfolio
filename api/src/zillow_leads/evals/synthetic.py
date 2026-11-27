@@ -1,4 +1,4 @@
-"""Made-up scenarios for the booking service's part of a case.
+"""Made-up scenarios: the booking service's part of a case, and a unit's Zillow ad description.
 
 Real scenarios come from past threads and stay in the ignored ``data/``
 folder. These are invented, with made-up names, units, times and tokens, so
@@ -21,13 +21,22 @@ three by code (``checks.ExpectedOutcome``). ``good_reply`` (with ``good_tour``)
 is a decision that keeps every exact rule, so the deterministic checks can be
 run on each case without a model.
 
-Write them as files the ``run`` command reads:
+A second set, ``description_scenarios`` with ``DESCRIBED``, covers the rules
+for a unit's Zillow ad description: a question answered from it, a rent, a
+lease start or a tour type in the ad that differs from the unit's terms, a
+public fact that corrects the ad, and an ad that contradicts itself. Its cases
+are built as production builds them with the booking service off.
+
+Write either set as files the ``run`` command reads:
 
     uv run python -m api.src.zillow_leads.evals synthetic --out api/src/zillow_leads/evals/data/synthetic
+    uv run python -m api.src.zillow_leads.evals synthetic --set description \
+        --out api/src/zillow_leads/evals/data/synthetic-description
 """
 
 import json
-from datetime import datetime, time, timedelta
+from collections.abc import Callable
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -74,12 +83,17 @@ def links(token: str) -> dict[str, str]:
     return {listing.unit: f"{BASE}/{listing.unit}?t={token}" for listing in LISTINGS.listings}
 
 
-def _thread(thread_id: str, *messages: tuple[int, bool, str], unit: str = "320-03") -> LeadThread:
+def _thread(
+    thread_id: str,
+    *messages: tuple[int, bool, str],
+    unit: str = "320-03",
+    listing_data: ListingData = LISTINGS,
+) -> LeadThread:
     """Messages as (minutes before ``ASKED``, from Sernia, body).
 
     The subject names the unit the scenario is about, as a Zillow inquiry's does.
     """
-    address = next(item.address for item in LISTINGS.listings if item.unit == unit)
+    address = next(item.address for item in listing_data.listings if item.unit == unit)
     return LeadThread(
         mailbox="all@serniacapital.com",
         thread_id=thread_id,
@@ -593,10 +607,167 @@ def scenarios() -> list[Synthetic]:
     ]
 
 
-def write(out: Path) -> list[Path]:
-    """The scenarios, their edits and the listing data, as the ``run`` command reads them."""
+# Two units whose ads were copied into their listings. 530-02's ad is out of
+# date: its rent, availability and tour type differ from the unit's terms, and
+# a public fact corrects its laundry. 614-01's ad says two things about parking.
+DESCRIBED = ListingData(
+    timezone="America/New_York",
+    listings=[
+        Listing(
+            unit="530-02",
+            address="530 Example Rd, Unit 2",
+            rent=1500,
+            lease_start_earliest=date(2027, 6, 1),
+            lease_start_latest=date(2027, 6, 1),
+            booking_url=f"{BASE}/530-02",
+            facts=(
+                "Two bedrooms\nLaundry in the basement, shared with one other unit\n"
+                "Tenant pays gas and electric"
+            ),
+            description=(
+                "Bright two-bedroom on the second floor of a two-family house, a short "
+                "walk to the park.\n\n"
+                "Updated kitchen with a dishwasher and a gas range. Hardwood floors "
+                "throughout. In-unit laundry.\n\n"
+                "Available May 15 for $1,450/month. Virtual tours available."
+            ),
+        ),
+        Listing(
+            unit="614-01",
+            address="614 Example Ln, Unit 1",
+            rent=1350,
+            lease_start_earliest=date(2027, 7, 1),
+            lease_start_latest=date(2027, 7, 1),
+            booking_url=f"{BASE}/614-01",
+            facts="One bedroom",
+            description=(
+                "Cozy one-bedroom on the first floor with an updated bathroom.\n"
+                "Off-street parking for one car in the driveway.\n"
+                "Street parking only, no driveway access."
+            ),
+        ),
+    ],
+)
+DESCRIBED_NOTE = "Made up: the case as production builds it, with the unit's ad copied in."
+# The policy's exact answer to a virtual tour request for a unit that does not allow them.
+IN_PERSON_ONLY = (
+    "We are currently prioritizing in-person tours right now, since we prefer all tenants to "
+    "see the apartment in person to prevent expectation mismatch. We will let you know if we "
+    "start doing virtual tours (perhaps next week). In the event we do virtual tours, we "
+    "prefer facetime if possible, and during business hours for the local time zone. We hope "
+    "you understand, thanks!"
+)
+
+
+def description_scenarios() -> list[Synthetic]:
+    def ask(thread_id: str, body: str, unit: str = "530-02") -> Scenario:
+        return Scenario(
+            thread=_thread(thread_id, (5, False, body), unit=unit, listing_data=DESCRIBED)
+        )
+
+    book = f"Click here to book an in-person showing: {BASE}/530-02"
+    return [
+        Synthetic(
+            scenario=ask(
+                "synthetic-description-answer",
+                "Hi, does the apartment at 530 Example Rd have a dishwasher?",
+            ),
+            edit=CaseEdit(note=DESCRIBED_NOTE),
+            expected="reply",
+            why=(
+                "The dishwasher is only in the ad description, which is part of the unit's "
+                "entry: answer yes from it and give the booking link. Not an escalation."
+            ),
+            good_reply=(
+                "Hello,\n\nYes, the apartment has a dishwasher in its updated kitchen.\n\n"
+                + book
+                + SIGNATURE
+            ),
+            good_unit="530-02",
+        ),
+        Synthetic(
+            scenario=ask(
+                "synthetic-description-terms",
+                "Hi, what is the rent at 530 Example Rd, and when could I move in?",
+            ),
+            edit=CaseEdit(note=DESCRIBED_NOTE),
+            expected="reply",
+            why=(
+                "Rent and lease start come only from the unit's first line: $1,500 a month, "
+                "lease starts June 1, 2027. The ad's $1,450 and May 15 must not appear, the "
+                "reply must not mention that the ad differs, and it is not an escalation."
+            ),
+            good_reply=(
+                "Hello,\n\nThe rent is $1,500 per month, and the lease starts June 1, 2027.\n\n"
+                + book
+                + SIGNATURE
+            ),
+            good_unit="530-02",
+        ),
+        Synthetic(
+            scenario=ask(
+                "synthetic-description-virtual",
+                "Could I do a virtual tour of 530 Example Rd? The ad says virtual tours are "
+                "available.",
+            ),
+            edit=CaseEdit(note=DESCRIBED_NOTE),
+            expected="reply",
+            why=(
+                "The tour type comes only from the unit's first line, which says in-person "
+                "tours only: reply with the policy's exact in-person text. Do not say the ad "
+                "is wrong, and do not escalate over it."
+            ),
+            good_reply="Hello,\n\n" + IN_PERSON_ONLY + "\n\n" + book + SIGNATURE,
+            good_unit="530-02",
+        ),
+        Synthetic(
+            scenario=ask(
+                "synthetic-description-correction",
+                "Hi, is the laundry at 530 Example Rd in the unit?",
+            ),
+            edit=CaseEdit(note=DESCRIBED_NOTE),
+            expected="reply",
+            why=(
+                "The ad says in-unit laundry; a public fact says the laundry is in the "
+                "basement, shared with one other unit. The fact corrects the ad: answer from "
+                "the fact. Not a conflict to escalate."
+            ),
+            good_reply=(
+                "Hello,\n\nThe laundry is in the basement, shared with one other unit.\n\n"
+                + book
+                + SIGNATURE
+            ),
+            good_unit="530-02",
+        ),
+        Synthetic(
+            scenario=ask(
+                "synthetic-description-conflict",
+                "Hi, is there parking at 614 Example Ln?",
+                unit="614-01",
+            ),
+            edit=CaseEdit(note=DESCRIBED_NOTE),
+            expected="escalate",
+            why=(
+                "The ad says both off-street parking in the driveway and street parking "
+                "only. Two statements in the description contradict each other, so the "
+                "question goes to a person, with parking as the question."
+            ),
+        ),
+    ]
+
+
+# Each set of made-up scenarios, with the listing data its cases are built from.
+SETS: dict[str, tuple[Callable[[], list[Synthetic]], ListingData]] = {
+    "booking": (scenarios, LISTINGS),
+    "description": (description_scenarios, DESCRIBED),
+}
+
+
+def write(out: Path, which: str = "booking") -> list[Path]:
+    """One set's scenarios, their edits and its listing data, as the ``run`` command reads them."""
+    make, listing_data = SETS[which]
     out.mkdir(parents=True, exist_ok=True)
-    items = scenarios()
+    items = make()
     files = {
         "scenarios.jsonl": "".join(item.scenario.model_dump_json() + "\n" for item in items),
         "case-edits.json": json.dumps(
@@ -606,7 +777,7 @@ def write(out: Path) -> list[Path]:
             },
             indent=2,
         ),
-        "listings.json": LISTINGS.model_dump_json(indent=2),
+        "listings.json": listing_data.model_dump_json(indent=2),
         "expected.json": json.dumps(
             {
                 item.scenario.scenario_id: {

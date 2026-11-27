@@ -332,6 +332,7 @@ result is used to tune the system, the test split has become part of dev.
 | 18 | Policy for a lead's own showing (issue #368, pull request #410): an own booked showing is a confirmed tour, a confirmed time is stated in one fixed form, and a details line with the lead's own link while the case lists own showings. Run against main's instructions and then the branch's, same code | both samples of 17, and 13 made-up booking scenarios 3 times | Second sample 21 / 3 / 6 before and after; first sample 18 / 4 / 8 before, 18 / 3 / 9 after | By the judge: 26 → 27 of 30 on the second sample, 22 → 22 on the first. Made-up set: 25 of 32 distinct outputs pass. Not merged as run: one real reply carried the details line without the own-showings section, and the move scenario left it out 3 of 3 |
 | 19 | The details-line sentence from 18 reworded: it names the "This lead's own showings" section, ties the "details added" exception to the time the reply confirms, and forbids the line without the section. Made-up threads about 412-01 now carry that unit in their subject. Only the "after" half was run, compared with 18's "before" | same as 18 | Second sample 21 / 3 / 6; first sample 20 / 2 / 8 | By the judge: 26 → 26 of 30 on the second sample, 22 → 23 on the first. Made-up set: 24 of 29 distinct outputs pass. No real reply carries the details line; the move scenario still leaves it out 3 of 3 |
 | 20 | A moved showing keeps the lead's details (pull request #421), so the details line is left out when the time confirmed, "or the showing it moves", is listed with "details added". The move scenario now expects no line, one scenario moves a showing without details, and the made-up cases no longer list the lead's own showing as open or booked. Only the "after" half was run, compared with 19's "after" | both samples of 17, and 14 made-up booking scenarios 3 times | Second sample 21 / 3 / 6, no case changed; first sample 19 / 2 / 9, three cases changed | By the judge: 26 → 28 of 30 on the second sample, 23 → 22 on the first. Made-up set: 29 of 33 distinct outputs pass. Both move scenarios right 3 of 3. One condition failed as written: `clarification_leads` failed once on the second sample, where 19 had none |
+| 21 | A unit's Zillow ad description in the case (`listing_description`), with rules: answer from it; rent, lease start and tour type only from the unit's first line; a fact that differs corrects the ad; two statements that contradict each other on what was asked are escalated. The last rule was first only in the escalation paragraph, then repeated under "Answering questions" after the first three runs. Only made-up sets were run: the real samples need `evals/data` | 5 made-up description scenarios 3 times per wording; 14 made-up booking scenarios twice under main's instructions and twice under the branch's, then the 2 that failed 6 more times on each side | Description set: 15 / 0 / 0 with the first wording, 12 / 0 / 3 with the second | No person or judge. By code: with the first wording the self-contradicting ad was answered 3 of 3, picking one statement; with the second, all 15 right, and no reply names the ad's out-of-date rent, date or laundry. Booking set, 28 outputs per side: 1 failed code check under main's instructions, 2 under the branch's, all in `synthetic-no-mobile-0` (main's left out the details line; the branch's once confirmed Wednesday at 4:00 for a lead who asked for Thursday at 11, once wrote the unit with its address). The 2 cases, 6 more times each: main's 0 of 12, the branch's 1 of 12 (`synthetic-cancelled-by-team-2` confirmed Thursday, which the scenario says not to). Pooled, 1 of 40 against 3 of 40, in cases with no description: no sign the new lines caused it, which is not proof |
 
 Experiment 1 was never annotated. The change before experiment 2 was chosen
 from the model's own escalation questions, which asked for facts the case
@@ -792,6 +793,33 @@ read it. Grade an edited case like any other, on what the case contained.
 One scenario has one tour state at a time. Running the same thread under two
 states would need a case id per state, which the labels and pages do not have
 yet.
+
+### Made-up ad description scenarios
+
+A second set in `synthetic.py` (`description_scenarios`, with the listing data
+`DESCRIBED`) covers a unit's Zillow ad description, which the case prints in
+the unit's entry after its facts: a question answered only by the ad, an ad
+whose rent, availability and tour type differ from the unit's terms (the
+terms win and the difference is not mentioned), a public fact that corrects
+the ad (the fact wins, no escalation), and an ad that contradicts itself
+(escalate). The cases are built as production builds them with the booking
+service off. `test_zillow_eval_synthetic.py` checks them without a model. To
+run them through the model:
+
+```bash
+uv run python -m api.src.zillow_leads.evals synthetic --set description \
+    --out $DATA/synthetic-description
+uv run python -m api.src.zillow_leads.evals run \
+    --scenarios $DATA/synthetic-description/scenarios.jsonl \
+    --listings $DATA/synthetic-description/listings.json \
+    --case-edits $DATA/synthetic-description/case-edits.json \
+    --expected $DATA/synthetic-description/expected.json \
+    --name description-synthetic-1 --out $DATA/runs/description-synthetic-1.jsonl
+```
+
+Only `expected_action` is checked by code; `why` says what to look for in the
+reply (no "$1,450" or "May 15" in `synthetic-description-terms-0`, the exact
+in-person text in `synthetic-description-virtual-0`).
 
 ## Checking the booking policy before it merges
 

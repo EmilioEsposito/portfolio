@@ -1,9 +1,11 @@
-"""The made-up booking scenarios, checked without a model.
+"""The made-up booking and ad description scenarios, checked without a model.
 
-Each builds a case with per-lead links, the lead's own showings and per-unit
-times; its good reply keeps every exact rule (the eval's checks and the
-automatic-send check); and the files written for the ``run`` command rebuild
-the same cases. Running them through the model is not done here.
+Each booking scenario builds a case with per-lead links, the lead's own
+showings and per-unit times. Each description scenario builds a case with the
+units' Zillow ad descriptions. Every good reply keeps every exact rule (the
+eval's checks and the automatic-send check), and the files written for the
+``run`` command rebuild the same cases. Running them through the model is not
+done here.
 """
 
 import hashlib
@@ -16,7 +18,12 @@ from pydantic_evals.otel.span_tree import SpanTree
 
 from api.src.tests.test_zillow_lead_agent import decision
 from api.src.zillow_leads.auto_reply import reply_problems
-from api.src.zillow_leads.case import OWN_SHOWINGS_HEADING, ListingData, render_case
+from api.src.zillow_leads.case import (
+    DESCRIPTION_LABEL,
+    OWN_SHOWINGS_HEADING,
+    ListingData,
+    render_case,
+)
 from api.src.zillow_leads.evals import synthetic
 from api.src.zillow_leads.evals.checks import (
     DETAILS_LINE,
@@ -371,3 +378,65 @@ async def test_a_run_with_expected_reports_the_checks_for_each_good_decision(tmp
         assert all(result.value for result in case.assertions.values()), case.name
     moved = next(case for case in report.cases if case.name == "synthetic-move-2")
     assert {"states_tour_time", "details_line", "expected_booking"} <= set(moved.assertions)
+
+
+# The made-up scenarios for a unit's Zillow ad description.
+DESCRIBED = {item.scenario.scenario_id: item for item in synthetic.description_scenarios()}
+
+
+@pytest.mark.parametrize("scenario_id", sorted(DESCRIBED))
+def test_each_description_case_carries_the_ad_as_production_builds_it(scenario_id):
+    item = DESCRIBED[scenario_id]
+    case = case_for(item.scenario, synthetic.DESCRIBED, item.edit)
+    text = render_case(case)
+
+    assert text.count(f"  - {DESCRIPTION_LABEL}") == 2
+    assert "    Available May 15 for $1,450/month. Virtual tours available." in text
+    assert "    Street parking only, no driveway access." in text
+    # Built as production builds it with the booking service off.
+    assert case.own_showings is None and OWN_SHOWINGS_HEADING not in text
+
+
+@pytest.mark.parametrize(
+    "scenario_id", sorted(key for key, item in DESCRIBED.items() if item.good_reply)
+)
+def test_each_good_description_reply_keeps_every_exact_rule(scenario_id):
+    item = DESCRIBED[scenario_id]
+    case = case_for(item.scenario, synthetic.DESCRIBED, item.edit)
+    good = decision(reply_body=item.good_reply, lead={"unit": item.good_unit})
+
+    assert reply_problems(case, good) == []
+    assert all(checks(case, good).values()), checks(case, good)
+    expected = expected_checks(case, good, item)
+    assert expected and all(expected.values()), expected
+    # The ad's out-of-date terms never reach a reply.
+    assert not [word for word in ("$1,450", "May 15", "In-unit") if word in item.good_reply]
+
+
+def test_the_description_rules_each_have_a_scenario():
+    assert {key: item.expected for key, item in DESCRIBED.items()} == {
+        "synthetic-description-answer-0": "reply",
+        "synthetic-description-terms-0": "reply",
+        "synthetic-description-virtual-0": "reply",
+        "synthetic-description-correction-0": "reply",
+        "synthetic-description-conflict-0": "escalate",
+    }
+
+
+def test_the_written_description_files_rebuild_the_same_cases(tmp_path):
+    synthetic.write(tmp_path, "description")
+
+    scenarios = read_scenarios(tmp_path / "scenarios.jsonl")
+    edits = read_case_edits(tmp_path / "case-edits.json")
+    listings = ListingData.model_validate_json((tmp_path / "listings.json").read_text())
+    expected = json.loads((tmp_path / "expected.json").read_text())
+
+    assert [item.scenario_id for item in scenarios] == list(DESCRIBED)
+    assert {key: entry["expected"] for key, entry in expected.items()} == {
+        key: item.expected for key, item in DESCRIBED.items()
+    }
+    for scenario in scenarios:
+        item = DESCRIBED[scenario.scenario_id]
+        assert render_case(case_for(scenario, listings, edits[scenario.scenario_id])) == (
+            render_case(case_for(item.scenario, synthetic.DESCRIBED, item.edit))
+        )

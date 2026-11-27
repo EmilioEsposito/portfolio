@@ -50,8 +50,21 @@ is its latest row in `rental_listing_changes` on or before that day.
 | `showing_notice_hours` | Hours of notice before a showing, when this unit's resident needs more than the showing rules give. Empty uses the rules'; a shorter value has no effect. From 1 to 336. Used by the booking system's open times; the lead agent keeps its own 24-hour floor |
 | `zillow_listing_url_public_view`, `zillow_listing_url_internal_editor_view` | The unit's Zillow ad: the page a lead sees, and the Zillow Rental Manager page where the team edits it. Given by a person; an ad keeps its link from season to season. For the team and the ad check below. The lead agent is not given them |
 | `preferred_showing_times` | Weekly windows we would like it shown in: a nudge, never a limit |
-| `public_facts` | Lines that may be repeated to anyone, as on a listing |
+| `listing_description` | The ad's description as published on Zillow, copied as is, several lines (at most 5,000 characters). What a lead has already read. Re-syncing the ad replaces it and leaves the facts alone |
+| `public_facts` | Lines that may be repeated to anyone: what the ad does not say, or a correction to it |
 | `internal_notes` | Lines for making decisions that are not repeated outside the team |
+
+When the kinds of data disagree, this is the order, first wins:
+
+1. The typed terms (`asking_rent`, `next_lease_start_*`, `virtual_tours_allowed`,
+   `off_market_on`): the terms on offer.
+2. `public_facts`: a fact that differs from the description is a correction to the ad.
+3. `listing_description`: the ad as published.
+
+`internal_notes` are for decisions and are never told, so they are not in
+this order. The description is kept apart from the facts so that copying the
+ad again replaces only the description, and checking the listing against the
+live ad is a comparison of two texts.
 
 The names say which lease and which rent they mean on purpose. A unit let at
 1,000 today can be on offer at 1,200, and a field called `rent` would not say
@@ -60,21 +73,23 @@ which is meant, to a person or to a model reading it.
 Internal notes are for low-stakes things: a resident who wants two days'
 notice, a lease start that can move under a condition. The lead agent reads
 them and answers strangers, so nothing that would matter if it leaked belongs
-in either kind of text.
+in any of the three kinds of text.
 
 ## Rules for code that changes this
 
 - Go through `service.py`. It checks every save and writes the history row in
   the same transaction.
 - `checks.py` refuses values that make no sense and any free text holding a
-  phone number, an email address, a link or access-code wording. The booking
+  phone number, an email address, a link or access-code wording. A refused
+  description is named with the start of the line to trim. The booking
   link must be plain https; the Zillow links must also be on `zillow.com` or
   a subdomain, since the public one is fetched. Rows are
   checked again on read, so a hand edit in the database that breaks a rule is
   refused, not passed on.
 - The service does not ask for approval; the caller decides. The general
   agent's tools ([`sernia_ai/tools/rental_listing_tools.py`](../sernia_ai/tools/rental_listing_tools.py))
-  require a person's approval for any change to free text or a link.
+  require a person's approval for any change to free text (the description
+  included) or a link.
 - Keep imports from the rest of the app few, so this can move out with the
   booking system later. Today it uses the shared `Base` and `app_settings`.
 
@@ -125,7 +140,10 @@ When someone tells the general agent a unit's ad changed, it calls
 `zillow_listing_url_public_view` as text (`zillow_ad.py`) and returns it beside
 the listing on file. The agent proposes every difference in one
 `rental_listing_update` call, so a person reviews the whole change on one
-approval card, and everything passes `checks.py`. The MCP service has the same tool, through the endpoint above.
+approval card, and everything passes `checks.py`. When the ad's description
+differs from `listing_description`, that call copies the ad's description in,
+leaving out any sentence with a phone number, email address, link or person's
+name, and says what it left out. The MCP service has the same tool, through the endpoint above.
 It runs on request only. A daily check, if wanted, goes through the general
 agent's existing scheduling tools; there is no job for it here.
 

@@ -34,15 +34,22 @@ class RentalListing(BaseModel):
     is not a record of the unit itself or of who lives there now: the current
     lease and rent are kept in the property management system, not here.
 
-    Two kinds of free text, kept apart because they are used differently:
+    Three kinds of free text, kept apart because they are used differently:
 
-    - ``public_facts`` may be repeated to anyone: what we would print on a
-      listing.
+    - ``listing_description`` is the ad's description as published on Zillow,
+      copied as is: what a lead has already read. Re-syncing the ad replaces
+      it and leaves the facts alone.
+    - ``public_facts`` may be repeated to anyone: what the ad does not say,
+      or a correction to it.
     - ``internal_notes`` are for making decisions and are not repeated
       outside the team: a resident who wants two days' notice, a lease start
       that can move under a condition. Only low-stakes notes belong here.
-      Anything that would matter if it leaked (an access code, a phone number)
-      is refused by ``checks.py`` in both.
+
+    When they differ, the typed terms (``asking_rent``, the
+    ``next_lease_start_*`` dates, ``virtual_tours_allowed``,
+    ``off_market_on``) win over both kinds of public text, and a public fact
+    wins over the description. Anything that would matter if it leaked (an
+    access code, a phone number) is refused by ``checks.py`` in all three.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -71,6 +78,8 @@ class RentalListing(BaseModel):
     zillow_listing_url_public_view: str = ""
     zillow_listing_url_internal_editor_view: str = ""
     preferred_showing_times: list[PreferredWindow] = Field(default_factory=list)
+    # The ad's description as published on Zillow, several lines, copied as is.
+    listing_description: str = ""
     public_facts: list[str] = Field(default_factory=list)
     internal_notes: list[str] = Field(default_factory=list)
 
