@@ -1438,8 +1438,15 @@ cancelled, the unit, the time in local words and the host. It says who is
 told: the host's calendar event (and a text inside 2 hours), the residents'
 text, the prospect's confirmation text and invite, or cancellation texts. It
 ends with what the send mode does with those messages (`sending_sentence`).
-The real action checks everything again under its locks; a caller works the
-preview out again just before acting and asks again if it changed.
+The booking preview reads calendars afresh (`open_times.recheck`), so the
+host it names is the host the booking would get. Because a preview is read
+before the action's locks, `booking_still_as_approved` and
+`cancellation_still_as_approved` give the action a `checks(session)` that works
+it out again under those locks and refuses (`effect_changed`) unless it still
+reads as approved. `book_for_caller` passes `checks` to `place_booking`;
+`cancel_showing` and `remove_attendee` run it right after the shared booking
+lock. A join or calendar change between the approval and the action therefore
+changes nothing until a person approves again.
 
 Changing the host refuses: 404 `unknown_showing` or `unknown_agent`; 409
 `not_scheduled`, `started`, `same_host`, `event_being_sent`, and the agent's

@@ -482,9 +482,16 @@ async def showing_book(
             now=now,
             texts=text_sender(),
             zillow_thread_id=thread_id,
+            # Under the booking's locks: still the host and kind the person approved.
+            checks=effects.booking_still_as_approved(
+                request, preview.sentence, now=now, zillow_thread_id=thread_id
+            ),
         )
     except Refused as refused:
-        return _refusal("Not booked.", refused)
+        answer = _refusal("Not booked.", refused)
+        if refused.code == effects.EFFECT_CHANGED:
+            answer += " Call showing_book again without effect to get the text to approve."
+        return answer
     queued = ", ".join(f"{notice.kind} ({notice.status})" for notice in booked.notices)
     confirmation = (
         f" The confirmation text was {booked.confirmation}." if booked.confirmation else ""
@@ -501,6 +508,19 @@ async def showing_book(
 # ---------------------------------------------------------------------------
 # Cancelling
 # ---------------------------------------------------------------------------
+
+
+def _cancel_refusal(refused: Refused) -> str:
+    if refused.code in ("unknown_showing", "unknown_attendee"):
+        return f"{refused.message} Call showings_read for the ids."
+    if refused.code == "already_cancelled":
+        return f"Nothing to cancel: {refused.message}"
+    if refused.code == effects.EFFECT_CHANGED:
+        return (
+            f"Not cancelled. {refused.message} Call showing_cancel again without effect to get "
+            "the text to approve."
+        )
+    return f"Not cancelled. {refused.message}"
 
 
 @showing_toolset.tool
@@ -527,11 +547,7 @@ async def showing_cancel(
     try:
         sentence = await effects.preview_cancellation(showing_id, attendee_id, now=now)
     except Refused as refused:
-        if refused.code in ("unknown_showing", "unknown_attendee"):
-            return f"{refused.message} Call showings_read for the ids."
-        if refused.code == "already_cancelled":
-            return f"Nothing to cancel: {refused.message}"
-        return f"Not cancelled. {refused.message}"
+        return _cancel_refusal(refused)
     if effect != sentence:
         changed = " What it would do changed since it was asked." if effect else ""
         return (
@@ -540,13 +556,19 @@ async def showing_cancel(
         )
     if not ctx.tool_call_approved:
         raise ApprovalRequired(metadata={"effect": sentence})
+    # Under the cancellation's own lock: still everyone, and only those, on the card.
+    checks = effects.cancellation_still_as_approved(showing_id, attendee_id, sentence, now=now)
     try:
         if attendee_id is None:
-            done = await cancelling.cancel_showing(showing_id, now=now, texts=text_sender())
+            done = await cancelling.cancel_showing(
+                showing_id, now=now, texts=text_sender(), checks=checks
+            )
         else:
             done = await cancelling.remove_attendee(
-                showing_id, attendee_id, now=now, texts=text_sender()
+                showing_id, attendee_id, now=now, texts=text_sender(), checks=checks
             )
+    except Refused as refused:
+        return _cancel_refusal(refused)
     except cancelling.NotFound:
         return f"Not cancelled. Showing {showing_id} or that person no longer exists."
     except cancelling.Started:

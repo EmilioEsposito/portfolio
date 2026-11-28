@@ -36,6 +36,7 @@ booking lock first, then attendees, then notices, then the showing.
 """
 
 import secrets
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Literal
 
@@ -43,6 +44,7 @@ import logfire
 from pydantic import BaseModel, ConfigDict, StrictBool
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service as listings_service
@@ -168,6 +170,7 @@ async def book_for_caller(
     now: datetime,
     texts: TextSender | None = None,
     zillow_thread_id: str | None = None,
+    checks: Callable[[AsyncSession], Awaitable[None]] | None = None,
 ) -> TeamBooking:
     """Book a caller into one of the unit's open times. Raises ``Refused``.
 
@@ -182,6 +185,10 @@ async def book_for_caller(
     conversation: nothing that applies only to a place the lead agent's reply
     booked (``delivery_checks.reply_unsettled``, the reminder by email, the
     link's "add your details") applies to it.
+
+    ``checks(session)`` is passed to ``place_booking``, which runs it under the
+    booking's locks before anything is saved. The general agent's tool checks there
+    that the booking still reads as the person approved it (``effects.py``).
     """
     async with AsyncSessionFactory() as session:
         listing, rules = await bookings._listing(session, body.unit, now, only_open=False)
@@ -200,6 +207,7 @@ async def book_for_caller(
             zillow_thread_id=zillow_thread_id,
         ),
         now=now,
+        checks=checks,
     )
     attendee = placed.attendee
     confirmation = None

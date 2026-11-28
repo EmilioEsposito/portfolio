@@ -33,7 +33,9 @@ from api.src.showing_bookings import (
     lead_bookings,
     lead_tours,
     open_times,
+    team_actions,
 )
+from api.src.showing_bookings.models import ShowingAgentRecord
 from api.src.showing_bookings.team_actions import TeamBookingRequest
 from api.src.tests.showing_helpers import clear_showing_data, store_settings
 from api.src.tests.showing_public import (
@@ -530,6 +532,89 @@ async def test_the_previews_other_callers_use_answer_codes_and_change_nothing(wo
     )
     assert await code(effects.preview_cancellation(999999, now=world.now)) == "unknown_showing"
     assert await rows() == ([], [], [])
+
+
+SAM = "sam.roe@example.com"
+
+
+async def add_sam() -> None:
+    """A second agent, after Jane by priority, free when Jane is not."""
+    async with AsyncSessionFactory() as session:
+        session.add(
+            ShowingAgentRecord(
+                name="Sam Roe",
+                email=SAM,
+                mobile="+14125550102",
+                busy_calendar_ids=[SAM],
+                priority=2,
+            )
+        )
+        await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_the_preview_reads_calendars_afresh_so_the_host_is_the_one_booked(world):
+    await add_sam()
+    effect = effect_in(await tools.showing_book(ctx(), **CASEY))
+    assert "hosted by Jane Doe" in effect
+    # Jane's calendar fills while the 90-second free/busy cache still says she is free.
+    world.calendar.add_busy(JANE, at(16), at(16, 30))
+
+    said = await tools.showing_book(ctx(approved=True), **CASEY, effect=effect)
+
+    assert said.startswith("Not booked yet. What it would do changed since it was asked.")
+    assert "hosted by Sam Roe" in effect_in(said)
+    assert await rows() == ([], [], [])
+
+
+@pytest.mark.asyncio
+async def test_a_host_change_after_approval_is_refused_under_the_booking_locks(world, monkeypatch):
+    await add_sam()
+    effect = effect_in(await tools.showing_book(ctx(), **CASEY))
+    real = team_actions.book_for_caller
+
+    async def jane_fills_up_first(*args, **kwargs):
+        world.calendar.add_busy(JANE, at(16), at(16, 30))
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(team_actions, "book_for_caller", jane_fills_up_first)
+
+    said = await tools.showing_book(ctx(approved=True), **CASEY, effect=effect)
+
+    assert said.startswith(
+        "Not booked. Nothing was done: what it would do changed since it was approved. "
+        "It would now read: Books Casey Morgan into a new showing"
+    )
+    assert "hosted by Sam Roe" in said
+    assert said.endswith("Call showing_book again without effect to get the text to approve.")
+    assert await rows() == ([], [], [])
+
+
+@pytest.mark.asyncio
+async def test_someone_who_joins_after_approval_stops_the_cancellation(world, monkeypatch):
+    await page_book(world)
+    (showing,) = (await read())["booked"]
+    effect = effect_in(await tools.showing_cancel(ctx(), showing_id=showing["showing_id"]))
+    real = cancelling.cancel_showing
+
+    async def robin_joins_first(*args, **kwargs):
+        await page_book(world, name="Robin Lee", mobile="412-555-0118", email=ROBIN_EMAIL)
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(cancelling, "cancel_showing", robin_joins_first)
+
+    said = await tools.showing_cancel(
+        ctx(approved=True), showing_id=showing["showing_id"], effect=effect
+    )
+
+    assert said.startswith(
+        "Not cancelled. Nothing was done: what it would do changed since it was approved."
+    )
+    assert "everyone booked in it: Alex Parker and Robin Lee." in said
+    (row,), attendees, notices = await rows()
+    assert row.status == "scheduled"
+    assert [person.status for person in attendees] == ["booked", "booked"]
+    assert not [n for n in notices if n.kind == "prospect_cancelled_by_team"]
 
 
 # ---------------------------------------------------------------------------

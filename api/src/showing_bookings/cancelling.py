@@ -28,6 +28,7 @@ A showing that is cancelled texts its residents (``queue_resident_cancellation``
 when they were told of it; see ``resident_notices.py``.
 """
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, time
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -531,13 +532,24 @@ class Started(Exception):
 
 
 async def cancel_showing(
-    showing_id: int, *, now: datetime, texts: TextSender | None = None
+    showing_id: int,
+    *,
+    now: datetime,
+    texts: TextSender | None = None,
+    checks: Callable[[AsyncSession], Awaitable[None]] | None = None,
 ) -> TeamCancel:
-    """Cancel a showing and everyone in it. Raises ``NotFound`` or ``Started``."""
+    """Cancel a showing and everyone in it. Raises ``NotFound`` or ``Started``.
+
+    ``checks(session)`` runs under the shared booking lock before anything changes,
+    and may raise to cancel nothing: the general agent's tool checks there that the
+    cancellation still reads as the person approved it (``effects.py``).
+    """
     async with AsyncSessionFactory() as session:
         rules = await listings_service.read_showing_rules(session)
     async with AsyncSessionFactory() as session, session.begin():
         await bookings.lock(session, bookings.BOOKING_LOCK)
+        if checks is not None:
+            await checks(session)
         showing = await session.get(Showing, showing_id)
         if showing is None:
             raise NotFound
@@ -562,16 +574,23 @@ async def cancel_showing(
 
 
 async def remove_attendee(
-    showing_id: int, attendee_id: int, *, now: datetime, texts: TextSender | None = None
+    showing_id: int,
+    attendee_id: int,
+    *,
+    now: datetime,
+    texts: TextSender | None = None,
+    checks: Callable[[AsyncSession], Awaitable[None]] | None = None,
 ) -> TeamCancel:
     """Remove one attendee, as a prospect cancelling but with the team's wording.
 
-    Raises ``NotFound`` or ``Started``.
+    Raises ``NotFound`` or ``Started``. ``checks`` as for ``cancel_showing``.
     """
     async with AsyncSessionFactory() as session:
         rules = await listings_service.read_showing_rules(session)
     async with AsyncSessionFactory() as session, session.begin():
         await bookings.lock(session, bookings.BOOKING_LOCK)
+        if checks is not None:
+            await checks(session)
         attendee = await session.scalar(
             select(ShowingAttendee)
             .where(ShowingAttendee.id == attendee_id, ShowingAttendee.showing_id == showing_id)

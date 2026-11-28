@@ -11,18 +11,26 @@ should take its text from here too, so there is one wording.
 
 Nothing here changes anything. ``preview_booking`` checks what
 ``team_actions.book_for_caller`` checks before it saves (the fields, the unit,
-the time against the unit's offers), and ``preview_cancellation`` what
-``cancelling.cancel_showing`` and ``remove_attendee`` check. Each raises
+and the time by ``open_times.recheck`` with calendars read afresh, so the host
+named is the host ``place_booking`` would pick), and ``preview_cancellation``
+what ``cancelling.cancel_showing`` and ``remove_attendee`` check. Each raises
 ``bookings.Refused`` with a plain message for anything that would be refused.
-The real action still checks everything again under its locks; a caller that
-acts on a preview works it out again first and asks again if the text
-changed, as the general agent's tools do.
+
+A preview is read before the action takes its locks, so a booking, a join or a
+calendar change can land in between. ``booking_still_as_approved`` and
+``cancellation_still_as_approved`` give the action a ``checks`` that works the
+preview out again inside its own transaction, under its locks, and refuses
+(``effect_changed``) unless it still reads as approved: nobody is booked with
+another host, and nobody who joined later is cancelled or texted, without a
+person agreeing to that.
 """
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service as listings_service
@@ -42,6 +50,9 @@ from api.src.zillow_leads.models import ZillowEmailJob, ZillowLeadLink
 
 # A preview's refusal for a time the unit cannot be booked for now.
 NOT_OPEN = "not_open"
+# The action's own check under its locks: what it would do no longer reads as approved.
+EFFECT_CHANGED = "effect_changed"
+CHANGED = "Nothing was done: what it would do changed since it was approved."
 
 _NO_TIME = datetime(2000, 1, 1, tzinfo=UTC)
 
@@ -93,14 +104,16 @@ def sending_sentence(settings: ShowingBookingSettings, unit: str | None = None) 
     return "Bookings are live for this unit: these go out."
 
 
-async def known_lead_thread(thread_id: str) -> bool:
+async def known_lead_thread(thread_id: str, session: AsyncSession | None = None) -> bool:
     """Whether a Zillow lead thread has this id: the lead agent has handled it."""
-    async with AsyncSessionFactory() as session:
-        found = await session.scalar(
-            select(ZillowEmailJob.thread_id).where(ZillowEmailJob.thread_id == thread_id).limit(1)
-        ) or await session.scalar(
-            select(ZillowLeadLink.thread_id).where(ZillowLeadLink.thread_id == thread_id)
-        )
+    if session is None:
+        async with AsyncSessionFactory() as own:
+            return await known_lead_thread(thread_id, own)
+    found = await session.scalar(
+        select(ZillowEmailJob.thread_id).where(ZillowEmailJob.thread_id == thread_id).limit(1)
+    ) or await session.scalar(
+        select(ZillowLeadLink.thread_id).where(ZillowLeadLink.thread_id == thread_id)
+    )
     return found is not None
 
 
@@ -124,6 +137,9 @@ class BookingPreview:
     start: datetime
     name: str
     timezone: str
+    # "new" or "join", and who would host: what ``place_booking``'s own re-check picks.
+    kind: str
+    host: str
 
 
 def booking_sentence(
@@ -172,38 +188,34 @@ def booking_sentence(
     return " ".join(lines)
 
 
-async def preview_booking(
-    body: TeamBookingRequest, *, now: datetime, zillow_thread_id: str | None = None
+async def _booking_preview(
+    session: AsyncSession,
+    body: TeamBookingRequest,
+    *,
+    now: datetime,
+    zillow_thread_id: str | None,
 ) -> BookingPreview:
-    """What booking ``body`` as the team would do now. Changes nothing. Raises ``Refused``:
-    the fields (422 ``invalid``), the unit (404 ``unknown_unit``), a thread the lead
-    agent never handled (404 ``unknown_thread``), a time the unit cannot be booked for
-    now (409 ``not_open``, with the reason), or listing data that fails its checks."""
     start, name, mobile, email = _check_fields(body)
-    async with AsyncSessionFactory() as session:
-        listing, rules = await bookings._listing(session, body.unit, now, only_open=False)
-        settings = await read_settings(session)
-    if zillow_thread_id is not None and not await known_lead_thread(zillow_thread_id):
+    listing, rules = await bookings._listing(session, body.unit, now, only_open=False)
+    settings = await read_settings(session)
+    if zillow_thread_id is not None and not await known_lead_thread(zillow_thread_id, session):
         raise Refused(404, "unknown_thread", UNKNOWN_THREAD.format(thread=zillow_thread_id))
     try:
-        offers = await open_times.offers_for_unit(listing.unit, now=now)
+        # The same re-check ``place_booking`` makes, with calendars read afresh, so
+        # the host named here is the host the booking would get.
+        check = await open_times.recheck(listing.unit, start, now=now, session=session)
     except RentalDataInvalid as error:
         raise Refused(
             503, "unavailable", f"The rental listing data fails its checks: {error}."
         ) from None
-    offer = next((item for item in offers.offers if item.start == start), None)
-    if offer is None:
-        check = await open_times.recheck(listing.unit, start, now=now)
-        if not check.ok:
-            raise Refused(
-                409,
-                NOT_OPEN,
-                f"{when_text(start, rules.timezone)} cannot be booked for {listing.unit}: "
-                f"{check.message}",
-            )
-        kind, host = check.kind or "new", check.host_name or "a showing agent"
-    else:
-        kind, host = offer.kind, offer.host_name
+    if not check.ok:
+        raise Refused(
+            409,
+            NOT_OPEN,
+            f"{when_text(start, rules.timezone)} cannot be booked for {listing.unit}: "
+            f"{check.message}",
+        )
+    kind, host = check.kind or "new", check.host_name or "a showing agent"
     sentence = booking_sentence(
         name=name,
         listing=listing,
@@ -219,8 +231,51 @@ async def preview_booking(
         now=now,
     )
     return BookingPreview(
-        sentence=sentence, unit=listing.unit, start=start, name=name, timezone=rules.timezone
+        sentence=sentence,
+        unit=listing.unit,
+        start=start,
+        name=name,
+        timezone=rules.timezone,
+        kind=kind,
+        host=host,
     )
+
+
+async def preview_booking(
+    body: TeamBookingRequest, *, now: datetime, zillow_thread_id: str | None = None
+) -> BookingPreview:
+    """What booking ``body`` as the team would do now. Changes nothing. Raises ``Refused``:
+    the fields (422 ``invalid``), the unit (404 ``unknown_unit``), a thread the lead
+    agent never handled (404 ``unknown_thread``), a time the unit cannot be booked for
+    now (409 ``not_open``, with the reason), or listing data that fails its checks."""
+    async with AsyncSessionFactory() as session:
+        return await _booking_preview(session, body, now=now, zillow_thread_id=zillow_thread_id)
+
+
+def booking_still_as_approved(
+    body: TeamBookingRequest,
+    approved: str,
+    *,
+    now: datetime,
+    zillow_thread_id: str | None = None,
+) -> Callable[[AsyncSession], Awaitable[None]]:
+    """A ``checks`` for ``place_booking`` (through ``book_for_caller``): under the
+    booking's own locks, the preview again, refused (409 ``effect_changed``) unless it
+    still reads as ``approved``. So no booking, join or calendar change between the
+    approval and the booking can give it another host or another kind than the one
+    the person agreed to."""
+
+    async def check(session: AsyncSession) -> None:
+        try:
+            now_reads = (
+                await _booking_preview(session, body, now=now, zillow_thread_id=zillow_thread_id)
+            ).sentence
+        except Refused as refused:
+            raise Refused(409, EFFECT_CHANGED, f"{CHANGED} {refused.message}") from None
+        if now_reads != approved:
+            raise Refused(409, EFFECT_CHANGED, f"{CHANGED} It would now read: {now_reads}")
+
+    return check
 
 
 # ---------------------------------------------------------------------------
@@ -286,45 +341,41 @@ def cancellation_sentence(
     return " ".join(lines)
 
 
-async def preview_cancellation(
-    showing_id: int, attendee_id: int | None = None, *, now: datetime
+async def _cancellation_preview(
+    session: AsyncSession, showing_id: int, attendee_id: int | None, now: datetime
 ) -> str:
-    """What cancelling the showing, or removing ``attendee_id`` from it, would do now.
-    Changes nothing. Raises ``Refused``: 404 ``unknown_showing`` or ``unknown_attendee``,
-    409 ``already_cancelled`` or ``started``."""
-    async with AsyncSessionFactory() as session:
-        found = (
-            await session.execute(
-                select(Showing, ShowingAgentRecord.name)
-                .join(ShowingAgentRecord, ShowingAgentRecord.id == Showing.agent_id)
-                .where(Showing.id == showing_id)
-            )
-        ).first()
-        if found is None:
-            raise Refused(404, "unknown_showing", f"No showing with id {showing_id}.")
-        showing, host = found
-        booked = list(
-            await session.scalars(
-                select(ShowingAttendee)
-                .where(ShowingAttendee.showing_id == showing_id, ShowingAttendee.status == "booked")
-                .order_by(ShowingAttendee.id)
+    found = (
+        await session.execute(
+            select(Showing, ShowingAgentRecord.name)
+            .join(ShowingAgentRecord, ShowingAgentRecord.id == Showing.agent_id)
+            .where(Showing.id == showing_id)
+        )
+    ).first()
+    if found is None:
+        raise Refused(404, "unknown_showing", f"No showing with id {showing_id}.")
+    showing, host = found
+    booked = list(
+        await session.scalars(
+            select(ShowingAttendee)
+            .where(ShowingAttendee.showing_id == showing_id, ShowingAttendee.status == "booked")
+            .order_by(ShowingAttendee.id)
+        )
+    )
+    target = None
+    if attendee_id is not None:
+        target = await session.scalar(
+            select(ShowingAttendee).where(
+                ShowingAttendee.id == attendee_id, ShowingAttendee.showing_id == showing_id
             )
         )
-        target = None
-        if attendee_id is not None:
-            target = await session.scalar(
-                select(ShowingAttendee).where(
-                    ShowingAttendee.id == attendee_id, ShowingAttendee.showing_id == showing_id
-                )
+        if target is None:
+            raise Refused(
+                404,
+                "unknown_attendee",
+                f"No person with attendee_id {attendee_id} in showing {showing_id}.",
             )
-            if target is None:
-                raise Refused(
-                    404,
-                    "unknown_attendee",
-                    f"No person with attendee_id {attendee_id} in showing {showing_id}.",
-                )
-        settings = await read_settings(session)
-        rules = await listings_service.read_showing_rules(session)
+    settings = await read_settings(session)
+    rules = await listings_service.read_showing_rules(session)
     if showing.status != "scheduled" or not booked:
         raise Refused(409, "already_cancelled", f"Showing {showing_id} is already cancelled.")
     if target is not None and target.status != "booked":
@@ -334,3 +385,32 @@ async def preview_cancellation(
             409, "started", f"Showing {showing_id} has started; it can no longer be cancelled."
         )
     return cancellation_sentence(showing, host, booked, target, settings, rules, now)
+
+
+async def preview_cancellation(
+    showing_id: int, attendee_id: int | None = None, *, now: datetime
+) -> str:
+    """What cancelling the showing, or removing ``attendee_id`` from it, would do now.
+    Changes nothing. Raises ``Refused``: 404 ``unknown_showing`` or ``unknown_attendee``,
+    409 ``already_cancelled`` or ``started``."""
+    async with AsyncSessionFactory() as session:
+        return await _cancellation_preview(session, showing_id, attendee_id, now)
+
+
+def cancellation_still_as_approved(
+    showing_id: int, attendee_id: int | None, approved: str, *, now: datetime
+) -> Callable[[AsyncSession], Awaitable[None]]:
+    """A ``checks`` for ``cancelling.cancel_showing`` and ``remove_attendee``: under
+    their shared booking lock, the preview again, refused (409 ``effect_changed``)
+    unless it still reads as ``approved``. So nobody who joined after the approval
+    is cancelled or texted without having been on the card."""
+
+    async def check(session: AsyncSession) -> None:
+        try:
+            now_reads = await _cancellation_preview(session, showing_id, attendee_id, now)
+        except Refused as refused:
+            raise Refused(409, EFFECT_CHANGED, f"{CHANGED} {refused.message}") from None
+        if now_reads != approved:
+            raise Refused(409, EFFECT_CHANGED, f"{CHANGED} It would now read: {now_reads}")
+
+    return check

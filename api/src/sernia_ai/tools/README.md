@@ -211,7 +211,10 @@ what the send mode does with them). The agent calls again with that exact text
 as `effect`, which the approval card shows in the call's arguments, and the
 call raises `ApprovalRequired`. On approval the text is worked out again; if it
 differs (someone else booked the time, a person left), nothing is done and the
-new text is returned. This is `rental_listing_update`'s `off_market_effect`
+new text is returned. The action then checks it once more inside its own
+transaction, under the booking lock, so a join or a calendar change in between
+(another host, someone new in the showing) refuses it with `effect_changed`
+instead of booking or cancelling something the person did not see. This is `rental_listing_update`'s `off_market_effect`
 pattern. The text comes from `showing_bookings/effects.py` (`preview_booking`,
 `preview_cancellation`), so another caller asking a person to approve the same
 action, such as the Sernia MCP service, says the same thing.
