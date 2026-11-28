@@ -63,10 +63,11 @@ def fresh(monkeypatch) -> Iterator[AsyncIOScheduler]:
     monkeypatch.setattr(wakeups, "_QUEUES", {})
     monkeypatch.setattr(wakeups, "_LOCKS", {})
     monkeypatch.setattr(wakeups, "_RUNNING", set())
-    monkeypatch.setattr(wakeups, "_RETRYING", set())
+    monkeypatch.setattr(wakeups, "_RETRIES", {})
     monkeypatch.setattr(wakeups, "_listening_to", None)
     monkeypatch.setattr(wakeups, "_catch_up_registered", False)
     yield scheduler
+    wakeups.cancel_retries()
     if scheduler.running:
         scheduler.shutdown(wait=False)
 
@@ -561,3 +562,16 @@ async def test_a_wake_up_skipped_because_the_last_run_was_finishing_is_set_again
             break
         await asyncio.sleep(0.1)
     assert len(SKIP_RUNS) == 2, "the skipped wake-up was lost"
+
+
+@pytest.mark.asyncio
+async def test_a_sooner_retry_replaces_a_later_one(fresh):
+    """A skip's 5-second retry must not wait behind a failed write's 60-second one."""
+    wakeups._retry_later("example-queue", after=timedelta(seconds=60))
+    later = wakeups._RETRIES["example-queue"]
+    wakeups._retry_later("example-queue", after=timedelta(seconds=5))
+    sooner = wakeups._RETRIES["example-queue"]
+    assert later.cancelled() and not sooner.cancelled()
+    assert sooner.when() < later.when()
+    wakeups._retry_later("example-queue", after=timedelta(seconds=60))  # a later one is ignored
+    assert wakeups._RETRIES["example-queue"] is sooner

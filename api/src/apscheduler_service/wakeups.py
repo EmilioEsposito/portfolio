@@ -105,9 +105,9 @@ _QUEUES: dict[str, WakeQueue] = {}
 _LOCKS: dict[str, asyncio.Lock] = {}
 # Queues with a run in progress in this process (inside ``rearm``).
 _RUNNING: set[str] = set()
-# Queues with a retry of ``wake`` already timed in this process, and the tasks
-# those retries start (kept so they are not garbage-collected mid-run).
-_RETRYING: set[str] = set()
+# A retry of ``wake`` timed in this process, per queue, and the tasks those
+# retries start (kept so they are not garbage-collected mid-run).
+_RETRIES: dict[str, asyncio.TimerHandle] = {}
 _RETRY_TASKS: set[asyncio.Task] = set()
 _listening_to: object | None = None
 _catch_up_registered = False
@@ -195,23 +195,33 @@ def _retry_later(job_id: str, *, after: timedelta) -> None:
     bring it back: ``wake`` failed (the database, most likely), or APScheduler
     skipped and deleted it. Kept in memory, so it does not need the database
     that just failed; if it fails again it times another retry. One retry per
-    queue at a time.
+    queue at a time: a sooner one replaces a later one.
     """
-    if job_id in _RETRYING:
-        return
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return  # no event loop here (a test calling synchronously)
-    _RETRYING.add(job_id)
+    when = loop.time() + after.total_seconds()
+    pending = _RETRIES.get(job_id)
+    if pending is not None and not pending.cancelled():
+        if pending.when() <= when:
+            return
+        pending.cancel()
 
     def fire() -> None:
-        _RETRYING.discard(job_id)
+        _RETRIES.pop(job_id, None)
         task = loop.create_task(wake(job_id, min_delay=RERUN_GAP))
         _RETRY_TASKS.add(task)
         task.add_done_callback(_RETRY_TASKS.discard)
 
-    loop.call_later(after.total_seconds(), fire)
+    _RETRIES[job_id] = loop.call_at(when, fire)
+
+
+def cancel_retries() -> None:
+    """Cancel the retries timed in this process (tests, between cases)."""
+    for handle in _RETRIES.values():
+        handle.cancel()
+    _RETRIES.clear()
 
 
 def _place(

@@ -318,10 +318,11 @@ def scheduler(monkeypatch) -> Iterator[AsyncIOScheduler]:
     monkeypatch.setattr(wakeups, "_QUEUES", {})
     monkeypatch.setattr(wakeups, "_LOCKS", {})
     monkeypatch.setattr(wakeups, "_RUNNING", set())
-    monkeypatch.setattr(wakeups, "_RETRYING", set())
+    monkeypatch.setattr(wakeups, "_RETRIES", {})
     monkeypatch.setattr(wakeups, "_listening_to", None)
     monkeypatch.setattr(wakeups, "_catch_up_registered", False)
     yield fresh
+    wakeups.cancel_retries()
     if fresh.running:
         fresh.shutdown(wait=False)
 
