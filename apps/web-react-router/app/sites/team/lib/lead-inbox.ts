@@ -157,6 +157,10 @@ export interface LeadThreadPage {
   facts: FormFact[];
   emails: LeadEmail[];
   emails_read_at: string | null;
+  /** Gmail had emails the agent's last run did not see, so the page read the thread itself. */
+  emails_live?: boolean;
+  /** Gmail answered; false means the emails are as the agent last read them, unchecked. */
+  emails_checked?: boolean;
   showings: LeadShowing[];
   waiting: WaitingCard[];
   runs: AgentRun[];

@@ -5,14 +5,19 @@ agent's conversations), and one page per thread: who the lead is and what
 Zillow's form said, the emails in order, the thread's showings, what the agent
 did on each run, what waits for a person, and the thread's own booking link.
 
-It reads what is already stored and calls no Google API:
+It reads what is already stored, and asks Gmail only what the store cannot know:
 
 - Each run of the agent is one conversation, and saves the case it was decided
   on (``metadata.case``, from ``case.case_record``), which holds the thread as
   Gmail had it then. The newest run's thread, plus any reply sent after it was
   built (an approval's ``sent_body``, or ``auto_delivery.body``), is the email
-  history. A reply written in Gmail or in a Sernia AI chat appears once the
-  lead writes again and the agent runs; the page links the Gmail thread.
+  history.
+- A reply written in Gmail (the usual answer to an escalation) or in a Sernia
+  AI chat reaches the store only with the lead's next email. So the list reads
+  its newest rows' email counts and latest emails from Gmail in one batch of
+  metadata reads (``thread.thread_summaries``, kept a minute), and a lead's page
+  loads the thread itself when Gmail has more emails than the newest run saw.
+  When Gmail does not answer, the stored history stands in.
 - The showings are the booking service's attendee rows tied to the thread
   (``showing_attendees.zillow_thread_id``), less a place booked for a reply
   that was never sent, which the lead never heard of.
@@ -28,9 +33,10 @@ Everything is read from fields the lead agent has saved since it went live, so
 threads from before this module need nothing new.
 """
 
+import asyncio
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -62,7 +68,12 @@ from api.src.utils.clerk import verify_serniacapital_user
 from api.src.zillow_leads.handle import ASK_TEAM, SEND_REPLY
 from api.src.zillow_leads.identity import HANDLER
 from api.src.zillow_leads.listing_data import as_listing_data
-from api.src.zillow_leads.thread import FORM_HEADING
+from api.src.zillow_leads.thread import (
+    FORM_HEADING,
+    ThreadSummary,
+    load_lead_thread,
+    thread_summaries,
+)
 
 router = APIRouter(prefix="/zillow-leads", dependencies=[Depends(verify_serniacapital_user)])
 
@@ -262,8 +273,12 @@ class LeadThreadPage(BaseModel):
     phone: str | None = None
     facts: list[FormFact]
     emails: list[LeadEmail]
-    # When the newest run read the thread from Gmail.
+    # When the emails were read from Gmail: the newest run's time, or now when
+    # Gmail had emails the run did not see and the page read the thread itself.
     emails_read_at: datetime | None = None
+    emails_live: bool = False
+    # Whether Gmail answered at all; False means the stored history is shown unchecked.
+    emails_checked: bool = False
     showings: list[LeadShowing]
     waiting: list[WaitingCard]
     runs: list[AgentRun]
@@ -504,11 +519,16 @@ def split_form(body: str) -> tuple[str, list[FormFact]]:
     return words.strip(), facts
 
 
-def emails(runs: list[Run]) -> list[LeadEmail]:
-    """The thread as the newest run read it, then the replies sent after that."""
+def emails(runs: list[Run], live: list[dict[str, Any]] | None = None) -> list[LeadEmail]:
+    """The thread as the newest run read it, then the replies sent after that.
+
+    ``live`` is the thread as Gmail has it now (``thread.load_lead_thread``),
+    read when Gmail holds emails the newest run did not see. The replies a card
+    or the automatic send sent are then found in it and marked as such.
+    """
     latest = runs[-1]
     found: list[LeadEmail] = []
-    for message in latest.case.get("messages", []):
+    for message in latest.case.get("messages", []) if live is None else live:
         sent_at = _when(message.get("sent_at"))
         if sent_at is None:
             continue
@@ -522,6 +542,8 @@ def emails(runs: list[Run]) -> list[LeadEmail]:
                 form=form,
             )
         )
+    if live is not None:
+        return _mark_sent(found, [reply for run in runs for reply in sent_replies(run)])
     read_at = latest.case.get("now") or latest.created_at
     subject = _reply_subject(found)
     for run in runs:
@@ -536,6 +558,28 @@ def emails(runs: list[Run]) -> list[LeadEmail]:
                         sent_by=reply.by,
                     )
                 )
+    return sorted(found, key=lambda email: email.sent_at)
+
+
+# How far apart a reply's recorded send and Gmail's copy of it may be.
+SAME_SEND = timedelta(minutes=5)
+
+
+def _mark_sent(found: list[LeadEmail], replies: list[Sent]) -> list[LeadEmail]:
+    """Mark the emails in a live thread that a card or the automatic send sent."""
+    for reply in replies:
+        match = next(
+            (
+                email
+                for email in found
+                if email.from_sernia
+                and email.sent_by is None
+                and abs(email.sent_at - reply.at) <= SAME_SEND
+            ),
+            None,
+        )
+        if match is not None:
+            match.sent_by = reply.by
     return sorted(found, key=lambda email: email.sent_at)
 
 
@@ -657,10 +701,10 @@ def _activity(runs: list[Run], found: list[LeadEmail], views: list[LeadShowing])
 
 
 def thread_row(
-    runs: list[Run], views: list[LeadShowing]
+    runs: list[Run], views: list[LeadShowing], live: list[dict[str, Any]] | None = None
 ) -> tuple[LeadThreadRow, list[LeadEmail], list[FormFact]]:
     """The list's row for one thread, with the emails and form facts it was read from."""
-    found = emails(runs)
+    found = emails(runs, live)
     facts = form_facts(found)
     subject = _first_subject(runs, found)
     inquiry = _INQUIRY.match(subject)
@@ -842,6 +886,69 @@ async def booking_links(
 
 
 # --------------------------------------------------------------------------
+# What Gmail has that the runs did not see
+# --------------------------------------------------------------------------
+
+# A reply written in Gmail (an escalation's answer, say) reaches the stored runs
+# only with the lead's next email. So the list asks Gmail, in one batch of
+# metadata reads, how many emails its newest rows have, and a lead's page loads
+# the thread itself when Gmail has more than the runs saw. Stored data stands in
+# whenever Gmail does not answer.
+GMAIL_ROWS = 30
+GMAIL_TIMEOUT_SECONDS = 8
+SUMMARY_TTL = timedelta(seconds=60)
+_summary_cache: dict[str, tuple[datetime, ThreadSummary]] = {}
+
+
+async def gmail_summaries(thread_ids: list[str], now: datetime) -> dict[str, ThreadSummary]:
+    """Gmail's count and latest email for each thread, kept a minute; {} when Gmail fails."""
+    fresh = {
+        thread_id: cached
+        for thread_id in thread_ids
+        if (entry := _summary_cache.get(thread_id)) and now - entry[0] < SUMMARY_TTL
+        for cached in [entry[1]]
+    }
+    missing = [thread_id for thread_id in thread_ids if thread_id not in fresh]
+    if missing:
+        try:
+            found = await asyncio.wait_for(thread_summaries(missing), timeout=GMAIL_TIMEOUT_SECONDS)
+        except Exception:
+            logfire.warn("lead inbox: Gmail not read, stored emails shown", threads=len(missing))
+            found = {}
+        for thread_id, summary in found.items():
+            _summary_cache[thread_id] = (now, summary)
+        fresh.update(found)
+    return fresh
+
+
+def with_gmail(row: LeadThreadRow, summary: ThreadSummary | None) -> LeadThreadRow:
+    """The row with Gmail's count and latest email, when Gmail has emails the runs did not see."""
+    if summary is None or summary.count <= row.email_count:
+        return row
+    return row.model_copy(
+        update={
+            "email_count": summary.count,
+            "latest_at": summary.latest_at,
+            "latest_from_sernia": summary.latest_from_sernia,
+            "snippet": snippet(summary.latest_snippet),
+            "activity_at": max(row.activity_at, summary.latest_at),
+        }
+    )
+
+
+async def live_thread(thread_id: str) -> list[dict[str, Any]] | None:
+    """The thread's emails as Gmail has them now, in the saved case's shape; None on failure."""
+    try:
+        thread = await asyncio.wait_for(load_lead_thread(thread_id), timeout=GMAIL_TIMEOUT_SECONDS)
+    except Exception:
+        logfire.warn("lead inbox: Gmail thread not read, stored emails shown")
+        return None
+    if thread is None:
+        return None
+    return [message.model_dump(mode="json") for message in thread.messages]
+
+
+# --------------------------------------------------------------------------
 # Routes
 # --------------------------------------------------------------------------
 
@@ -865,6 +972,10 @@ async def list_threads(
         for thread_id, thread_runs in by_thread.items()
     ]
     rows.sort(key=lambda row: row.activity_at, reverse=True)
+    newest = [row.thread_id for row in rows[:GMAIL_ROWS]]
+    gmail = await gmail_summaries(newest, now)
+    rows = [with_gmail(row, gmail.get(row.thread_id)) for row in rows]
+    rows.sort(key=lambda row: row.activity_at, reverse=True)
     return LeadThreadList(threads=rows[:limit], has_more=len(rows) > limit)
 
 
@@ -883,6 +994,12 @@ async def read_thread(thread_id: str = Path(pattern=THREAD_ID)) -> LeadThreadPag
         showings = await _read_showings(session, [thread_id])
     views = showing_views(showings.get(thread_id, []), now)
     row, found, facts = thread_row(runs, views)
+    live = None
+    summary = (await gmail_summaries([thread_id], now)).get(thread_id)
+    if summary is not None and summary.count > len(found):
+        live = await live_thread(thread_id)
+        if live is not None:
+            row, found, facts = thread_row(runs, views, live)
     case_units = [
         str(listing.get("unit"))
         for listing in runs[-1].case.get("listings", [])
@@ -897,7 +1014,9 @@ async def read_thread(thread_id: str = Path(pattern=THREAD_ID)) -> LeadThreadPag
         phone=lead.get("phone") or None,
         facts=[fact for fact in facts if fact.label.casefold() != "name"],
         emails=found,
-        emails_read_at=runs[-1].case.get("now") or runs[-1].created_at,
+        emails_read_at=now if live is not None else runs[-1].case.get("now") or runs[-1].created_at,
+        emails_live=live is not None,
+        emails_checked=summary is not None,
         showings=views,
         waiting=waiting_cards(runs, views),
         runs=agent_runs(runs),

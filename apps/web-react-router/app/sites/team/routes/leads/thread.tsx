@@ -583,7 +583,11 @@ export default function LeadThread({ params }: Route.ComponentProps) {
         title="Emails"
         aside={
           page.emails_read_at && (
-            <p className="text-xs text-muted-foreground">Read from Gmail {fullTime(page.emails_read_at)}</p>
+            <p className="text-xs text-muted-foreground">
+              {page.emails_live
+                ? "Read from Gmail just now"
+                : `As the lead agent read them, ${fullTime(page.emails_read_at)}`}
+            </p>
           )
         }
       >
@@ -593,9 +597,11 @@ export default function LeadThread({ params }: Route.ComponentProps) {
           ))}
         </ol>
         <p className="text-xs text-muted-foreground">
-          A reply written in Gmail or in a Sernia AI chat shows here after the lead&rsquo;s next email.{" "}
+          {page.emails_checked
+            ? "Checked against Gmail just now. "
+            : "Gmail could not be checked just now, so a reply written there may be missing. "}
           <a href={page.gmail_url} target="_blank" rel="noreferrer" className="underline underline-offset-4">
-            Gmail has the whole thread
+            Open the thread in Gmail
           </a>
           .
         </p>

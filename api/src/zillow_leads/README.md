@@ -304,7 +304,7 @@ sent gets none, and nothing is queued with the switch off. See
 | Decision | `agent.py`, `prompts/` | `respond(case)` returns one of the three typed outcomes |
 | Review and delivery | `handle.py`, `auto_reply.py`, `relay.py` | Persist the outcome; use manual approval or an idempotent automatic send; book what an approved reply confirms (switch on); the one relay rule for where email may go |
 | Lead settings | `settings.py` | Authenticated settings API, explicit approval opt-in/out, validated batching window |
-| Lead inbox | `inbox.py`, `reply_links.py` | Read API for the team's leads list and each lead's page (no Gmail calls); the thread's token on an approved reply's booking links |
+| Lead inbox | `inbox.py`, `reply_links.py` | Read API for the team's leads list and each lead's page (stored runs, Gmail only for what they missed); the thread's token on an approved reply's booking links |
 | Offline evaluation | `evals/` | Replay scenarios, exact checks, human labels, LLM judge; never imported by runtime code |
 
 The general agent lives in [`sernia_ai/general_agent.py`](../sernia_ai/general_agent.py). It
@@ -439,9 +439,13 @@ only what is stored, so threads from before it need nothing new:
 
 - **Emails**: the newest run's saved case (`metadata.case.thread.messages`),
   plus any reply a card or the automatic send sent after that case was built
-  (`approval[].sent_body`, `auto_delivery.body`). A reply written in Gmail or
-  in a Sernia AI chat shows after the lead's next email; the page says so and
-  links Gmail.
+  (`approval[].sent_body`, `auto_delivery.body`). A reply written in Gmail (the
+  usual answer to an escalation) or in a Sernia AI chat is not stored until the
+  lead's next email, so the list reads its 30 newest rows' email counts and
+  latest emails from Gmail in one batch of metadata reads
+  (`thread.thread_summaries`, kept a minute), and a lead's page loads the thread
+  from Gmail when Gmail has more emails than the newest run saw. If Gmail does
+  not answer, the stored history is shown and the page says how old it is.
 - **Status**: what waits, by the team's pending rule
   (`agent_conversations.models.pending_approvals`) across all of the thread's
   conversations, else how the newest run ended.
