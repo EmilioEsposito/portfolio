@@ -15,7 +15,11 @@ from sqlalchemy.exc import IntegrityError
 
 from api.src.contact.service import get_contact_by_slug
 from api.src.database.database import DBSession
-from api.src.open_phone.escalation_delivery import enqueue_assessment, process_request
+from api.src.open_phone.escalation_delivery import (
+    enqueue_assessment,
+    process_request,
+    set_backstop,
+)
 from api.src.open_phone.models import OpenPhoneEvent
 from api.src.open_phone.schema import OpenPhoneWebhookPayload
 from api.src.open_phone.service import (
@@ -205,6 +209,9 @@ async def webhook(
         await session.commit()
         logfire.info(f"Successfully recorded OpenPhone event: {payload.type}")
         if request_id:
+            # The assessment runs at once after the response. The backstop
+            # wake-up retries it if this server stops first.
+            await set_backstop()
             background_tasks.add_task(process_request, request_id)
         if not team_message:
             # AI SMS conversation: messages to the AI's phone number directly

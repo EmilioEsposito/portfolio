@@ -352,10 +352,27 @@ Reviewed labels must be explicitly promoted into a versioned regression dataset.
 
 `escalation_delivery.py` owns the database outbox. The webhook inserts its event
 with `ON CONFLICT DO NOTHING` and queues the assessment in the **same transaction**.
-A process exit after the HTTP response no longer loses the work. The scheduler
-recovers pending assessments and deliveries every 15 seconds under the existing
-background-automation opt-in policy. Immediate request dispatch still works when
-background automation is off; unattended retries require the scheduler.
+A process exit after the HTTP response no longer loses the work.
+
+Retries run on the queue's wake-up job (`escalation-outbox`, see
+[wake-up jobs](../schedulers/README.md#wake-up-jobs)), not a poll:
+
+- The first attempt runs at once: the webhook's `BackgroundTasks`
+  (`process_request`), or the caller of `dispatch`.
+- Before it, once its rows are committed, `set_backstop` makes sure the wake-up
+  runs within 15 seconds, in case the process stops before the attempt takes
+  its lease.
+- After every attempt, the wake-up moves to `next_due_at`: the earliest
+  `next_attempt_at` still waiting, or a live lease's end (a row another worker
+  holds is skipped until then). A call's `next_attempt_at` never passes its
+  request's deadline, so a call still waiting then is woken to be marked
+  `manual`.
+- With nothing waiting there is no job. It also runs 30 seconds after each
+  deploy, and the 15-minute catch-up job sets it again if a wake-up is lost.
+
+Wake-ups follow the background-automation opt-in policy. Immediate request
+dispatch still works when background automation is off; unattended retries
+require the scheduler.
 
 Migration `0032_escalation_outbox` creates three empty tables and does not backfill
 historical webhooks. Source keys use the Quo message ID (event ID fallback) or
