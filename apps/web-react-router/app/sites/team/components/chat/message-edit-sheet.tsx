@@ -94,6 +94,7 @@ export function MessageEditSheet({
   draft,
   value,
   onSave,
+  author = "Sernia AI",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -104,6 +105,8 @@ export function MessageEditSheet({
   /** The message as it stands on the card when the editor opens. */
   value: string;
   onSave: (value: string) => void;
+  /** Who wrote the draft: "Sernia AI", or "The lead agent" for a Zillow lead's reply. */
+  author?: string;
 }) {
   const [text, setText] = useState(value);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -222,7 +225,7 @@ export function MessageEditSheet({
                   </Button>
                 </>
               ) : (
-                <span>Sernia AI's draft</span>
+                <span>{author}&rsquo;s draft</span>
               )}
             </div>
           </footer>

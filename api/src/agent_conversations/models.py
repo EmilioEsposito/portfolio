@@ -692,6 +692,8 @@ async def list_user_conversations(
                     "has_pending": has_pending,
                     "trigger_source": metadata.get("trigger_source"),
                     "trigger_contact_name": metadata.get("trigger_contact_name"),
+                    # A Zillow lead's run: the team home links its page instead of the chat.
+                    "lead_thread_id": metadata.get("lead_thread_id"),
                     "created_at": row.created_at.isoformat() if row.created_at else None,
                     "updated_at": row.updated_at.isoformat() if row.updated_at else None,
                 }

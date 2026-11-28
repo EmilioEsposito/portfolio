@@ -47,6 +47,7 @@ import {
 } from "~/sites/team/components/chat/tool-cards";
 import { processMessage } from "~/sites/team/components/chat/process-message";
 import { handOffFromState, splitHandOff, withHandOff } from "~/sites/team/lib/lead-hand-off";
+import { leadThreadPath } from "~/sites/team/lib/lead-inbox";
 import { useFileAttachments } from "~/sites/team/hooks/use-file-attachments";
 import {
   FileAttachmentButton,
@@ -292,6 +293,7 @@ function ChatView({
   lead = false,
   handOffTo = null,
   handOffFrom = null,
+  leadThreadId = null,
   onHandOff,
   firstSend = null,
   onFirstSendTaken,
@@ -308,6 +310,8 @@ function ChatView({
   lead?: boolean;
   /** The chat this lead conversation was handed to, if it was. */
   handOffTo?: string | null;
+  /** A lead conversation's thread, linked as "Open lead". */
+  leadThreadId?: string | null;
   /** The lead conversation this chat was started from, if it was. */
   handOffFrom?: string | null;
   onHandOff?: (words: string) => Promise<void>;
@@ -1766,6 +1770,20 @@ function ChatView({
             <div className="flex flex-col gap-2 w-full">
               {lead ? (
                 <>
+                  {leadThreadId && (
+                    <p className="text-xs px-1">
+                      <Link
+                        to={leadThreadPath(leadThreadId)}
+                        className="font-medium underline underline-offset-2"
+                      >
+                        Open lead
+                      </Link>
+                      <span className="text-muted-foreground">
+                        : their emails, showings, booking link and every run of
+                        the lead agent.
+                      </span>
+                    </p>
+                  )}
                   {handOffTo && (
                     <p className="text-xs text-muted-foreground px-1">
                       This lead was handed to Sernia AI.{" "}
@@ -2229,12 +2247,15 @@ function ChatHeader({
 
 interface LeadLinks {
   lead: boolean;
+  /** A lead conversation's thread: its page is linked as "Open lead". */
+  leadThreadId: string | null;
   handOffTo: string | null;
   handOffFrom: string | null;
 }
 
 const NO_LEAD_LINKS: LeadLinks = {
   lead: false,
+  leadThreadId: null,
   handOffTo: null,
   handOffFrom: null,
 };
@@ -2362,6 +2383,7 @@ export default function SerniaChatPage() {
         setLoadedRun(data.run ?? null);
         setLeadLinks({
           lead: data.lead_conversation === true,
+          leadThreadId: data.lead_thread_id ?? null,
           handOffTo: data.hand_off_to ?? null,
           handOffFrom: data.hand_off_from ?? null,
         });
@@ -2606,6 +2628,7 @@ export default function SerniaChatPage() {
                 readOnly={conversationModality === "sms"}
                 onMountedChange={handleChatViewMountedChange}
                 lead={leadLinks.lead}
+                leadThreadId={leadLinks.leadThreadId}
                 handOffTo={leadLinks.handOffTo}
                 handOffFrom={leadLinks.handOffFrom}
                 onHandOff={handOffLead}

@@ -12,6 +12,7 @@ today can be stored and replayed later with the same content.
 """
 
 import asyncio
+import html
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -268,6 +269,66 @@ async def load_lead_thread(thread_id: str) -> LeadThread | None:
         (_to_lead_message(m) for m in thread.get("messages", [])), key=lambda m: m.sent_at
     )
     return LeadThread(mailbox=SHARED_EXTERNAL_EMAIL, thread_id=thread_id, messages=messages)
+
+
+@dataclass(frozen=True)
+class ThreadSummary:
+    """A thread as Gmail's list shows it: how many emails, and the latest one."""
+
+    count: int
+    latest_at: datetime
+    latest_snippet: str
+    latest_from_sernia: bool
+
+
+def _summary(thread: dict[str, Any]) -> ThreadSummary | None:
+    messages = [
+        message
+        for message in thread.get("messages", [])
+        if not {"DRAFT", "TRASH"} & set(message.get("labelIds", []))
+    ]
+    if not messages:
+        return None
+    latest = max(messages, key=lambda message: int(message.get("internalDate", 0)))
+    from_address = parseaddr(_headers(latest).get("from", ""))[1].lower()
+    return ThreadSummary(
+        count=len(messages),
+        latest_at=datetime.fromtimestamp(int(latest.get("internalDate", 0)) / 1000, tz=UTC),
+        latest_snippet=html.unescape(latest.get("snippet", "")),
+        latest_from_sernia=from_address.endswith(f"@{INTERNAL_EMAIL_DOMAIN}"),
+    )
+
+
+def _summaries(mailbox: str, thread_ids: list[str]) -> dict[str, ThreadSummary]:
+    service = _gmail(mailbox)
+    found: dict[str, ThreadSummary] = {}
+
+    def collect(request_id: str, response: dict[str, Any] | None, exception: Exception | None):
+        # A thread Gmail would not give (gone, or a rate limit) is left out.
+        if exception is None and response and (summary := _summary(response)):
+            found[request_id] = summary
+
+    batch = service.new_batch_http_request(callback=collect)
+    for thread_id in thread_ids:
+        batch.add(
+            service.users()
+            .threads()
+            .get(userId="me", id=thread_id, format="metadata", metadataHeaders=["From"]),
+            request_id=thread_id,
+        )
+    batch.execute()
+    return found
+
+
+async def thread_summaries(thread_ids: list[str]) -> dict[str, ThreadSummary]:
+    """Each thread's email count and latest email in the shared mailbox, in one batch call.
+
+    Metadata only, no bodies. Threads Gmail does not answer for are left out;
+    a failed call raises, for the caller to fall back on what it has stored.
+    """
+    if not thread_ids:
+        return {}
+    return await asyncio.to_thread(_summaries, SHARED_EXTERNAL_EMAIL, thread_ids)
 
 
 def _list_thread_ids(mailbox: str, query: str) -> list[str]:

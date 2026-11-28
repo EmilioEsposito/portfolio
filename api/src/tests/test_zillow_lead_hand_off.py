@@ -237,6 +237,8 @@ class TestCards:
         pushed = handle.notify_pending_approval.call_args.kwargs
         assert pushed["title"] == "Lead needs a person"
         assert pushed["body"] == "Is 12-C listed?"
+        # It opens the lead's page, where the card is decided beside the lead.
+        assert pushed["url"] == "/team/leads/threads/T"
 
     def test_a_long_question_is_cut_to_fit_a_push_and_a_draft_keeps_the_approval_push(self):
         long = {"tool_name": handle.ASK_TEAM, "args": {"question": "Why? " * 100}}
@@ -254,10 +256,17 @@ class TestCards:
         )
         await push_service.notify_pending_approval("c2", "send_email", {"to": "a@example.com"})
 
-        first, second = (call.kwargs for call in sent.await_args_list)
+        await push_service.notify_pending_approval(
+            "c3", handle.SEND_REPLY, {"to": "a@example.com"}, url="/team/leads/threads/t1"
+        )
+
+        first, second, third = (call.kwargs for call in sent.await_args_list)
         assert (first["title"], first["body"]) == ("Lead needs a person", "q")
         assert second["title"] == "Approval Needed: Send Email"
         assert second["body"] == "to: a@example.com"
+        # The chat by default; the page it is given otherwise.
+        assert first["data"]["url"] == "/team/chat?id=c1"
+        assert third["data"]["url"] == "/team/leads/threads/t1"
 
 
 def test_the_block_names_the_policy_the_route_and_the_lead_conversation():
@@ -352,6 +361,8 @@ class TestChat:
         assert chat.read == [] and not chat_runs._tasks
         assert (await page(conversation_id))["pending"]
         assert (await page(conversation_id))["lead_conversation"] is True
+        # The chat links the lead's page as "Open lead".
+        assert (await page(conversation_id))["lead_thread_id"] == "T"
 
     @pytest.mark.asyncio
     async def test_a_message_from_a_lead_conversation_starts_a_new_chat_and_closes_the_card(
@@ -372,6 +383,7 @@ class TestChat:
         new_chat = await page(chat.id)
         assert new_chat["hand_off_from"] == conversation_id
         assert new_chat["lead_conversation"] is False
+        assert new_chat["lead_thread_id"] is None
         assert "On it." in json.dumps(new_chat["messages"])
         # The lead conversation is left as a record, closed, with a link forward.
         old = await page(conversation_id)

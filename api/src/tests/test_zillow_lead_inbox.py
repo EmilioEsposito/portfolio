@@ -38,7 +38,7 @@ from api.src.tests.test_zillow_lead_handle import message, outcome
 from api.src.zillow_leads import handle, inbox, listing_data
 from api.src.zillow_leads.case import Listing, ListingData
 from api.src.zillow_leads.models import ZillowLeadLink
-from api.src.zillow_leads.thread import FORM_HEADING, LeadThread
+from api.src.zillow_leads.thread import FORM_HEADING, LeadThread, ThreadSummary
 
 SUBJECT = "Casey is requesting information about 12 Example St #3, Pittsburgh, PA, 15224"
 FIRST = (
@@ -53,6 +53,27 @@ USER = SimpleNamespace(id="test-user")
 
 def lead_thread(thread_id: str, *messages) -> LeadThread:
     return LeadThread(mailbox="all@serniacapital.com", thread_id=thread_id, messages=list(messages))
+
+
+@pytest_asyncio.fixture(autouse=True)
+def gmail(monkeypatch):
+    """Gmail as the inbox reads it: no thread summaries and no live thread unless a test says."""
+    state = SimpleNamespace(summaries={}, live=None)
+
+    async def summaries(thread_ids):
+        return {
+            thread_id: state.summaries[thread_id]
+            for thread_id in thread_ids
+            if thread_id in state.summaries
+        }
+
+    monkeypatch.setattr(inbox, "thread_summaries", AsyncMock(side_effect=summaries))
+    monkeypatch.setattr(
+        inbox, "load_lead_thread", AsyncMock(side_effect=lambda thread_id: state.live)
+    )
+    inbox._summary_cache.clear()
+    yield state
+    inbox._summary_cache.clear()
 
 
 @pytest_asyncio.fixture
@@ -433,6 +454,40 @@ def test_a_reply_captured_outside_production_reads_captured_never_sent():
     assert inbox.thread_status([captured]) == "handled"
 
 
+def test_a_captured_reply_never_claims_an_email_sent_from_gmail():
+    """Gmail has no copy of a captured reply: it is shown on its own, and a person's
+    Gmail reply a minute later keeps its own mark (none)."""
+    at = datetime(2026, 5, 4, 13, tzinfo=UTC)
+    approved = {"tool_name": handle.SEND_REPLY, "approved": True, "by": "Pat"}
+    captured = run(
+        approval=[{**approved, "sent_body": "Draft", "captured": True, "at": at.isoformat()}]
+    )
+    live = [
+        {
+            "sent_at": (at - timedelta(hours=1)).isoformat(),
+            "from_sernia": False,
+            "subject": "Tour",
+            "body": "Hi",
+        },
+        {
+            "sent_at": (at + timedelta(minutes=1)).isoformat(),
+            "from_sernia": True,
+            "subject": "Re: Tour",
+            "body": "Typed in Gmail",
+        },
+    ]
+
+    found = inbox.emails([captured], live)
+
+    assert [(email.text, email.sent_by) for email in found] == [
+        ("Hi", None),
+        ("Draft", "captured"),
+        ("Typed in Gmail", None),
+    ]
+    stored = inbox.emails([captured])
+    assert [(email.text, email.sent_by) for email in stored] == [("Draft", "captured")]
+
+
 def test_a_draft_anywhere_in_the_thread_comes_first():
     sent = run(approval=[{"tool_name": handle.SEND_REPLY, "approved": True}])
     asking = run(pending=[{"tool_name": handle.ASK_TEAM}])
@@ -454,6 +509,16 @@ def test_the_form_is_split_from_the_leads_words():
         ("Number of Occupants", "2"),
     ]
     assert inbox.split_form("Just a question.") == ("Just a question.", [])
+    # Zillow's tracking id at the end of a relayed message is not the lead's words.
+    relayed = (
+        "We have cats!  0f0e0d0c-1b2a-11f1-9a43-000000000000\n\n"
+        + FORM_HEADING
+        + "\n- Listing: 12 Example St"
+    )
+    assert inbox.split_form(relayed) == (
+        "We have cats!",
+        [inbox.FormFact(label="Listing", value="12 Example St")],
+    )
 
 
 @pytest.mark.parametrize(
@@ -471,3 +536,197 @@ def test_the_listing_asked_about_is_found_by_unit_or_address(unit, address, expe
     listings = [LISTING.model_dump(), OTHER.model_dump()]
     found = inbox._listing_for(listings, unit, address)
     assert (found or {}).get("unit") == expected
+
+
+# A draft written before the lead booked (the incident the inbox exists for)
+
+
+@pytest.mark.asyncio
+async def test_a_draft_written_before_a_booking_says_so_on_its_card_and_row(leads):
+    thread_id, _, two = await casey(leads)
+
+    page = (await get(f"/zillow-leads/threads/{thread_id}")).json()
+
+    (card,) = page["waiting"]
+    (change,) = card["showing_changes"]
+    assert change["kind"] == "booked"
+    assert change["unit"] == "12-3" and change["booked_by"] == "Jordan"
+    assert page["thread"]["draft_outdated"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_booking_the_draft_already_knew_of_is_not_a_change(leads):
+    thread_id = leads.thread_id()
+    showing = await add_showing(
+        await add_agent(), unit="12-3", starts_at=datetime.now(UTC) + timedelta(days=2)
+    )
+    await add_attendee(showing, name="Jordan", thread=thread_id)
+    await leads.run(thread_id, outcome(), message(0, subject=SUBJECT, body=FIRST))
+
+    page = (await get(f"/zillow-leads/threads/{thread_id}")).json()
+
+    (card,) = page["waiting"]
+    assert card["showing_changes"] == []
+    assert page["thread"]["draft_outdated"] is False
+    assert page["thread"]["showing"]["state"] == "booked"
+
+
+@pytest.mark.asyncio
+async def test_a_cancellation_after_the_draft_is_a_change_too(leads):
+    thread_id = leads.thread_id()
+    showing = await add_showing(
+        await add_agent(), unit="12-3", starts_at=datetime.now(UTC) + timedelta(days=2)
+    )
+    attendee = await add_attendee(showing, name="Jordan", thread=thread_id)
+    await leads.run(thread_id, outcome(), message(0, subject=SUBJECT, body=FIRST))
+    async with AsyncSessionFactory() as session:
+        row = await session.get(ShowingAttendee, attendee)
+        row.status, row.cancel_reason = "cancelled", "prospect"
+        row.cancelled_at = datetime.now(UTC)
+        await session.commit()
+
+    page = (await get(f"/zillow-leads/threads/{thread_id}")).json()
+
+    (change,) = page["waiting"][0]["showing_changes"]
+    assert (change["kind"], change["cancelled_by"]) == ("cancelled", "prospect")
+    assert page["thread"]["draft_outdated"] is True
+
+
+@pytest.mark.asyncio
+async def test_the_team_homes_approvals_name_a_leads_thread(leads):
+    from api.src.agent_conversations.identity import AGENT_NAME
+    from api.src.agent_conversations.models import list_pending_conversations
+
+    thread_id, _, two = await casey(leads, booked=False)
+
+    pending = await list_pending_conversations(agent_name=AGENT_NAME, limit=200)
+
+    (row,) = [row for row in pending if row["conversation_id"] == two]
+    # The team home links it to the lead's page rather than the chat.
+    assert row["lead_thread_id"] == thread_id
+
+
+# Replies written in Gmail, which the stored runs see only with the lead's next email
+
+
+@pytest.mark.asyncio
+async def test_the_list_takes_gmails_count_and_latest_email_when_gmail_has_more(leads, gmail):
+    thread_id = leads.thread_id()
+    await leads.run(thread_id, outcome("escalate"), message(0, subject=SUBJECT, body=FIRST))
+    # The escalation was answered in Gmail and marked handled.
+    answered = datetime.now(UTC)
+    gmail.summaries[thread_id] = ThreadSummary(
+        count=2,
+        latest_at=answered,
+        latest_snippet="Hi Casey, yes & parking is free.",
+        latest_from_sernia=True,
+    )
+
+    (row,) = [
+        row
+        for row in (await get("/zillow-leads/threads")).json()["threads"]
+        if row["thread_id"] == thread_id
+    ]
+
+    assert row["email_count"] == 2
+    assert row["latest_from_sernia"] is True
+    assert row["snippet"] == "Hi Casey, yes & parking is free."
+
+
+@pytest.mark.asyncio
+async def test_without_gmail_the_list_shows_what_is_stored(leads, gmail):
+    thread_id = leads.thread_id()
+    await leads.run(thread_id, outcome("escalate"), message(0, subject=SUBJECT, body=FIRST))
+    inbox.thread_summaries.side_effect = RuntimeError("Gmail is down")
+
+    response = await get("/zillow-leads/threads")
+
+    assert response.status_code == 200
+    (row,) = [row for row in response.json()["threads"] if row["thread_id"] == thread_id]
+    assert row["email_count"] == 1 and row["snippet"] == "I would like to schedule a tour."
+
+
+@pytest.mark.asyncio
+async def test_the_lead_page_reads_the_thread_from_gmail_when_gmail_has_more(leads, gmail):
+    thread_id = leads.thread_id()
+    first = message(0, subject=SUBJECT, body=FIRST)
+    cid = await leads.run(thread_id, outcome(), first)
+    await leads.decide(cid)
+    async with AsyncSessionFactory() as session:
+        sent_at = datetime.fromisoformat(
+            (await session.get(AgentConversation, cid)).metadata_["approval"][0]["at"]
+        )
+    gmail.summaries[thread_id] = ThreadSummary(
+        count=3, latest_at=sent_at, latest_snippet="Also", latest_from_sernia=True
+    )
+    gmail.live = lead_thread(
+        thread_id,
+        first,
+        # Gmail's copy of the reply the card sent, a few seconds later.
+        message(
+            1,
+            sernia=True,
+            sent_at=sent_at + timedelta(seconds=3),
+            body="Hello,\n\nSernia Capital Team",
+        ),
+        message(
+            2, sernia=True, sent_at=sent_at + timedelta(minutes=30), body="Also: parking is free."
+        ),
+    )
+
+    page = (await get(f"/zillow-leads/threads/{thread_id}")).json()
+
+    assert page["emails_live"] is True
+    assert [email["text"] for email in page["emails"]] == [
+        "I would like to schedule a tour.",
+        "Hello,\n\nSernia Capital Team",
+        "Also: parking is free.",
+    ]
+    assert [email["sent_by"] for email in page["emails"]] == [None, "inbox", None]
+    assert page["thread"]["email_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_the_lead_page_does_not_read_the_thread_when_gmail_has_nothing_new(leads, gmail):
+    thread_id = leads.thread_id()
+    await leads.run(thread_id, outcome("escalate"), message(0, subject=SUBJECT, body=FIRST))
+    gmail.summaries[thread_id] = ThreadSummary(
+        count=1, latest_at=datetime.now(UTC), latest_snippet="x", latest_from_sernia=False
+    )
+
+    page = (await get(f"/zillow-leads/threads/{thread_id}")).json()
+
+    assert page["emails_live"] is False
+    inbox.load_lead_thread.assert_not_called()
+
+
+def test_a_gmail_summary_counts_sent_and_received_emails_but_not_drafts():
+    from api.src.zillow_leads import thread as thread_module
+
+    def gmail_message(ms, sender, labels=("INBOX",), snippet=""):
+        return {
+            "internalDate": str(ms),
+            "labelIds": list(labels),
+            "snippet": snippet,
+            "payload": {"headers": [{"name": "From", "value": sender}]},
+        }
+
+    summary = thread_module._summary(
+        {
+            "messages": [
+                gmail_message(1_000, "Zillow <noreply@mail.zillow.com>"),
+                gmail_message(
+                    2_000, "Sernia <all@serniacapital.com>", ("SENT",), "Hi &amp; welcome"
+                ),
+                gmail_message(3_000, "Sernia <all@serniacapital.com>", ("DRAFT",), "unsent"),
+            ]
+        }
+    )
+
+    assert summary == thread_module.ThreadSummary(
+        count=2,
+        latest_at=datetime.fromtimestamp(2, tz=UTC),
+        latest_snippet="Hi & welcome",
+        latest_from_sernia=True,
+    )
+    assert thread_module._summary({"messages": []}) is None

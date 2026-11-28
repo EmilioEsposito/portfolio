@@ -211,6 +211,8 @@ def _lead_links(metadata: dict | None) -> dict:
     lead = is_lead_conversation(metadata)
     return {
         "lead_conversation": lead,
+        # The lead's page (/team/leads/threads/<id>), which the chat links as "Open lead".
+        "lead_thread_id": metadata.get("lead_thread_id") if lead else None,
         "hand_off_to": (metadata.get("hand_off") or {}).get("to") if lead else None,
         "hand_off_from": (metadata.get("hand_off_from") or {}).get("conversation_id"),
     }
