@@ -24,6 +24,11 @@ export type SchedulerJob = {
   max_instances: number | null;
   misfire_grace_time: number | null;
   pending: boolean;
+  /**
+   * Runs when work in its table is due, not on a schedule of its own (api/src/apscheduler_service/wakeups.py).
+   * Listed with no next run while nothing waits. Absent from an API older than this field.
+   */
+  wake_up?: boolean;
 };
 
 /** The time zone the team reads clock times in, as the other team pages do. */
@@ -176,8 +181,17 @@ export function cronWords(fields: Record<string, string>, timeZone: string | nul
   return [`${daysText} at ${list(times)}`, zone].filter(Boolean).join(" ");
 }
 
+/** What a wake-up job says in place of a schedule. */
+export const WAKE_UP_SCHEDULE = "Runs when work is due";
+/** A wake-up job with nothing waiting. */
+export const WAKE_UP_IDLE = "Idle: runs when work arrives";
+
 /** The schedule in words, or null when the page should show the trigger's own text. */
-export function scheduleWords(job: Pick<SchedulerJob, "trigger" | "timezone" | "next_run_time">, now: Date): string | null {
+export function scheduleWords(
+  job: Pick<SchedulerJob, "trigger" | "timezone" | "next_run_time" | "wake_up">,
+  now: Date,
+): string | null {
+  if (job.wake_up) return WAKE_UP_SCHEDULE;
   const trigger = parseTrigger(job.trigger);
   if (trigger.kind === "interval") return intervalWords(trigger.seconds);
   if (trigger.kind === "cron") return cronWords(trigger.fields, job.timezone);
@@ -260,10 +274,11 @@ export type NextRun =
  * passed is shown as passed, never as next.
  */
 export function nextRun(
-  job: Pick<SchedulerJob, "next_run_time" | "trigger" | "pending">,
+  job: Pick<SchedulerJob, "next_run_time" | "trigger" | "pending" | "wake_up">,
   loadedAt: number,
   now: number,
 ): NextRun {
+  if (!job.next_run_time && job.wake_up && !job.pending) return { kind: "none", text: WAKE_UP_IDLE };
   if (!job.next_run_time) {
     return {
       kind: "none",
