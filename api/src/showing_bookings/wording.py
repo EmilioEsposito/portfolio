@@ -14,7 +14,8 @@
   confirming their own cancellation, the text when the team cancels (or the
   unit goes off the market), and the cancelled event and invite.
 - What a unit's residents are texted (``RESIDENT_VERSION``): a new showing at
-  their home, and its cancellation.
+  their home, and its cancellation. Both are written again when they go out
+  (``residents.text_for``), so a change here reaches texts already queued.
 - The reminders the evening before (``REMINDER_VERSION``): the prospect's,
   with the cancel link, and the residents' list of the next day's showings.
 - The reminder by email in a lead's Zillow thread, for a showing agreed there
@@ -44,7 +45,7 @@ TEXTS_CONSENT_VERSION = "v1"
 NOTICES_VERSION = "v1"
 MOVED_VERSION = "v1"
 CANCELLATION_VERSION = "v1"
-RESIDENT_VERSION = "v1"
+RESIDENT_VERSION = "v2"
 REMINDER_VERSION = "v1"
 LEAD_EMAIL_VERSION = "v1"
 HOST_TEXT_VERSION = "v1"
@@ -285,9 +286,9 @@ def _minutes(visit: Visit) -> int:
 def resident_new_showing_text(visit: Visit) -> str:
     """To the residents of a unit, once, when a new showing of it is booked."""
     return (
-        f"Hi, this is Sernia Capital. We've scheduled an in-person showing of your home at "
-        f"{place(visit)} on {when(visit)}. It will take about {_minutes(visit)} minutes, and "
-        "a Sernia agent will be there the whole time. Questions? Reply to this number."
+        "Automated showing alert: We've scheduled an in-person showing of your unit on "
+        f"{when(visit)}. A Sernia agent will be there the whole time. You may be present or "
+        "we can let ourselves in if you are not home."
     )
 
 

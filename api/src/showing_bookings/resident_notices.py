@@ -28,7 +28,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.rental_listings.schema import ShowingRules
-from api.src.showing_bookings import host_event, outbox, residents, wording
+from api.src.showing_bookings import host_event, outbox, residents
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.schema import TextPayload
 
@@ -38,16 +38,6 @@ async def find_for(unit: str, start: datetime, rules: ShowingRules) -> residents
     failed lookup; call it before the booking transaction, as it may read Quo."""
     day = start.astimezone(ZoneInfo(rules.timezone)).date()
     return await residents.find(unit, day)
-
-
-def _visit(showing: Showing, timezone: str) -> wording.Visit:
-    return wording.Visit(
-        unit=showing.unit,
-        address=showing.address,
-        starts_at=showing.starts_at,
-        ends_at=showing.ends_at,
-        timezone=timezone,
-    )
 
 
 async def queue_new_showing(
@@ -84,7 +74,7 @@ async def queue_new_showing(
         recipient=first,
         recipient_key=residents.RECIPIENT_KEY,
         payload=TextPayload(
-            body=wording.resident_new_showing_text(_visit(showing, rules.timezone)),
+            body=residents.text_for(residents.NEW_SHOWING_KIND, showing, rules.timezone),
             also_to=others,
             daytime_timezone=rules.timezone,
         ),
@@ -129,7 +119,7 @@ async def queue_cancellation(
         recipient=told.recipient,
         recipient_key=residents.RECIPIENT_KEY,
         payload=TextPayload(
-            body=wording.resident_cancelled_text(_visit(showing, timezone)),
+            body=residents.text_for(residents.CANCELLED_KIND, showing, timezone),
             also_to=first.also_to,
             daytime_timezone=first.daytime_timezone,
         ),
