@@ -103,6 +103,7 @@ from api.src.showing_bookings import (
     delivery_checks,
     google_http,
     host_event,
+    lines,
     residents,
     told,
 )
@@ -946,10 +947,13 @@ async def _send(item: _Claimed, senders: _Senders) -> _Outcome:
     try:
         if sender is not None:
             text = TextPayload.model_validate(item.payload)
+            line = lines.line_for(item.kind)
             if text.also_to:
-                sent = await sender.send_group_text([item.recipient, *text.also_to], text.body)
+                sent = await sender.send_group_text(
+                    [item.recipient, *text.also_to], text.body, line=line
+                )
             else:
-                sent = await sender.send_text(item.recipient, text.body)
+                sent = await sender.send_text(item.recipient, text.body, line=line)
             return _Outcome(
                 "sent", provider_id=sent.provider_id, provider_status=sent.provider_status
             )

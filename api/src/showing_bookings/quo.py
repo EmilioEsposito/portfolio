@@ -1,4 +1,11 @@
-"""Texts through Quo (formerly OpenPhone), from the shared team line.
+"""Texts through Quo (formerly OpenPhone), from one of the team's two lines.
+
+Each send names its line (``lines.line_for`` picks it from the notice kind):
+``team`` is the shared team line (``QUO_SHARED_EXTERNAL_PHONE_ID``), for
+prospects, leads and residents; ``ai`` is the Sernia AI line
+(``QUO_SERNIA_AI_PHONE_ID``), for showing agents, whose replies reach Sernia
+AI's SMS conversation. Both lines answer a send the same way, and a status
+read needs only the message id, whichever line sent it.
 
 Written from Quo's API reference:
 
@@ -25,8 +32,8 @@ from collections.abc import Callable, Sequence
 import httpx
 
 from api.src.open_phone.rate_limit import CONNECT_ERRORS
-from api.src.sernia_ai.config import QUO_SHARED_EXTERNAL_PHONE_ID
-from api.src.showing_bookings.providers import NotSent, SentText
+from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID, QUO_SHARED_EXTERNAL_PHONE_ID
+from api.src.showing_bookings.providers import Line, NotSent, SentText
 
 # Quo's codes for a recipient it will not text. Nothing was sent.
 REFUSAL_CODES = {
@@ -36,6 +43,11 @@ REFUSAL_CODES = {
 }
 MAX_LENGTH = 1600  # Quo's limit for ``content``
 MAX_GROUP = 10  # Quo's most numbers in one message's ``to``
+# Quo's id for each line, sent as ``from``.
+LINE_PHONE_IDS: dict[Line, str] = {
+    "team": QUO_SHARED_EXTERNAL_PHONE_ID,
+    "ai": QUO_SERNIA_AI_PHONE_ID,
+}
 _E164 = re.compile(r"\+[1-9]\d{1,14}")
 _MESSAGE_ID = re.compile(r"AC[A-Za-z0-9]+")
 
@@ -62,32 +74,28 @@ def _error(response: httpx.Response) -> tuple[str, str]:
 
 
 class QuoTextSender:
-    """A ``TextSender`` that sends from the shared team line."""
+    """A ``TextSender`` that sends from the line each send names."""
 
-    def __init__(
-        self,
-        *,
-        from_phone_id: str | None = None,
-        client_factory: Callable[[], httpx.AsyncClient] | None = None,
-    ) -> None:
-        self._from = from_phone_id or QUO_SHARED_EXTERNAL_PHONE_ID
+    def __init__(self, *, client_factory: Callable[[], httpx.AsyncClient] | None = None) -> None:
         self._client_factory = client_factory or _shared_client
 
-    async def send_text(self, to: str, body: str) -> SentText:
-        return await self._send([to], body)
+    async def send_text(self, to: str, body: str, *, line: Line = "team") -> SentText:
+        return await self._send([to], body, line)
 
-    async def send_group_text(self, to: Sequence[str], body: str) -> SentText:
+    async def send_group_text(
+        self, to: Sequence[str], body: str, *, line: Line = "team"
+    ) -> SentText:
         numbers = list(dict.fromkeys(to))
         if not 2 <= len(numbers) <= MAX_GROUP:
             raise NotSent("rejected", f"A group text goes to 2 to {MAX_GROUP} numbers.")
-        return await self._send(numbers, body)
+        return await self._send(numbers, body, line)
 
-    async def _send(self, to: list[str], body: str) -> SentText:
+    async def _send(self, to: list[str], body: str, line: Line) -> SentText:
         if not all(_E164.fullmatch(number) for number in to):
             raise NotSent("invalid_number", "The number is not in E.164 form.")
         if not body.strip() or len(body) > MAX_LENGTH:
             raise NotSent("rejected", f"A text must have 1 to {MAX_LENGTH} characters.")
-        payload = {"content": body, "from": self._from, "to": to}
+        payload = {"content": body, "from": LINE_PHONE_IDS[line], "to": to}
         try:
             async with self._client_factory() as client:
                 response = await client.post("/v1/messages", json=payload)

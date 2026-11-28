@@ -203,6 +203,9 @@ class Notice(BaseModel):
     # What the notice is, in words (``wording.notice_label``).
     kind_label: str
     channel: Channel
+    # The team's Quo line a text goes from: "ai" for a showing agent, "team" for
+    # everyone else (``lines.line_for``). None for anything that is not a text.
+    from_line: Literal["team", "ai"] | None = None
     showing_id: int
     attendee_id: int | None
     unit: str

@@ -285,11 +285,11 @@ class SenderWithAHook(RecordingTextSender):
         super().__init__()
         self.number, self.hook = number, hook
 
-    async def send_text(self, to: str, body: str):
+    async def send_text(self, to: str, body: str, *, line: str = "team"):
         if to == self.number and self.hook is not None:
             hook, self.hook = self.hook, None
             await hook()
-        return await super().send_text(to, body)
+        return await super().send_text(to, body, line=line)
 
 
 class CalendarWithAHook(InMemoryCalendar):
