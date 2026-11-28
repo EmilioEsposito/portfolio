@@ -81,6 +81,7 @@ from api.src.showing_bookings.calendar_callback import (
 from api.src.showing_bookings.calendar_callback import (
     callback_router as showing_bookings_callback_router,
 )
+from api.src.showing_bookings.mcp_routes import mcp_router as showing_bookings_mcp_router
 from api.src.showing_bookings.public_routes import (
     public_router as showing_bookings_public_router,
 )
@@ -373,6 +374,9 @@ app.include_router(showing_bookings_callback_router, prefix="/api")
 # The public booking API: no sign-in, everything under /api/showing-bookings/public/,
 # and a 404 on every route while public booking is switched off.
 app.include_router(showing_bookings_public_router, prefix="/api")
+# What the Sernia MCP service may do to showings: only its own OAuth token is accepted,
+# everything under /api/showing-bookings/mcp/.
+app.include_router(showing_bookings_mcp_router, prefix="/api")
 app.include_router(apscheduler_router, prefix="/api")
 # DBOS DISABLED: See api/src/schedulers/README.md for re-enabling instructions.
 # app.include_router(dbos_router, prefix="/api")
