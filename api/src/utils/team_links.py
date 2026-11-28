@@ -5,15 +5,16 @@ serniacapital.com. The development environment has no Sernia hostname, so its
 links use dev.eesposito.com, where the web app serves ``/team`` too. Anywhere
 else (a local run, tests, a PR environment) links point at the local web server.
 
-Use a ``*_PATH`` constant or ``chat_path`` for a link the browser opens on the
-site it is already on (web push, the calendar callback's page), and
-``team_url`` for a link read outside the browser (SMS, the agent's own context).
+Use a ``*_PATH`` constant or a ``*_path`` function for a link the browser opens
+on the site it is already on (web push, the calendar callback's page), and
+``team_url`` around either for a link read outside the browser (SMS, a calendar
+event, the agent's own context).
 
 This module imports nothing from the app, so any package may use it.
 """
 
 import os
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 PRODUCTION_BASE_URL = "https://serniacapital.com"
 DEVELOPMENT_BASE_URL = "https://dev.eesposito.com"
@@ -28,6 +29,7 @@ LEADS_PATH = "/team/leads"
 LEAD_LISTINGS_PATH = "/team/leads/listings"
 LEAD_SETTINGS_PATH = "/team/leads/settings"
 LEAD_BOOKINGS_PATH = "/team/leads/bookings"
+LEAD_THREADS_PATH = "/team/leads/threads"
 
 
 def base_url() -> str:
@@ -43,6 +45,17 @@ def base_url() -> str:
 def chat_path(conversation_id: str) -> str:
     """One Sernia AI conversation, as a path: ``/team/chat?id=<conversation id>``."""
     return f"{CHAT_PATH}?{urlencode({'id': conversation_id})}"
+
+
+def lead_thread_path(thread_id: str) -> str:
+    """One Zillow lead, by the Gmail thread id of their inquiry:
+    ``/team/leads/threads/<thread id>``."""
+    return f"{LEAD_THREADS_PATH}/{quote(thread_id, safe='')}"
+
+
+def showing_path(showing_id: int) -> str:
+    """One booked showing, in the Showings section of the Booking settings tab."""
+    return f"{LEAD_BOOKINGS_PATH}#showing-{int(showing_id)}"
 
 
 def team_url(path: str) -> str:

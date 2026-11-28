@@ -25,6 +25,7 @@ import {
   humanize,
   isTicked,
   joinWords,
+  linkedShowingId,
   liveStartQuestion,
   needsAttention,
   describeNeedingTeam,
@@ -583,4 +584,11 @@ test("a place booked by email says so, and whether the details arrived", () => {
     describeAttention("reply_uncertain"),
     "The email reply that booked this may not have gone out: check the thread",
   );
+});
+
+test("a link to one showing names it by its hash", () => {
+  assert.equal(linkedShowingId("#showing-12"), 12);
+  for (const hash of ["", "#showing-", "#showing-0", "#showing-12x", "#calendar-connections", "#showing-1.5"]) {
+    assert.equal(linkedShowingId(hash), null, hash);
+  }
 });

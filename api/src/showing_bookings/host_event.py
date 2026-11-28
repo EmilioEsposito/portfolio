@@ -31,12 +31,15 @@ Rendering only reads; ``outbox.py`` saves what was rendered on the notice and
 is the only code that hands it to a calendar. Nothing here imports the outbox.
 """
 
+from collections.abc import Collection
 from typing import Literal
 
+import logfire
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from api.src.agent_conversations.models import AgentConversation
 from api.src.showing_bookings import agents, wording
 from api.src.showing_bookings.models import (
     CalendarConnection,
@@ -46,6 +49,8 @@ from api.src.showing_bookings.models import (
     ShowingNotice,
 )
 from api.src.showing_bookings.schema import CalendarPayload
+from api.src.utils.team_links import lead_thread_path, showing_path, team_url
+from api.src.zillow_leads.identity import HANDLER as LEAD_HANDLER
 
 # A showings calendar that names no connected account: the outbox cannot
 # write to it, so a notice on it that would be sent fails visibly.
@@ -158,11 +163,51 @@ async def already_says(session: AsyncSession, showing: Showing, rendered: Calend
     return sent.model_dump(exclude=how) == rendered.model_dump(exclude=how)
 
 
+async def lead_names(session: AsyncSession, thread_ids: Collection[str]) -> dict[str, str]:
+    """The lead's name the Zillow lead agent last recorded for each thread, where it
+    recorded one (``outcome.lead.name`` in the lead conversation's metadata).
+
+    Only reads, and never raises: a read that goes wrong answers no names, so
+    the host's event is still written, naming no lead.
+    """
+    if not thread_ids:
+        return {}
+    thread = AgentConversation.metadata_["lead_thread_id"].as_string()
+    name = AgentConversation.metadata_["outcome"]["lead"]["name"].as_string()
+    try:
+        async with session.begin_nested():
+            rows = (
+                await session.execute(
+                    select(thread, name)
+                    .where(
+                        AgentConversation.metadata_["handler"].as_string() == LEAD_HANDLER,
+                        thread.in_(sorted(thread_ids)),
+                        name.is_not(None),
+                    )
+                    .order_by(AgentConversation.updated_at.desc(), AgentConversation.id)
+                )
+            ).all()
+    except Exception:
+        logfire.exception("showing host event: lead names not read")
+        return {}
+    found: dict[str, str] = {}
+    for thread_id, value in rows:
+        cleaned = " ".join(str(value or "").split())[:100]
+        if cleaned and thread_id not in found:
+            found[thread_id] = cleaned
+    return found
+
+
 async def booked_guests(session: AsyncSession, showing_id: int) -> list[wording.Guest]:
-    rows = await session.scalars(
-        select(ShowingAttendee)
-        .where(ShowingAttendee.showing_id == showing_id, ShowingAttendee.status == "booked")
-        .order_by(ShowingAttendee.id)
+    rows = list(
+        await session.scalars(
+            select(ShowingAttendee)
+            .where(ShowingAttendee.showing_id == showing_id, ShowingAttendee.status == "booked")
+            .order_by(ShowingAttendee.id)
+        )
+    )
+    names = await lead_names(
+        session, {row.zillow_thread_id for row in rows if row.zillow_thread_id}
     )
     return [
         wording.Guest(
@@ -172,6 +217,10 @@ async def booked_guests(session: AsyncSession, showing_id: int) -> list[wording.
             confirmations=[item.get("wording", "") for item in row.requirement_confirmations],
             source=row.source,
             texts=row.texts_accepted,
+            inquiry_url=(
+                team_url(lead_thread_path(row.zillow_thread_id)) if row.zillow_thread_id else None
+            ),
+            lead_name=names.get(row.zillow_thread_id or ""),
         )
         for row in rows
     ]
@@ -204,7 +253,9 @@ async def render(
         calendar_id=calendar_id,
         event_id=showing.host_event_id,
         summary=wording.host_event_summary(visit, guests),
-        description=wording.host_event_description(guests),
+        description=wording.host_event_description(
+            guests, showing_url=team_url(showing_path(showing.id))
+        ),
         location=showing.address,
         starts_at=showing.starts_at,
         ends_at=showing.ends_at,

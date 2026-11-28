@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLocation } from "react-router";
 import { CircleAlert, FlaskConical, Loader2, RefreshCw } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -20,6 +21,7 @@ import {
   formatWhen,
   heldBackNote,
   leadAgentLine,
+  linkedShowingId,
 } from "~/sites/team/lib/showing-bookings";
 import {
   type Attendance,
@@ -96,6 +98,7 @@ type CancelResult = { showing_id: number; showing_status: string; attendees_canc
 
 function BookedItem({
   showing,
+  linked,
   busy,
   onCancel,
   onRemove,
@@ -104,6 +107,8 @@ function BookedItem({
   onMark,
 }: {
   showing: BookedShowing;
+  /** Opened from a link to this showing: brought into view and marked. */
+  linked: boolean;
   busy: boolean;
   onCancel: () => void;
   onRemove: (person: BookedPerson) => void;
@@ -113,7 +118,11 @@ function BookedItem({
 }) {
   const label = `${showing.unit} ${formatWhen(showing.starts_at)}`;
   return (
-    <li className="space-y-2 px-3 py-2.5">
+    <li
+      id={`showing-${showing.id}`}
+      aria-current={linked ? "true" : undefined}
+      className={cn("scroll-mt-6 space-y-2 px-3 py-2.5", linked && "rounded-lg bg-amber-50 ring-2 ring-amber-300 dark:bg-amber-950/30 dark:ring-amber-800")}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span>
           <span className="font-medium">{showing.unit}</span>{" "}
@@ -219,6 +228,7 @@ export function ShowingsSection({
   const [acting, setActing] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionDone, setActionDone] = useState<string | null>(null);
+  const linked = linkedShowingId(useLocation().hash);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -232,6 +242,13 @@ export function ShowingsSection({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // The list arrives after the page, so the browser cannot scroll to the showing a link
+  // names by itself: do it once the list is in.
+  const linkedListed = linked !== null && !!view?.booked.some((showing) => showing.id === linked);
+  useEffect(() => {
+    if (linkedListed) document.getElementById(`showing-${linked}`)?.scrollIntoView({ block: "start" });
+  }, [linked, linkedListed]);
 
   const note = (unit: string) =>
     settings ? heldBackNote(settings.settings, settings.is_production, unit) : "";
@@ -390,6 +407,11 @@ export function ShowingsSection({
           )}
 
           <h4 className="mt-5 text-sm font-semibold">Booked, from the last 3 days to 14 days ahead</h4>
+          {linked !== null && !linkedListed && (
+            <p role="status" className="mt-1 text-sm text-muted-foreground">
+              The showing the link names is not booked in this window: it was cancelled, or is more than 3 days past.
+            </p>
+          )}
           <AddBooking units={times.units} note={note} api={api} onBooked={booked} />
           {view.booked.length === 0 ? (
             <p className="mt-1 text-sm text-muted-foreground">No showings are booked.</p>
@@ -399,6 +421,7 @@ export function ShowingsSection({
                 <BookedItem
                   key={showing.id}
                   showing={showing}
+                  linked={showing.id === linked}
                   busy={acting !== null}
                   onCancel={() => void cancelShowing(showing)}
                   onRemove={(person) => void removePerson(showing, person)}
