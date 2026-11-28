@@ -42,7 +42,7 @@ from api.src.rental_listings.schema import RentalListing
 
 CONFIRMATIONS_VERSION = "v1"
 TEXTS_CONSENT_VERSION = "v1"
-NOTICES_VERSION = "v1"
+NOTICES_VERSION = "v2"
 MOVED_VERSION = "v1"
 CANCELLATION_VERSION = "v1"
 RESIDENT_VERSION = "v2"
@@ -137,12 +137,16 @@ class Guest:
     source: str = "page"
     # Whether they take texts about the showing.
     texts: bool = True
+    # The team's page for the Zillow inquiry they came from, when they came from one.
+    inquiry_url: str | None = None
+    # The lead's name as the lead agent recorded it from that inquiry, when it did.
+    lead_name: str | None = None
 
 
 _HOW_BOOKED = {
-    "page": "booked on the booking page",
-    "team": "booked by the team",
-    "lead_agent": "booked by email with the lead agent",
+    "page": "Booked online",
+    "team": "Booked by the team",
+    "lead_agent": "Booked by email",
 }
 
 
@@ -201,18 +205,43 @@ def host_event_summary(visit: Visit, guests: Sequence[Guest]) -> str:
     return f"Showing: {visit.unit} ({people})"
 
 
-def host_event_description(guests: Sequence[Guest]) -> str:
-    """Who is coming and how each booked, true for every way a booking is made."""
-    lines = ["Booked for this Sernia Capital showing:"]
+def _same_person(name: str, other: str) -> bool:
+    """Whether two names are one person's, by the first name: "Sam" and "Sam Rivera"
+    are; "Sam Rivera" and "Alex Parker" are not."""
+    first, second = name.split(), other.split()
+    return bool(first and second) and first[0].casefold() == second[0].casefold()
+
+
+def _how_booked(guest: Guest) -> str:
+    """ "Booked online from Sam's Zillow inquiry", "Booked by the team, gets no texts"."""
+    line = _HOW_BOOKED.get(guest.source, "Booked")
+    if guest.inquiry_url:
+        if not guest.lead_name:
+            whose = "a"
+        elif _same_person(guest.name, guest.lead_name):
+            whose = "their"
+        else:
+            whose = f"{guest.lead_name}'s"
+        line += f" from {whose} Zillow inquiry"
+    if not guest.texts:
+        line += ", gets no texts"
+    return line
+
+
+def host_event_description(guests: Sequence[Guest], showing_url: str | None = None) -> str:
+    """Who is coming, how to reach them, how each booked (with a link to the Zillow
+    inquiry they came from), what they confirmed, and a link to the showing on the
+    team's site (``NOTICES_VERSION``)."""
+    lines = ["Booked for this showing:"]
     for guest in guests:
-        how = _HOW_BOOKED.get(guest.source, "booked")
-        if not guest.texts:
-            how += ", no texts"
-        lines.append(
-            f"- {guest.name}, {display_phone(guest.mobile)}, {guest.email or 'no email'} ({how})"
-        )
+        lines.append(f"- {guest.name}, {display_phone(guest.mobile)}, {guest.email or 'no email'}")
+        lines.append(f"  {_how_booked(guest)}")
+        if guest.inquiry_url:
+            lines.append(f"  Inquiry: {guest.inquiry_url}")
         for confirmed in guest.confirmations:
             lines.append(f"  Confirmed: {confirmed}")
+    if showing_url:
+        lines += ["", f"Manage this showing: {showing_url}"]
     return "\n".join(lines)
 
 

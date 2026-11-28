@@ -739,9 +739,18 @@ captured), an update is queued behind the new text.
 A host event notice is rendered when the outbox delivers it, not when it is
 queued (`host_event.py`, called from `outbox._prepare` under a lock
 on the showing): the summary and description list the attendees booked then,
-with their current mobiles and emails and how each booked ("booked on the
-booking page", "booked by the team", "booked by email with the lead agent",
-and "no texts" for someone who takes none), and the notice creates the showing's
+with their current mobiles and emails and how each booked ("Booked online",
+"Booked by the team", "Booked by email", and "gets no texts" for someone who
+takes none). An attendee tied to a Zillow thread (`zillow_thread_id`) is
+"from their Zillow inquiry", with a link to the team's page for that lead
+(`team_links.lead_thread_path`). When someone else booked through the lead's
+link, the lead is named ("Booked online from Sam's Zillow inquiry"): the name
+is the one the lead agent last recorded for the thread
+(`host_event.lead_names`, from `outcome.lead.name` in the lead conversation's
+metadata). With no name recorded it says "a Zillow inquiry", and a read that
+goes wrong names no one and never stops the event. The description ends with a
+link to the showing in the Showings section (`team_links.showing_path`, which
+the tab scrolls to and marks). The notice creates the showing's
 event if it has none yet (saving its id on the showing) or updates it. So a
 showing has one event whatever order its notices are released in: an update
 released before the first booking's create creates the event, and the create

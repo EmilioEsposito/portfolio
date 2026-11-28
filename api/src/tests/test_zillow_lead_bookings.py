@@ -19,7 +19,7 @@ import pytest_asyncio
 from fastapi import HTTPException
 from googleapiclient.errors import HttpError
 from pydantic import TypeAdapter
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, update
 
 from api.src.agent_conversations.delivery import AutoApprovedSend
 from api.src.agent_conversations.hitl import ApprovalDecision
@@ -1956,3 +1956,99 @@ async def test_sent_then_approved_again_and_refused_keeps_the_place(lead, monkey
     assert place.status == "booked" and place.lead_reply_sent_at is not None
     _, _, notices = await rows()
     assert "cancelled" not in {n.status for n in notices}
+
+
+# ---------------------------------------------------------------------------
+# The host's event links back to the inquiry
+# ---------------------------------------------------------------------------
+
+
+async def host_description(lead: Lead) -> str:
+    """The host's event as rendered when it was delivered (captured, in capture mode)."""
+    _, _, notices = await rows()
+    (event,) = by_kind(notices)["host_event"]
+    assert event.status == "captured"
+    return event.payload["description"]
+
+
+@pytest.mark.asyncio
+async def test_someone_booking_through_a_leads_link_shows_whose_inquiry_it_was(lead):
+    """Jordan asked on Zillow; Alex, booking for them through Jordan's link, is shown
+    as booked from Jordan's inquiry, with the team's page for it."""
+    await lead.decide(outcome())
+    await booked_through_link(lead, at(17))
+
+    await lead.world.send_pending(lead.world.now + timedelta(minutes=1))
+
+    assert (
+        "- Alex Parker, 412-555-0117, alex@example.com\n"
+        "  Booked online from Jordan Lee's Zillow inquiry\n"
+        f"  Inquiry: http://localhost:5173/team/leads/threads/{THREAD}\n"
+    ) in await host_description(lead)
+
+
+@pytest.mark.asyncio
+async def test_the_latest_name_the_lead_agent_recorded_counts(lead):
+    await lead.decide(outcome(lead={"name": "Jordan"}))
+    await lead.decide(outcome(lead={"name": "Sam Rivera"}))
+    async with AsyncSessionFactory() as session:
+        await session.execute(
+            update(AgentConversation)
+            .where(AgentConversation.id == lead.conversations[0])
+            .values(updated_at=func.now() + timedelta(minutes=5))
+        )
+        await session.commit()
+    await booked_through_link(lead, at(17))
+
+    await lead.world.send_pending(lead.world.now + timedelta(minutes=1))
+
+    assert "Booked online from Jordan's Zillow inquiry" in await host_description(lead)
+
+
+@pytest.mark.asyncio
+async def test_a_thread_with_no_recorded_name_still_links_its_inquiry(lead):
+    """No conversation about the thread, and one whose outcome is not what the lead
+    agent writes: the event is written, with the link and no name."""
+    stray = f"test-lead-{uuid.uuid4().hex}"
+    lead.conversations.append(stray)
+    async with AsyncSessionFactory() as session:
+        session.add(
+            AgentConversation(
+                id=stray,
+                agent_name="zillow_lead",
+                messages=[],
+                metadata_={
+                    "handler": "zillow_lead_agent",
+                    "lead_thread_id": THREAD,
+                    "outcome": "?",
+                },
+            )
+        )
+        await session.commit()
+    await booked_through_link(lead, at(17))
+
+    await lead.world.send_pending(lead.world.now + timedelta(minutes=1))
+
+    description = await host_description(lead)
+    assert "  Booked online from a Zillow inquiry\n" in description
+    assert f"  Inquiry: http://localhost:5173/team/leads/threads/{THREAD}\n" in description
+
+
+@pytest.mark.asyncio
+async def test_a_lead_name_read_that_fails_answers_no_names_and_keeps_the_session(
+    lead, monkeypatch
+):
+    from api.src.showing_bookings import host_event
+
+    async with AsyncSessionFactory() as session:
+        real = session.execute
+
+        async def failing(statement, *args, **kwargs):
+            if "agent_conversations" in str(statement):
+                raise RuntimeError("database trouble")
+            return await real(statement, *args, **kwargs)
+
+        monkeypatch.setattr(session, "execute", failing)
+        assert await host_event.lead_names(session, {THREAD}) == {}
+        # The outbox's own transaction is untouched and carries on.
+        assert (await real(select(func.count()).select_from(ShowingAttendee))).scalar() == 0
