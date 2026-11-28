@@ -391,7 +391,6 @@ function ChatView({
     }
   }, [input, draftKey]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const inputBarRef = useRef<HTMLDivElement>(null);
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
   const attachment = useFileAttachments();
@@ -401,23 +400,6 @@ function ChatView({
     onMountedChange?.(true);
     return () => onMountedChange?.(false);
   }, [onMountedChange]);
-
-  // Track the actual height of the input bar so the messages list reserves
-  // matching bottom padding. The input bar is position:fixed on mobile, so
-  // without this the latest message would render under it.
-  useEffect(() => {
-    const el = inputBarRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect.height ?? 0;
-      document.documentElement.style.setProperty("--chat-input-h", `${h}px`);
-    });
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-      document.documentElement.style.removeProperty("--chat-input-h");
-    };
-  }, [readOnly]);
 
   const isStandalonePwa = useIsStandalonePwa();
   const pullDistance = usePullToRefresh({
@@ -1396,7 +1378,7 @@ function ChatView({
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll overflow-x-hidden overscroll-none pt-4 relative max-md:pb-[var(--chat-input-h,5rem)]"
+        className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll overflow-x-hidden overscroll-none pt-4 relative"
         {...(composerLocked
           ? {
               onDragOver: (e) => e.preventDefault(),
@@ -1693,23 +1675,16 @@ function ChatView({
         onChange={attachment.handleFileInputChange}
       />
 
-      {/* Input Area — hidden for read-only SMS conversations.
-          On mobile we pin it with position:fixed at --keyboard-inset above
-          the bottom so it stays directly above the iOS keyboard instead of
-          being pushed off-screen with the page. */}
+      {/* Input Area — hidden for read-only SMS conversations. It sits at the
+          bottom of the chat, which on a phone covers exactly the visible
+          screen (.chat-shell), so it stays directly above the iOS keyboard. */}
       {readOnly ? (
-        <div
-          ref={inputBarRef}
-          className="flex items-center justify-center px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] border-t text-sm text-muted-foreground bg-background max-md:fixed max-md:left-0 max-md:right-0 max-md:bottom-[var(--keyboard-inset,0px)] max-md:z-30"
-        >
+        <div className="chat-composer shrink-0 flex items-center justify-center px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] border-t text-sm text-muted-foreground bg-background">
           <Phone className="w-4 h-4 mr-2" />
           SMS conversation — reply via text message
         </div>
       ) : (
-        <div
-          ref={inputBarRef}
-          className="shrink-0 flex mx-auto px-4 bg-background pt-3 md:pt-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-[calc(1rem+env(safe-area-inset-bottom))] gap-2 w-full md:max-w-3xl border-t max-md:fixed max-md:left-0 max-md:right-0 max-md:bottom-[var(--keyboard-inset,0px)] max-md:z-30"
-        >
+        <div className="chat-composer shrink-0 flex mx-auto px-4 bg-background pt-3 md:pt-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-[calc(1rem+env(safe-area-inset-bottom))] gap-2 w-full md:max-w-3xl border-t">
           {messages.length === 0 && !openedWithSend ? (
             <div className="flex flex-col gap-4 w-full">
               <p className="text-sm text-muted-foreground text-center">
@@ -2561,7 +2536,7 @@ export default function SerniaChatPage() {
       />
       <SidebarInset className="min-w-0 overflow-x-hidden">
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center gap-4 h-chat-viewport">
+          <div className="flex flex-col items-center justify-center gap-4 h-chat-viewport chat-shell">
             {conversationLoadError ? (
               <>
                 <p role="alert" className="text-muted-foreground">
@@ -2589,7 +2564,7 @@ export default function SerniaChatPage() {
         ) : (
           <Tabs
             defaultValue="chat"
-            className="flex flex-col min-w-0 bg-background h-chat-viewport"
+            className="flex flex-col min-w-0 bg-background h-chat-viewport chat-shell"
           >
             <ChatHeader
               isAdmin={isAdmin}

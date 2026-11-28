@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Button } from "~/components/ui/button";
-import { Textarea } from "~/components/ui/textarea";
 import { Badge } from "~/components/ui/badge";
 import {
   Card,
@@ -11,12 +10,14 @@ import {
 import { Label } from "~/components/ui/label";
 import { cn } from "~/lib/utils";
 import { LEAD_NEEDS_A_PERSON } from "~/sites/team/lib/lead-hand-off";
+import { MessageEditSheet } from "~/sites/team/components/chat/message-edit-sheet";
 import {
   AlertCircle,
   CheckCircle2,
   XCircle,
   Loader2,
   Edit3,
+  RotateCcw,
   Zap,
 } from "lucide-react";
 
@@ -445,10 +446,11 @@ function ApprovalItem({
   disabled: boolean;
   showIndex: boolean;
 }) {
-  const { key: msgKey, value: msgValue } = getMessageFromArgs(item.args);
+  const { value: msgValue } = getMessageFromArgs(item.args);
   const hasMessageArg = msgValue !== "";
   const [isEditing, setIsEditing] = useState(false);
   const editedBody = decision.editedBody ?? msgValue;
+  const isEdited = editedBody !== msgValue;
 
   // Decision indicator
   const decisionIcon =
@@ -487,63 +489,67 @@ function ApprovalItem({
 
       {/* Expanded content */}
       {isExpanded && (
-        <div className="px-3 pb-3 space-y-2 border-t">
+        <div className="px-3 pb-3 pt-2 space-y-2 border-t">
+          {/* The message, edited in a full-screen editor */}
+          {hasMessageArg && (
+            <div className="text-sm">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center gap-2">
+                  <Label className="text-muted-foreground text-xs">Message</Label>
+                  {isEdited && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] px-1.5 py-0 border-amber-500 text-amber-600 dark:text-amber-400"
+                    >
+                      Edited
+                    </Badge>
+                  )}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1 px-3 text-xs"
+                  onClick={() => setIsEditing(true)}
+                  disabled={disabled}
+                >
+                  <Edit3 className="w-3 h-3" />
+                  Edit
+                </Button>
+              </div>
+              <p className="p-2 bg-muted/50 rounded border text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
+                {editedBody}
+              </p>
+              {isEdited && (
+                <div className="mt-1 flex items-center justify-between gap-2 text-xs text-amber-600 dark:text-amber-400">
+                  <span>Your version replaces Sernia AI's draft.</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 shrink-0 gap-1 px-2 text-xs"
+                    onClick={() => onSetEditedBody(msgValue)}
+                    disabled={disabled}
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Restore draft
+                  </Button>
+                </div>
+              )}
+              <MessageEditSheet
+                open={isEditing}
+                onOpenChange={setIsEditing}
+                recipient={getToolSummary(item)}
+                draft={msgValue}
+                value={editedBody}
+                onSave={onSetEditedBody}
+              />
+            </div>
+          )}
+
           {/* Full args */}
           <ToolDetailBox
             label="Input"
             content={JSON.stringify(item.args, null, 2)}
           />
-
-          {/* Editable message */}
-          {hasMessageArg && (
-            <div className="text-sm">
-              <div className="flex items-center justify-between mb-1">
-                <Label className="text-muted-foreground text-xs">Message</Label>
-                {!isEditing && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-xs"
-                    onClick={() => setIsEditing(true)}
-                    disabled={disabled}
-                  >
-                    <Edit3 className="w-3 h-3 mr-1" />
-                    Edit
-                  </Button>
-                )}
-              </div>
-              {isEditing ? (
-                <div className="space-y-2">
-                  <Textarea
-                    value={editedBody}
-                    onChange={(e) => onSetEditedBody(e.target.value)}
-                    className="min-h-[80px] bg-background text-sm"
-                    disabled={disabled}
-                  />
-                  {editedBody !== msgValue && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400">
-                      Modified - will override AI's suggestion
-                    </p>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setIsEditing(false);
-                      onSetEditedBody(msgValue);
-                    }}
-                    disabled={disabled}
-                  >
-                    Cancel edit
-                  </Button>
-                </div>
-              ) : (
-                <p className="p-2 bg-muted/50 rounded border text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-                  {msgValue}
-                </p>
-              )}
-            </div>
-          )}
 
           {/* Approve/Deny buttons for this item */}
           <div className="flex gap-2 pt-1">

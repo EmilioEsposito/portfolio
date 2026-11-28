@@ -45,7 +45,29 @@ export function useScrollToBottom<T extends HTMLElement>(): [
         subtree: true,
       });
 
-      return () => observer.disconnect();
+      // When the list gets shorter (the phone keyboard opening), keep the
+      // latest message above the message box if it was in view.
+      const nearBottom = () =>
+        container.scrollHeight - container.scrollTop - container.clientHeight <
+        80;
+      let wasNearBottom = nearBottom();
+      const onScroll = () => {
+        wasNearBottom = nearBottom();
+      };
+      container.addEventListener("scroll", onScroll, { passive: true });
+      const resizeObserver =
+        typeof ResizeObserver === "undefined"
+          ? null
+          : new ResizeObserver(() => {
+              if (wasNearBottom) container.scrollTop = container.scrollHeight;
+            });
+      resizeObserver?.observe(container);
+
+      return () => {
+        observer.disconnect();
+        container.removeEventListener("scroll", onScroll);
+        resizeObserver?.disconnect();
+      };
     }
   }, []);
 

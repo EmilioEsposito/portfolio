@@ -481,6 +481,29 @@ body {
   height: calc(var(--chat-vh, 100dvh) - var(--env-banner-h, 0px));
 }
 
+/* The Sernia AI chat on a phone covers exactly the visible part of the page,
+ * which the iOS keyboard shrinks and slides down the page (see
+ * useVisualViewportHeight). Below the env banner while the banner shows; the
+ * banner scrolls away when the keyboard slides the view past it. The message
+ * box drops its home-bar padding while the keyboard is up. */
+@media (max-width: 47.99rem) {
+  .chat-shell {
+    position: fixed;
+    inset-inline: 0;
+    top: max(var(--chat-vv-top, 0px), var(--env-banner-h, 0px));
+    height: calc(
+      var(--chat-vv-top, 0px) + var(--chat-vh, 100dvh) -
+        max(var(--chat-vv-top, 0px), var(--env-banner-h, 0px))
+    );
+  }
+
+  .chat-composer {
+    padding-bottom: calc(
+      0.75rem + env(safe-area-inset-bottom) * (1 - var(--chat-keyboard-open, 0))
+    );
+  }
+}
+
 /* The line across the top of Sernia's public pages while the next one opens. */
 @keyframes sernia-opening {
   from {
@@ -498,6 +521,19 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .sernia-opening {
     animation: none;
+  }
+}
+
+/* The full-screen message editor rising into place on a phone. */
+@keyframes sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@media (max-width: 47.99rem) and (prefers-reduced-motion: no-preference) {
+  .sheet-rise {
+    animation: sheet-rise 250ms cubic-bezier(0.32, 0.72, 0, 1);
   }
 }
 
