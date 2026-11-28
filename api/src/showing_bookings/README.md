@@ -987,7 +987,10 @@ booking transaction, as it may read Quo.
   `too_many_residents` (more than ten).
 - Behind the guard like every notice; every number in the text counts.
 - Wording: `wording.resident_new_showing_text` and
-  `wording.resident_cancelled_text`, version `RESIDENT_VERSION`.
+  `wording.resident_cancelled_text`, version `RESIDENT_VERSION`. The outbox
+  writes the text again from its showing when it goes
+  (`residents.text_for`), so a change of wording reaches texts already
+  queued, such as one waiting for 8 AM.
 - No public answer carries anything about residents.
 
 ### Showings booked by email

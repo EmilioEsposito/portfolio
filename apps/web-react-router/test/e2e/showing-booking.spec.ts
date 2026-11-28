@@ -123,7 +123,7 @@ test("book a showing through to the confirmation screen", async ({ page }) => {
   const resident = rows.notices[3];
   expect(resident.recipient).toBe("+14125550180");
   expect(resident.also_to).toEqual([]);
-  expect(resident.body).toContain("We've scheduled an in-person showing of your home at 900 Example Ave (unit 900-01)");
+  expect(resident.body).toContain("Automated showing alert: We've scheduled an in-person showing of your unit on");
 });
 
 test("a missed tick is marked and nothing is booked until it is ticked", async ({ page }) => {

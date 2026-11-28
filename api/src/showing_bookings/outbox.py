@@ -711,16 +711,22 @@ async def _recalendar(session: AsyncSession, notice: ShowingNotice, event_id: st
 
 
 async def _prepare_resident_text(session: AsyncSession, notice: ShowingNotice, now: datetime):
-    """A resident's text goes only while its showing is ahead, and only in the daytime."""
-    status, starts_at = (
+    """A resident's text goes only while its showing is ahead, and only in the daytime.
+
+    Its words are written again as it goes (``residents.text_for``), so a text
+    queued before a change of wording goes out in the new wording.
+    """
+    showing = (
         await session.execute(
-            select(Showing.status, Showing.starts_at).where(Showing.id == notice.showing_id)
+            select(Showing)
+            .where(Showing.id == notice.showing_id)
+            .execution_options(populate_existing=True)
         )
-    ).one()
+    ).scalar_one()
     note = None
-    if notice.kind == residents.NEW_SHOWING_KIND and status != "scheduled":
+    if notice.kind == residents.NEW_SHOWING_KIND and showing.status != "scheduled":
         note = residents.SHOWING_CANCELLED_NOTE
-    elif starts_at <= now:
+    elif showing.starts_at <= now:
         note = residents.TOO_LATE_NOTE
     if note is None and notice.kind == residents.CANCELLED_KIND:
         # Never ahead of the announcement: wait while it is being sent, then go
@@ -747,6 +753,10 @@ async def _prepare_resident_text(session: AsyncSession, notice: ShowingNotice, n
     if later is not None:
         notice.not_before = later
         return _NOT_NOW
+    if timezone:
+        body = residents.text_for(notice.kind, showing, timezone)
+        if body != notice.payload.get("body"):
+            notice.payload = {**notice.payload, "body": body}
     return None
 
 

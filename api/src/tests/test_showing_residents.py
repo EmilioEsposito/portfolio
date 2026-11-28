@@ -157,11 +157,11 @@ async def test_a_new_showing_texts_the_resident_once_the_confirmation_is_deliver
 
     (body,) = world.texts.to(RESIDENT)
     assert body == (
-        "Hi, this is Sernia Capital. We've scheduled an in-person showing of your home at "
-        "320 Example St (unit 320-03) on Wed, Apr 14 at 4:00 PM. It will take about 30 "
-        "minutes, and a Sernia agent will be there the whole time. Questions? Reply to "
-        "this number."
+        "Automated showing alert: We've scheduled an in-person showing of your unit on "
+        "Wed, Apr 14 at 4:00 PM. A Sernia agent will be there the whole time. You may be "
+        "present or we can let ourselves in if you are not home."
     )
+    assert text.payload["body"] == body  # written when queued, as it goes out
     assert world.texts.groups() == []
     text = await one(NEW)
     assert (text.status, text.guard_reason) == ("sent", "test_recipient")
@@ -303,6 +303,36 @@ async def test_a_resident_text_due_before_8_am_waits_until_8(world):
 
     text = await one(NEW)
     assert (text.status, text.not_before) == ("pending", at(8, 0, day=WEDNESDAY))
+
+
+@pytest.mark.asyncio
+async def test_a_text_queued_in_older_words_goes_out_in_the_current_wording(world):
+    await live()
+    lives_here(world)
+    world.now = at(21, 30, day=TUESDAY)
+    await book(world, booking(at(16, day=THURSDAY)))
+    await world.send_pending(world.now)  # the confirmation goes; the resident's waits
+    text = await one(NEW)
+    assert (text.status, text.not_before) == ("pending", at(8, 0, day=WEDNESDAY))
+    async with AsyncSessionFactory() as session, session.begin():
+        # Queued before the wording changed.
+        await session.execute(
+            update(ShowingNotice)
+            .where(ShowingNotice.id == text.id)
+            .values(payload={**text.payload, "body": "Older words."})
+        )
+
+    await world.send_pending(at(8, 0, day=WEDNESDAY))
+
+    current = (
+        "Automated showing alert: We've scheduled an in-person showing of your unit on "
+        "Thu, Apr 15 at 4:00 PM. A Sernia agent will be there the whole time. You may be "
+        "present or we can let ourselves in if you are not home."
+    )
+    assert world.texts.to(RESIDENT) == [current]
+    text = await one(NEW)
+    assert (text.status, text.payload["body"]) == ("sent", current)
+    assert text.payload["daytime_timezone"] == "America/New_York"
 
 
 def test_daytime_edges_in_the_showing_time_zone():
