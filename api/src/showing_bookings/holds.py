@@ -19,7 +19,8 @@ confirmation that holds something:
 - still pending, or unknown for less than five minutes: wait.
 
 ``send_pending`` runs ``release_held``, ``reminders.queue_due``,
-``daily_texts.queue_due`` (the host's morning text and the apply text),
+``daily_texts.queue_due`` (the host's morning text, the text 1 hour before and
+the apply text),
 ``outbox.drain`` and ``alerts.check``, in that order: the job every minute
 (``scheduled_run``, registered by ``register_job`` only when background
 automation is on), and outside production, where that job is off, the team's
@@ -69,7 +70,8 @@ NOT_SENT_NOTE = "Not sent: the confirmation text was not sent."
 
 class SendPendingReport(DrainReport):
     """One run of ``send_pending``: the held notices released or stopped, the
-    reminders, morning texts and apply texts queued, the drain, and the team alerts."""
+    reminders, morning texts, texts 1 hour before and apply texts queued, the drain, and
+    the team alerts."""
 
     released: int = 0
     stopped: int = 0
@@ -78,6 +80,7 @@ class SendPendingReport(DrainReport):
     lead_email_reminders: int = 0
     host_mornings: int = 0
     apply_texts: int = 0
+    hour_texts: int = 0
     alerts: int = 0
 
 
@@ -357,7 +360,8 @@ JOB_INFO = JobInfo(
         "text is reported delivered (or five minutes after it went, without a report), and "
         "stops them and marks the booking for the team when the text was not delivered. It "
         "queues the reminders due the evening before a showing, the host's morning text, "
-        "and the text with the link to apply that goes two hours after a showing starts. "
+        "the prospect's text 1 hour before a showing, and the text with the link to apply "
+        "that goes two hours after it starts. "
         "It delivers every notice that is due: texts through Quo from the team line, "
         "calendar events and invites through Google Calendar, and a Zillow lead's reminder "
         "by email through Gmail. Last, in production, it sends the team one web push for "

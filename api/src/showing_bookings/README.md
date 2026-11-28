@@ -778,6 +778,18 @@ the calendar and remove it by hand". A cancellation never creates an event.
 
 All wording, with versions, is in `wording.py`: the three confirmations, the
 consent small print, and the texts and calendar entries a booking sends.
+
+The prospect's invite (`INVITE_VERSION`) is titled "Showing: <their name as
+given> - <the address up to the first comma>" ("Showing: Pat Example - 324 S
+Main St Apt 11"), with the full address as its location. Its description says
+a Sernia agent will meet them, gives the cancel link, says that declining the
+invite does not cancel the showing and only the link does, and gives the team
+number for questions (`SERNIA_TEAM_PHONE`; left out when it is not set). A
+moved showing's invite first says which showing it replaces; a withdrawn one
+says the showing is cancelled. Google sends the invitation, with
+`sendUpdates=all`. Gmail marks an invitation from a sender the recipient has
+never dealt with "Invitation from an unknown sender" and asks before adding it
+to their calendar; that is Gmail's own and is accepted.
 Emilio reviews it before launch.
 
 ### Changing the host
@@ -913,7 +925,7 @@ counts as stuck ten minutes after it was due, so the team is alerted.
 
 The status is read from Quo through `outbox.refresh_text_status`.
 `holds.send_pending(now=)` runs, in order, `release_held`,
-`reminders.queue_due`, `daily_texts.queue_due` (the host's morning text and
+`reminders.queue_due`, `daily_texts.queue_due` (the host's morning text, the text 1 hour before and
 the apply text), `outbox.drain` and `alerts.check`. The APScheduler job
 `showing-notices` runs it every minute, registered only when background
 automation is on; with nothing held, due, recently failed, coming up in the
@@ -1254,6 +1266,27 @@ showings in order, each with its time, place and how many people are booked.
   per line), and if still too long lists as many showings as fit and ends
   with "…and 3 more showings today."
 - Wording: `wording.host_morning_text`, version `HOST_MORNING_VERSION`.
+
+### The text 1 hour before
+
+`daily_texts.py`. From 1 hour before a showing's start, each person still
+booked whom we may text (a mobile, consent, a number not known to be wrong, a
+settled reply) gets one text (`prospect_hour_reminder`, recipient key
+`attendee:<id>`), from the team line:
+
+"Hi Pat. Reminder: You have an in-person showing at 324 S Main St Apt 11 in 1
+hour at 1:30 PM"
+
+- Not for someone who booked less than 75 minutes before the start
+  (`HOUR_BOOKED_BY`): their confirmation just told them.
+- Any hour of the day; never once less than 45 minutes are left (`HOUR_LAST`),
+  after the start, or after a cancellation, which stops it with the booking's
+  other notices. Checked again when delivered, to the mobile on the booking then.
+- One per person, never repeated. Behind the guard and capture mode, and its
+  details are removed after 12 months like every notice's.
+- Wording: `wording.hour_reminder_text` (the first name as given, the address
+  up to the first comma, the time in the "1:30 PM" style), version
+  `HOUR_REMINDER_VERSION`.
 
 ### The apply text
 
