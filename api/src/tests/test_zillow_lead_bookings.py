@@ -211,7 +211,9 @@ async def lead(world, monkeypatch):
     monkeypatch.setattr(handle, "datetime", clock)
     monkeypatch.setattr(auto_reply, "datetime", clock)
     monkeypatch.setattr(handle, "notify_pending_approval", AsyncMock())
-    monkeypatch.setattr(handle, "send_reply", AsyncMock(return_value="Email sent."))
+    monkeypatch.setattr(
+        handle, "send_reply", AsyncMock(return_value=handle.Delivery("Email sent."))
+    )
     monkeypatch.setattr(auto_reply, "is_sernia_ai_enabled", AsyncMock(return_value=True))
     loaded = listing_data_module.Loaded(data=as_listing_data([world.listing], world.rules))
     monkeypatch.setattr(listing_data_module, "load", AsyncMock(return_value=loaded))
@@ -473,7 +475,9 @@ async def test_a_place_whose_reply_was_never_sent_is_not_in_the_next_case(lead, 
     monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=gmail_refused()))
     with pytest.raises(HTTPException):
         await lead.decide_on(await lead.decide(outcome()))
-    monkeypatch.setattr(handle, "send_reply", AsyncMock(return_value="Email sent."))
+    monkeypatch.setattr(
+        handle, "send_reply", AsyncMock(return_value=handle.Delivery("Email sent."))
+    )
 
     await lead.decide(outcome("no_reply", status="none"))
 

@@ -6,6 +6,8 @@ thread's headers read for the message the route answers, then
 shared external mailbox. Only ``outbox.py`` uses it, after the guard, with a
 route the outbox read from the lead conversation just before.
 
+- Outside production, to an address off the test list
+  (``handle.captures_lead_email``): ``NotSent``, nothing read or sent.
 - The thread's headers cannot be read: nothing went out, ``NotSent`` and
   tried again later. An email is never sent outside the lead's thread.
 - Gmail refused it (a 4xx other than a timeout, by the lead agent's own
@@ -34,6 +36,10 @@ class GmailThreadSender:
         # Imported here: the lead agent's module imports this package.
         from api.src.zillow_leads import handle
 
+        if handle.captures_lead_email(route.to):
+            # The guard sends here outside production only to the test list,
+            # which is the same rule, so this answers only if the two disagree.
+            raise NotSent("not_production", "A lead's email goes out only from production.")
         threading = await handle._get_threading_headers(
             route.reply_to_message_id, handle.SHARED_EXTERNAL_EMAIL
         )

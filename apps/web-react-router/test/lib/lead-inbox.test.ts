@@ -80,6 +80,7 @@ test("each run says how it ended and who decided", () => {
   assert.equal(runResult({ result: "sent_edited", decided_by: "Pat Doe", decided_at: null }), "Edited by Pat Doe and sent");
   assert.equal(runResult({ result: "waiting", decided_by: null, decided_at: null }), "Waiting for approval");
   assert.equal(runResult({ result: "sent_automatically", decided_by: null, decided_at: at }), "Sent automatically, Fri, Nov 27, 9:54 PM");
+  assert.equal(runResult({ result: "captured", decided_by: "Pat Doe", decided_at: null }), "Approved by Pat Doe, captured, not sent");
 });
 
 test("the header leads with move-in, pets and occupants", () => {

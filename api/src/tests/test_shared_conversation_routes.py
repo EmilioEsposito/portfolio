@@ -250,7 +250,7 @@ async def test_lead_approval_uses_stored_handler_and_route(
 ):
     from api.src.sernia_ai import conversation_handler
 
-    send = AsyncMock(return_value="Synthetic reply sent")
+    send = AsyncMock(return_value=handle.Delivery("Synthetic reply sent"))
     general = AsyncMock(side_effect=AssertionError("Lead must not run the general agent"))
     monkeypatch.setattr(handle, "send_reply", send)
     monkeypatch.setattr(conversation_handler, "approve_general_conversation", general)
@@ -290,7 +290,7 @@ async def test_concurrent_lead_approvals_across_mounts_send_once(
         calls.append(args)
         entered.set()
         await release.wait()
-        return "Synthetic reply sent"
+        return handle.Delivery("Synthetic reply sent")
 
     monkeypatch.setattr(handle, "send_reply", send)
     second_loaded = asyncio.Event()

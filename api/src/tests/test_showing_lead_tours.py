@@ -241,7 +241,9 @@ async def lead_run(monkeypatch, data):
     monkeypatch.setattr(listing_data_module, "load", AsyncMock(return_value=loaded))
     monkeypatch.setattr(handle, "load_lead_thread", AsyncMock(return_value=lead_thread()))
     monkeypatch.setattr(handle, "notify_pending_approval", AsyncMock())
-    monkeypatch.setattr(handle, "send_reply", AsyncMock(return_value="Email sent."))
+    monkeypatch.setattr(
+        handle, "send_reply", AsyncMock(return_value=handle.Delivery("Email sent."))
+    )
     no_reply = TypeAdapter(LeadOutcome).validate_python(
         {"lead": {}, "tour": {}, "action": "no_reply", "reason": "Test."}
     )

@@ -11,7 +11,7 @@ It reads what is already stored and calls no Google API:
   on (``metadata.case``, from ``case.case_record``), which holds the thread as
   Gmail had it then. The newest run's thread, plus any reply sent after it was
   built (an approval's ``sent_body``, or ``auto_delivery.body``), is the email
-  history. A reply written in Gmail or in a Sernia AI chat appears once the
+  history; one captured outside production is shown, marked captured. A reply written in Gmail or in a Sernia AI chat appears once the
   lead writes again and the agent runs; the page links the Gmail thread.
 - The showings are the booking service's attendee rows tied to the thread
   (``showing_attendees.zillow_thread_id``), less a place booked for a reply
@@ -97,6 +97,7 @@ RunResult = Literal[
     "sent",
     "sent_edited",
     "sent_automatically",
+    "captured",
     "rejected",
     "handled",
     "no_reply",
@@ -126,8 +127,9 @@ class LeadEmail(BaseModel):
     text: str
     form: list[FormFact] = Field(default_factory=list)
     # Ours only: "inbox" when a person approved it from a card, "automatic" when
-    # the agent sent it alone; None for one read from Gmail.
-    sent_by: Literal["inbox", "automatic"] | None = None
+    # the agent sent it alone, "captured" when it was kept outside production and
+    # never sent (``handle.send_reply``); None for one read from Gmail.
+    sent_by: Literal["inbox", "automatic", "captured"] | None = None
 
 
 class ShowingSummary(BaseModel):
@@ -401,21 +403,25 @@ async def _read_showings(
 class Sent:
     body: str
     at: datetime
-    by: Literal["inbox", "automatic"]
+    by: Literal["inbox", "automatic", "captured"]
 
 
 def sent_replies(run: Run) -> list[Sent]:
-    """The replies this run's cards sent: approved from a card, or sent automatically."""
+    """The replies this run's cards sent: approved from a card, or sent automatically.
+    One captured outside production is listed too, as captured."""
     sent: list[Sent] = []
     for record in run.approval:
         at = _when(record.get("at"))
         body = record.get("sent_body")
         if record.get("tool_name") == SEND_REPLY and record.get("approved") and body and at:
-            sent.append(Sent(body=body, at=at, by="inbox"))
+            sent.append(
+                Sent(body=body, at=at, by="captured" if record.get("captured") else "inbox")
+            )
     delivery = run.auto_delivery
     at = _when(delivery.get("at"))
-    if delivery.get("status") == "sent" and delivery.get("body") and at:
-        sent.append(Sent(body=delivery["body"], at=at, by="automatic"))
+    if delivery.get("status") in ("sent", "captured") and delivery.get("body") and at:
+        by = "captured" if delivery["status"] == "captured" else "automatic"
+        sent.append(Sent(body=delivery["body"], at=at, by=by))
     return sent
 
 
@@ -436,11 +442,15 @@ def run_result(run: Run) -> Result:
         return Result("handed_off", run.hand_off.get("by"), _when(run.hand_off.get("at")))
     if run.auto_delivery.get("status") == "sent":
         return Result("sent_automatically", None, _when(run.auto_delivery.get("at")))
+    if run.auto_delivery.get("status") == "captured":
+        return Result("captured", None, _when(run.auto_delivery.get("at")))
     for record in reversed(run.approval):
         by, at = record.get("by"), _when(record.get("at"))
         if record.get("tool_name") == SEND_REPLY:
             if not record.get("approved"):
                 return Result("rejected", by, at)
+            if record.get("captured"):
+                return Result("captured", by, at)
             return Result("sent_edited" if record.get("edited") else "sent", by, at)
         if record.get("tool_name") == ASK_TEAM:
             return Result("handled", by, at)
