@@ -6,6 +6,7 @@ for the live writer's own answers). Names and numbers are made up.
 
 import json
 from datetime import timedelta
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -424,6 +425,8 @@ async def test_the_writer_looks_a_number_up_afresh(monkeypatch):
     )
     monkeypatch.setattr(quo_lead_contacts, "_client", quo.client)
     monkeypatch.setattr(service, "_contact_cache", [], raising=False)
+    # A machine up for a second, as a fresh CI runner is: the cache must still be dropped.
+    monkeypatch.setattr(service, "time", SimpleNamespace(monotonic=lambda: 1.0))
     try:
         assert await QuoLeadContacts().with_phone(PHONE) == [held]
         assert await QuoLeadContacts().with_phone(PHONE) == [held]
