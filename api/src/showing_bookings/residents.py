@@ -74,6 +74,10 @@ PROBLEMS = {
     "too_many_residents": "More residents than one group text takes: tell them yourself",
 }
 
+# Contacts that name a unit without living there: a Lead carries the unit it
+# asked about, and none of these has lease dates (the quo-contact skill's roles).
+NOT_RESIDENT_ROLES = frozenset({"lead", "prior tenant", "vendor", "partner"})
+
 SHOWING_CANCELLED_NOTE = "Not sent: the showing was cancelled."
 TOO_LATE_NOTE = "Not sent: the showing's time had passed before it was daytime."
 NEVER_TOLD_NOTE = (
@@ -141,11 +145,18 @@ def _loose(value: str) -> str:
     return text.lstrip("0") or text
 
 
+def _not_a_resident(contact: dict) -> bool:
+    """Staff, or a role that names a unit without living there (``NOT_RESIDENT_ROLES``)."""
+    role = (contact.get("defaultFields", {}).get("role") or "").strip().casefold()
+    return is_internal_contact(contact) or role in NOT_RESIDENT_ROLES
+
+
 def _lacks_lease_dates(contact: dict, prop: str, number: str) -> bool:
-    """A non-internal contact naming exactly this unit, without a readable lease start
-    or end date. Dates that read but are not current (a past or future tenant) are
-    not missing."""
-    if get_contact_unit(contact) != (prop, number) or is_internal_contact(contact):
+    """A contact that could be a resident, naming exactly this unit, without a readable
+    lease start or end date. Dates that read but are not current (a past or future
+    tenant) are not missing. A Lead, Prior Tenant, Vendor or Partner has no lease
+    dates to miss."""
+    if get_contact_unit(contact) != (prop, number) or _not_a_resident(contact):
         return False
     dates = {field.get("name"): field.get("value") for field in contact.get("customFields", [])}
     return any(

@@ -358,3 +358,59 @@ class ShowingNotice(Base):
 
     def __repr__(self) -> str:
         return f"<ShowingNotice(id={self.id!r}, kind={self.kind!r}, status={self.status!r})>"
+
+
+LEAD_CONTACT_STATUSES = ("pending", "done", "failed")
+LEAD_CONTACT_RESULTS = ("created", "updated", "unchanged", "left_alone", "skipped")
+
+
+class LeadContactJob(Base):
+    """One person's Quo Lead contact to create or fill in (``lead_contacts.py``): someone
+    booked with a mobile, or a Zillow lead whose thread gave a phone number.
+
+    It holds the person's details only until it is worked: ``phone``, ``name`` and
+    ``email`` are emptied when it is done or has failed. ``key`` names the booking
+    or thread with a digest of the number, so one number is queued once for each.
+    """
+
+    __tablename__ = "lead_contact_jobs"
+    __table_args__ = (
+        _one_of("status", LEAD_CONTACT_STATUSES),
+        CheckConstraint(
+            "result IS NULL OR result IN ("
+            + ", ".join(f"'{r}'" for r in LEAD_CONTACT_RESULTS)
+            + ")",
+            name="result",
+        ),
+        Index(
+            "ix_lead_contact_jobs_pending_next_attempt_at",
+            "next_attempt_at",
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # "attendee:<id>:<digest>" or "thread:<Zillow thread id>:<digest>".
+    key: Mapped[str] = mapped_column(String, unique=True)
+    attendee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("showing_attendees.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    zillow_thread_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The listing's unit key, such as "324-11", and the showing's start, when booked.
+    unit: Mapped[str | None] = mapped_column(String, nullable=True)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String, nullable=True)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    email: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="pending", server_default="pending")
+    # What was done in Quo, once done.
+    result: Mapped[str | None] = mapped_column(String, nullable=True)
+    contact_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<LeadContactJob(id={self.id!r}, status={self.status!r})>"

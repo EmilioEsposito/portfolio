@@ -77,7 +77,7 @@ from api.src.google.common.config import (
 from api.src.google.common.service_account_auth import get_delegated_credentials
 from api.src.google.gmail.service import send_email as _send_email
 from api.src.google.gmail.threading import GMAIL_SCOPES, _get_threading_headers
-from api.src.showing_bookings import guard, lead_bookings
+from api.src.showing_bookings import guard, lead_bookings, lead_contacts
 from api.src.showing_bookings.lead_tours import lead_booking_for, tour_source_for_lead_agent
 from api.src.showing_bookings.settings import current_environment, read_test_recipients
 from api.src.utils import team_links
@@ -327,6 +327,16 @@ async def handle_thread(
     except Exception:
         logfire.exception("zillow lead: conversation not saved", conversation_id=conversation_id)
         persisted = False
+
+    if persisted and outcome.lead.phone:
+        # A Quo Lead contact for the number the thread gave (never the relay address).
+        await lead_contacts.queue_zillow_lead(
+            thread_id,
+            name=outcome.lead.name,
+            phone=outcome.lead.phone,
+            unit=outcome.lead.unit,
+            now=now,
+        )
 
     if persisted and isinstance(outcome, NoReply):
         # Nothing is sent, so nothing waits: a lead who wrote that they cannot
