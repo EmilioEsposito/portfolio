@@ -995,7 +995,8 @@ booking transaction, as it may read Quo.
   `lease_dates_missing` (no one at the unit has a current lease, and a
   non-internal contact naming it exactly lacks a readable lease start or end
   date, so it may be lived in; a past or future tenant with both dates
-  readable is not this), `unit_key_unreadable` (a key with no hyphen),
+  readable is not this, nor is a contact whose role is Lead, Prior Tenant,
+  Vendor or Partner, which names a unit without living there), `unit_key_unreadable` (a key with no hyphen),
   `unit_spelled_differently` (no
   contact matches exactly, but a current tenant's contact names the unit
   another way, such as `3` for `03`), `resident_without_mobile`, or
@@ -1272,6 +1273,47 @@ number is not known to be wrong and who is not marked a no-show, gets one text
   so a job that was off for days does not text people about a showing long
   past.
 - Wording: `wording.apply_text`, version `APPLY_VERSION`.
+
+### Quo Lead contacts
+
+`lead_contacts.py`. Everyone whose mobile we have gets a Quo Lead contact, as
+the team's `quo-contact` skill writes them (sernia-knowledge,
+`.claude/skills/quo-contact/SKILL.md`): first name `Lead 324-11 Quinn`, last
+name the rest of the name or `.`, role `Lead`, company `324`, the mobile in
+E.164 labelled `mobile`, an email labelled `Email`, the Property and Unit #
+fields, and tags `324` and, for a Zillow lead, `Zillow Lead`. Never the
+external id.
+
+- Who: every attendee with a mobile (booked on the page, by the team, or a
+  lead adding their details; a corrected mobile too), for showings from 7
+  days ago on, queued by the job each minute, so bookings made before this
+  existed are queued on its first run; and a Zillow lead whose thread gave a
+  phone number, queued from the lead agent's outcome
+  (`zillow_leads/handle.py`), with the thread's name and unit and no email (a
+  lead's address in a thread is Zillow's relay). The contact is for the
+  person whose number it is, whoever booked.
+- The number is looked up in Quo first. A number held by any contact that is
+  not a Lead (a Tenant, Prior Tenant, Vendor, Partner, staff, or no role) is
+  left alone. An existing Lead only gets what it lacks: an email when it has
+  none, a last name where it has none or `.`, and the tags; it is never
+  renamed and its unit never changes. Otherwise a new Lead contact is made.
+  Quo's update replaces a contact's lists whole, so every email, number and
+  custom field is sent back.
+- A booking's job waits 10 minutes, and is skipped when the confirmation text
+  found the number wrong or the mobile has changed since (the new number has
+  its own job).
+- Jobs are rows in `lead_contact_jobs`. Quo out of reach, rate limited or
+  failing is tried again 2, 4, 8 and 16 minutes later, then fails; any other
+  refusal fails at once. A failure is logged and never touches a booking.
+  Once a job is done or has failed, its phone, name and email are emptied:
+  it keeps the booking or thread, a digest of the number in its key, the
+  unit, what was done (`created`, `updated`, `unchanged`, `left_alone` or
+  `skipped`) and the Quo contact's id.
+- Outside production the contacts go to an in-memory stand-in, so nothing
+  writes to the real Quo; only `lead_contacts.py` imports the live writer
+  (`quo_lead_contacts.py`), which sends no text.
+- No contact note: Quo's v1 API, which the rest of the code uses, has no
+  note endpoint.
 
 ### Removing prospects' details after 12 months
 
