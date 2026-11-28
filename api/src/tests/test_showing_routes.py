@@ -379,6 +379,7 @@ async def test_outside_production_the_job_is_run_once_by_hand(api):
         "resident_reminders": 0,
         "host_mornings": 0,
         "apply_texts": 0,
+        "hour_texts": 0,
         "lead_email_reminders": 0,
         "alerts": 0,
     }

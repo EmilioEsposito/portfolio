@@ -86,7 +86,8 @@ HOST_TEXT_KINDS = (
 # the apply link two hours after a showing (``daily_texts.py``).
 HOST_MORNING_KIND = "host_morning"
 APPLY_KIND = "prospect_apply"
-DAILY_TEXT_KINDS = frozenset({HOST_MORNING_KIND, APPLY_KIND})
+HOUR_KIND = "prospect_hour_reminder"
+DAILY_TEXT_KINDS = frozenset({HOST_MORNING_KIND, APPLY_KIND, HOUR_KIND})
 KINDS = REMINDER_KINDS | HOST_TEXT_KINDS | DAILY_TEXT_KINDS
 
 # A booking whose confirmation text could not reach the number: it is texted
@@ -115,6 +116,7 @@ MORNING_MISSED = "Not sent: the morning had passed."
 NOTHING_TODAY = "Not sent: the host has no showing left today."
 APPLY_MISSED = "Not sent: the showing was more than two days ago."
 NUMBER_CHANGED = "Not sent: the booking's mobile was changed after this was written."
+HOUR_MISSED = "Not sent: it was too late for the text 1 hour before."
 
 MORNING = time(8, 0)
 # A morning text not sent by noon is not sent at all.
@@ -123,6 +125,11 @@ MORNING_ENDS = time(12, 0)
 # started up to two days ago.
 APPLY_AFTER = timedelta(hours=2)
 APPLY_LOOKBACK = timedelta(days=2)
+# The text 1 hour before a showing: due then, for people booked at least 75
+# minutes before the start, and not sent once less than 45 minutes are left.
+HOUR_BEFORE = timedelta(hours=1)
+HOUR_BOOKED_BY = timedelta(minutes=75)
+HOUR_LAST = timedelta(minutes=45)
 
 
 @dataclass(frozen=True)
@@ -204,6 +211,8 @@ async def too_late(session: AsyncSession, notice: ShowingNotice, now: datetime) 
     payload = notice.payload
     if notice.kind == APPLY_KIND:
         return APPLY_MISSED if now >= starts_at + APPLY_LOOKBACK else None
+    if notice.kind == HOUR_KIND:
+        return HOUR_MISSED if now > starts_at - HOUR_LAST else None
     if notice.kind == HOST_MORNING_KIND:
         _, day = _morning_of(notice.recipient_key)
         ends = _morning_ends(day, payload.get("daytime_timezone") or "UTC")
@@ -257,6 +266,8 @@ async def check(session: AsyncSession, notice: ShowingNotice, now: datetime) -> 
         return await _host_morning(session, notice, now)
     if notice.kind == APPLY_KIND:
         return await _apply_text(session, notice, now)
+    if notice.kind == HOUR_KIND:
+        return await _hour_text(session, notice, now)
     return await _host_text(session, notice, now)
 
 
@@ -330,6 +341,29 @@ async def _prospect_reminder(
         return Verdict(cancel=NOT_TEXTED)
     notice.recipient = attendee.mobile
     return _daytime(notice, now)
+
+
+async def _hour_text(session: AsyncSession, notice: ShowingNotice, now: datetime) -> Verdict:
+    """The text 1 hour before: still booked in a scheduled showing, texted, and at
+    least 45 minutes before the start. Any hour of the day; to the mobile now."""
+    row = (
+        await session.execute(
+            select(ShowingAttendee, Showing.status, Showing.starts_at)
+            .join(Showing, Showing.id == ShowingAttendee.showing_id)
+            .where(ShowingAttendee.id == notice.attendee_id)
+        )
+    ).first()
+    if row is None or row[0].status != "booked" or row[1] != "scheduled":
+        return Verdict(cancel=BOOKING_CANCELLED)
+    attendee, _status, starts_at = row
+    if starts_at <= now:
+        return Verdict(cancel=STARTED)
+    if now > starts_at - HOUR_LAST:
+        return Verdict(cancel=HOUR_MISSED)
+    if not can_text(attendee):
+        return Verdict(cancel=NOT_TEXTED)
+    notice.recipient = attendee.mobile
+    return GO
 
 
 async def _resident_reminder(

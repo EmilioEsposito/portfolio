@@ -7,7 +7,9 @@
   attendee row with the wording, so a later change of wording or of a
   listing's dates does not change what a person agreed to.
 - What a booking sends (``NOTICES_VERSION``): the prospect's confirmation
-  text, the host's calendar event and the prospect's own invite.
+  text and the host's calendar event; the prospect's own invite, its move and
+  its withdrawal (``INVITE_VERSION``).
+- The prospect's text 1 hour before the showing (``HOUR_REMINDER_VERSION``).
 - The confirmation text when a lead moved their showing by email and the new
   place keeps their details (``MOVED_VERSION``).
 - What a cancellation sends (``CANCELLATION_VERSION``): the prospect's text
@@ -47,6 +49,8 @@ MOVED_VERSION = "v1"
 CANCELLATION_VERSION = "v1"
 RESIDENT_VERSION = "v2"
 REMINDER_VERSION = "v1"
+HOUR_REMINDER_VERSION = "v1"
+INVITE_VERSION = "v2"
 LEAD_EMAIL_VERSION = "v1"
 HOST_TEXT_VERSION = "v1"
 HOST_MORNING_VERSION = "v1"
@@ -245,16 +249,43 @@ def host_event_description(guests: Sequence[Guest], showing_url: str | None = No
     return "\n".join(lines)
 
 
-def invite_summary(visit: Visit) -> str:
-    return f"Showing of {place(visit)} with Sernia Capital"
+def street(visit: Visit) -> str:
+    """ "324 S Main St Apt 11": the address up to the first comma, or the unit when
+    there is no address."""
+    return visit.address.split(",")[0].strip() if visit.address else f"unit {visit.unit}"
 
 
-def invite_description(cancel_url: str) -> str:
-    return (
-        "Your in-person showing with Sernia Capital.\n"
-        f"To cancel, use this link: {cancel_url}\n"
-        "Declining this invite does not cancel the showing; please use the link."
-    )
+def _questions(team_phone: str | None) -> list[str]:
+    return [f"Questions? Text or call us at {display_phone(team_phone)}."] if team_phone else []
+
+
+def invite_summary(visit: Visit, name: str) -> str:
+    """The prospect's invite: "Showing: Pat Example - 324 S Main St Apt 11". The
+    name is as they gave it; the event's location holds the full address
+    (``INVITE_VERSION``)."""
+    return f"Showing: {' '.join(name.split()) or 'Prospect'} - {street(visit)}"
+
+
+def invite_description(
+    visit: Visit,
+    cancel_url: str,
+    team_phone: str | None,
+    replaces: Sequence[datetime] = (),
+) -> str:
+    """Who meets them, the cancel link, that declining cancels nothing, and the team
+    number. With ``replaces`` it first says which showing this one replaces."""
+    lines = []
+    if replaces:
+        old = [_day_and_time(start, visit.timezone) for start in sorted(replaces)]
+        earlier = "showing on " + old[0] if len(old) == 1 else "showings on " + " and ".join(old)
+        lines.append(f"Your showing has moved to this time. It replaces your {earlier}.")
+    lines += [
+        "A Sernia agent will meet you there.",
+        f"To cancel, use this link: {cancel_url}",
+        "Declining this invite does not cancel the showing. Only the link does.",
+        *_questions(team_phone),
+    ]
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -295,12 +326,19 @@ def host_event_cancelled_description(reason: str | None) -> str:
     return f"This showing is cancelled. {_REASONS.get(reason or '', '')}".strip()
 
 
-def invite_cancelled_summary(visit: Visit) -> str:
-    return f"Cancelled: {invite_summary(visit)}"
+def invite_cancelled_summary(visit: Visit, name: str) -> str:
+    return f"Cancelled: {invite_summary(visit, name)}"
 
 
-def invite_cancelled_description() -> str:
-    return "Your in-person showing with Sernia Capital is cancelled."
+def invite_cancelled_description(visit: Visit, team_phone: str | None) -> str:
+    """The withdrawn invite. Google's own cancellation email carries the event; this
+    is what the Messages list shows of it."""
+    return "\n".join(
+        [
+            f"Your in-person showing on {when(visit)} at {street(visit)} is cancelled.",
+            *_questions(team_phone),
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +392,18 @@ def prospect_reminder_text(visit: Visit, cancel_url: str) -> str:
     return (
         f"Sernia Capital: a reminder of your in-person showing on {when(visit)} "
         f"at {place(visit)}.\nTo cancel: {cancel_url}\nReply STOP to opt out."
+    )
+
+
+def hour_reminder_text(visit: Visit, name: str) -> str:
+    """To a prospect 1 hour before their showing, in Emilio's words: "Hi Pat. Reminder:
+    You have an in-person showing at 324 S Main St Apt 11 in 1 hour at 1:30 PM"
+    (``HOUR_REMINDER_VERSION``)."""
+    first = name.split()[0] if name.split() else ""
+    hello = f"Hi {first}." if first else "Hi."
+    start = _clock(_local(visit.starts_at, visit.timezone))
+    return (
+        f"{hello} Reminder: You have an in-person showing at {street(visit)} in 1 hour at {start}"
     )
 
 
@@ -542,6 +592,7 @@ NOTICE_LABELS = {
     "prospect_confirmation": "Prospect's confirmation",
     "prospect_invite": "Prospect's invite",
     "prospect_reminder": "Prospect's reminder",
+    "prospect_hour_reminder": "Prospect's text: 1 hour before",
     "lead_email_reminder": "Lead's reminder by email, in their Zillow thread",
     "prospect_cancelled": "Prospect's cancellation",
     "prospect_cancelled_by_team": "Team's cancellation to the prospect",

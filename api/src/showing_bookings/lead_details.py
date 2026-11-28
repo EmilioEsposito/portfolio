@@ -371,8 +371,8 @@ async def _queue_notices(
         payload=CalendarPayload(
             operation="create",
             calendar_id=calendar_id,
-            summary=wording.invite_summary(visit),
-            description=wording.invite_description(link),
+            summary=wording.invite_summary(visit, attendee.name),
+            description=wording.invite_description(visit, link, bookings.team_phone_or_none()),
             location=showing.address,
             starts_at=showing.starts_at,
             ends_at=showing.ends_at,

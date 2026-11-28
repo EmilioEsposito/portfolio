@@ -213,8 +213,10 @@ async def _tell_attendee(
             payload=CalendarPayload(
                 operation="cancel",
                 calendar_id=calendar_id,
-                summary=wording.invite_cancelled_summary(visit),
-                description=wording.invite_cancelled_description(),
+                summary=wording.invite_cancelled_summary(visit, attendee.name),
+                description=wording.invite_cancelled_description(
+                    visit, bookings.team_phone_or_none()
+                ),
                 location=showing.address,
                 starts_at=showing.starts_at,
                 ends_at=showing.ends_at,
