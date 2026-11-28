@@ -42,8 +42,9 @@ The database enforces three rules, so no code path can break them:
 - One notice per kind, showing and recipient key (a unique key), so a retry or
   a later attendee cannot text the same person twice.
 
-An attendee is booked on the page, by the team, or by the Zillow lead agent
-(`source` is `page`, `team` or `lead_agent`). A lead the lead agent books in an
+An attendee is booked on the page, by the team (on the tab, or through the
+general agent's showing tools), or by the Zillow lead agent (`source` is
+`page`, `team` or `lead_agent`). A lead the lead agent books in an
 email thread may not have given a mobile number or an email yet, so both can
 be empty; such a row is tied to its Zillow thread, and to the lead conversation
 whose reply booked it (`lead_conversation_id`). A booked mobile number, and
@@ -677,8 +678,9 @@ tokens; a cancel token travels in the body for the same reason.
      the invite are due now, and with no email there is no invite.
 
    Steps 3 and 4 are `bookings.place_booking`, which every booking goes
-   through: the page, the team (see The team's actions below) and later the
-   Zillow lead agent. It takes a `Person` (name, source, and optionally a
+   through: the page, the team (the tab's Add a booking and the general
+   agent's `showing_book`, both through `team_actions.book_for_caller`; see
+   The team's actions below) and the Zillow lead agent's replies. It takes a `Person` (name, source, and optionally a
    mobile, an email, consent to texts, the form's confirmations, a lead
    token or Zillow thread) and an optional `checks(session)` run under the
    locks, which is how the page applies its limits and a moved showing checks
@@ -1403,6 +1405,25 @@ A booking for a caller:
   when there is none. The answer's `notices` lists the residents' text with
   the others. Changing the host and marking attendance tell the residents
   nothing.
+
+The general agent (Sernia AI) is one more caller of the same code, through
+its deferred `showing-bookings` capability (`sernia_ai/tools/showing_tools.py`,
+documented in [its tool policies](../sernia_ai/tools/README.md#showings-showing_toolspy)):
+
+- `showings_read` reads what the Showings section shows, with each unit's
+  booking link or why it has none, and a Zillow thread's own link and
+  showings (`lead_tours.lead_booking_for`).
+- `showing_book` calls `book_for_caller` with `taken_by` set to the signed-in
+  person's email and "(via Sernia AI)". It may pass `zillow_thread_id`, which
+  `book_for_caller` takes as a keyword (the tab's form has no such field) and
+  puts on the `Person`: the row is tied to the lead's thread as a page booking
+  through the lead's link is, with source `team` and no lead conversation.
+- `showing_cancel` calls `cancelling.cancel_showing` or
+  `cancelling.remove_attendee`.
+
+Each booking and cancellation waits for a person's approval, on a card that
+states what it does and who is told. The agent has no move, host change or
+attendance tool.
 
 Changing the host refuses: 404 `unknown_showing` or `unknown_agent`; 409
 `not_scheduled`, `started`, `same_host`, `event_being_sent`, and the agent's

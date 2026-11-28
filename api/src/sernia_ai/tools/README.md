@@ -187,7 +187,50 @@ the automatic SMS-webhook escalation pipeline (`analyze_for_twilio_escalation`).
 | `code_tools.py` | `run_python`: Python sandbox (pydantic-monty 1.x) for math, formatting, data manipulation. See [Python sandbox](#python-sandbox-code_toolspy). |
 | `workspace_tools.py` | Workspace file tools (`workspace_read_file`, `_write_file`, `_edit_file`, `_list_directory`, `_find_files`, `_search_files`, `_delete_file`). The harness `FileSystem` tools behind an adapter: `/workspace/...` and relative paths both work, only `.md`/`.txt`/`.json` files, `.git` denied, parent directories created on write, and recoverable errors raised as `WorkspaceToolError` instead of tool retries. Contributed by the `SerniaWorkspace` capability, which also makes each run's `deps.workspace_path` its workspace; the harness refuses its file tools from plain `toolsets=`. |
 | `rental_listing_tools.py` | `rental_listings_read`, `rental_listing_update`, `showing_rules_update`, `rental_listing_history`, `rental_listing_zillow_ad_read`: read and change each rental unit's listing, meaning the next lease on offer (`asking_rent`, `next_lease_start_*`, `off_market_on`, `zillow_listing_url_*`, `preferred_showing_times`, `listing_description` (the Zillow ad's description as published), `public_facts`, `internal_notes`) and the showing rules, in the [`rental_listings`](../../rental_listings/README.md) tables. The Zillow lead agent's case is built from this. A deferred capability (`rental-listing-data`), so the tools appear after `load_capability`. Every change must pass the checks in `rental_listings/checks.py`; a new listing, an address, the listing description, a public fact, an internal note, or a Zillow ad link also needs HITL approval, and so does an off-market date that would cancel booked showings (the approval states how many showings and people texted); other typed fields are saved at once. `rental_listing_zillow_ad_read` reads a unit's live Zillow ad as text, through Jina Reader (`rental_listings/zillow_ad.py`), and returns it beside the listing, so the agent can propose changes from it, the ad's description copied into `listing_description` among them. Every save is recorded in `rental_listing_changes` with the user and the conversation. |
+| `showing_tools.py` | `showings_read`, `showing_book`, `showing_cancel`: tour times and showings from the [booking service](../../showing_bookings/README.md), the same code the Booking settings tab uses. A deferred capability (`showing-bookings`). See [Showings](#showings-showing_toolspy). |
 | `_logging.py` | Shared error logging wrapper for tool failures. Workspace file-tool errors (`WorkspaceToolError`) log at warn (not error) so they don't page; a missed edit (`WorkspaceEditMiss`) gets a "re-read the file, don't guess whitespace" hint, and repeated identical recoverable failures escalate with explicit STOP guidance. |
+
+## Showings (`showing_tools.py`)
+
+Tour times, booking links and booked showings live in the booking service, not
+in the rental listing. These tools make the general agent one more caller of the
+code behind the Booking settings tab. A deferred capability (`showing-bookings`),
+loaded with `load_capability`; the lead agent never sees it.
+
+| Tool | Approval | Description |
+|------|----------|-------------|
+| `showings_read(unit?, zillow_thread_id?)` | No | The send mode; each unit's booking link (`bookings.unit_url`) or why it has none (off the market, public booking off, not live in live mode); its open times (`open_times.open_times`, 8 per unit, 60 for one named unit); the scheduled showings in the next 14 days that have not started, with each person's attendee id, name, mobile, email, whether they take texts and who booked them, as the tab's list shows staff; and how each agent's calendar was read. With a Zillow thread id: that thread's own link for each unit and its own showings, from `lead_tours.lead_booking_for`, whatever the lead agent's switch says (a note says when it is off). The first read of a thread saves its link token (`lead_links.token_for_thread`); a thread id the lead agent never handled gets no token. |
+| `showing_book(unit, start, name, mobile?, email?, texts_accepted=False, zillow_thread_id?, effect?)` | Always | Books through `team_actions.book_for_caller`, so through `bookings.place_booking` with source `team`, with the same checks and notices as the tab's Add a booking. `taken_by` is the signed-in person's email with "(via Sernia AI)", which becomes the consent record's page when texts are accepted. A `Refused` is answered as its message. |
+| `showing_cancel(showing_id, attendee_id?, effect?)` | Always | `cancelling.cancel_showing` for the whole showing, or `cancelling.remove_attendee` for one person, as the tab does. |
+
+**What the approval card says.** `showing_book` and `showing_cancel` first book
+or cancel nothing: they answer with what would happen (who, the unit, the time
+in local words, the host, who is told: the host's calendar, the residents'
+text, the prospect's confirmation text and invite, cancellation texts, and
+what the send mode does with them). The agent calls again with that exact text
+as `effect`, which the approval card shows in the call's arguments, and the
+call raises `ApprovalRequired`. On approval the text is worked out again; if it
+differs (someone else booked the time, a person left), nothing is done and the
+new text is returned. This is `rental_listing_update`'s `off_market_effect`
+pattern.
+
+**Texts.** `texts_accepted` defaults to false. The docstring and guide allow it
+only when the person in the chat says the prospect agreed to texts about the
+showing. Without it the prospect gets no confirmation, reminder or cancellation
+by text.
+
+**A lead's thread.** `showing_book` takes an optional `zillow_thread_id`, passed
+through `book_for_caller` to `Person.zillow_thread_id`, so the lead agent's
+next case for the thread lists the showing as the lead's own, and a later
+"can we move it?" plans, moves or cancels it like any of the thread's places.
+The row keeps source `team` and no `lead_conversation_id`, the same shape as a
+page booking through the lead's own link: every check that applies only to a
+place a lead-agent reply booked (`delivery_checks.reply_unsettled`, the reminder
+by email, the link's "add your details") keys on source `lead_agent` and leaves
+it alone. The id must belong to a thread the lead agent handled.
+
+There is no move tool: a move is a booking at the new time, then a removal from
+the old showing, which sends the team's cancellation text for the old time.
 
 ## Python sandbox (`code_tools.py`)
 

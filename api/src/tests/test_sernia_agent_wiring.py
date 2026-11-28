@@ -62,6 +62,25 @@ class TestCapabilityWiring:
     def test_instrumentation_enabled(self):
         _single(_agent_capabilities(), Instrumentation)
 
+    @pytest.mark.parametrize("module_name", ["rental_listing_tools", "showing_tools"])
+    def test_deferred_tool_capabilities_are_wired_once_with_error_logging(self, module_name):
+        """The rental listing and showing tools: deferred, each tool call logged on failure."""
+        import importlib
+
+        from api.src.sernia_ai.general_agent import RESERVED_SKILL_NAMES
+        from api.src.sernia_ai.tools._logging import ErrorLoggingToolset
+
+        module = importlib.import_module(f"api.src.sernia_ai.tools.{module_name}")
+        (capability,) = [
+            c for c in _agent_capabilities() if getattr(c, "id", None) == module.CAPABILITY_ID
+        ]
+        assert capability.defer_loading is True
+        assert capability.description == module.DESCRIPTION
+        assert capability.get_instructions() == module.GUIDE
+        assert isinstance(capability.get_toolset(), ErrorLoggingToolset)
+        # A workspace skill of the same name cannot take its place.
+        assert module.CAPABILITY_ID in RESERVED_SKILL_NAMES
+
     def test_native_tools_collected(self):
         kinds = {type(t) for t in sernia_agent._cap_native_tools}  # noqa: SLF001
         assert WebSearchTool in kinds
