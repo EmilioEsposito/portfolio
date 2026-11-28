@@ -47,7 +47,7 @@ export const TEAM_SECTIONS: TeamSection[] = [
   },
   {
     title: "Lead agent",
-    description: "Zillow leads: listing data, the agent's settings and showing bookings.",
+    description: "Zillow leads: each lead's emails, drafts and showings; listing data, settings and bookings.",
     url: "/team/leads",
     icon: Inbox,
   },
@@ -86,12 +86,13 @@ export const TEAM_SECTIONS: TeamSection[] = [
   },
 ];
 
-/** The lead agent's pages, shown as tabs under /team/leads. */
+/** The lead agent's pages, shown as tabs under /team/leads: the leads list first, for daily use. */
 export const LEAD_TABS = [
-  { url: "/team/leads", title: "Overview" },
+  { url: "/team/leads", title: "Leads" },
   { url: "/team/leads/listings", title: "Rental listing data" },
   { url: "/team/leads/settings", title: "Agent settings" },
   { url: "/team/leads/bookings", title: "Booking settings" },
+  { url: "/team/leads/overview", title: "How it works" },
 ] as const;
 
 /** The sections a user sees: every one, less the admin's unless they are the admin. */

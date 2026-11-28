@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   HAND_OFF_END,
   HAND_OFF_START,
+  handOffFromState,
   splitHandOff,
   withHandOff,
 } from "../../app/sites/team/lib/lead-hand-off";
@@ -36,4 +37,21 @@ test("the block's first and last lines match the ones the API writes", () => {
   );
   assert.ok(api.includes(`START = "${HAND_OFF_START}"`));
   assert.ok(api.includes(`END = "${HAND_OFF_END}"`));
+});
+
+test("a hand-off from a lead's page is taken from the router state only when whole", () => {
+  const text = withHandOff(block, "Offer Saturday.");
+  assert.deepEqual(handOffFromState({ handOff: { from: "zillow-t-1", text } }), { from: "zillow-t-1", text });
+  for (const state of [
+    null,
+    undefined,
+    {},
+    { handOff: null },
+    { handOff: { from: "", text } },
+    { handOff: { from: "zillow-t-1" } },
+    // Text without the block is an ordinary message, not a hand-off.
+    { handOff: { from: "zillow-t-1", text: "Offer Saturday." } },
+  ]) {
+    assert.equal(handOffFromState(state), null, JSON.stringify(state));
+  }
 });

@@ -304,6 +304,7 @@ sent gets none, and nothing is queued with the switch off. See
 | Decision | `agent.py`, `prompts/` | `respond(case)` returns one of the three typed outcomes |
 | Review and delivery | `handle.py`, `auto_reply.py`, `relay.py` | Persist the outcome; use manual approval or an idempotent automatic send; book what an approved reply confirms (switch on); the one relay rule for where email may go |
 | Lead settings | `settings.py` | Authenticated settings API, explicit approval opt-in/out, validated batching window |
+| Lead inbox | `inbox.py` | Read API for the team's leads list and each lead's page; no Gmail calls |
 | Offline evaluation | `evals/` | Replay scenarios, exact checks, human labels, LLM judge; never imported by runtime code |
 
 The general agent lives in [`sernia_ai/general_agent.py`](../sernia_ai/general_agent.py). It
@@ -386,11 +387,49 @@ Before the new key exists, the legacy batching window is preserved, but its
 old ignored approval value is never inherited. The general settings API rejects
 legacy Zillow writes and points callers to the dedicated endpoint.
 
-The UI tabs are Architecture (`/team/leads`), Rental listing data
-(`/team/leads/listings`), Agent settings (`/team/leads/settings`), and Booking
-settings (`/team/leads/bookings`), on the team site. Management tabs require a
-verified Sernia account. The public write-up stays at
-`https://eesposito.com/systems/leasing-leads`.
+The UI tabs are Leads (`/team/leads`, each lead's page under
+`/team/leads/threads/<thread id>`), Rental listing data
+(`/team/leads/listings`), Agent settings (`/team/leads/settings`), Booking
+settings (`/team/leads/bookings`) and How it works (`/team/leads/overview`), on
+the team site. Every tab requires a verified Sernia account. The public
+write-up stays at `https://eesposito.com/systems/leasing-leads`.
+
+## The lead inbox
+
+The Leads tab lists one row per Gmail thread in the shared mailbox that the
+agent has handled (`lead_thread_id`), laid out like Gmail's list of the Zillow
+label so a row is easy to match: the first name from Zillow's subject, the
+number of emails, the subject, the latest email and its time. Each row has a
+status (draft waiting for approval, needs the team, handed to Sernia AI,
+replied, draft rejected, no reply needed, handled) and the thread's showing
+(booked, held, cancelled). Rows are ordered by latest activity: an email, a
+run or a decision, a booking made or cancelled. Threads waiting on the team
+stand out and are named at the top.
+
+A lead's page has the lead (name, unit and address, the facts Zillow's form
+gave), Open in Gmail (the thread in the shared mailbox, chosen with
+`authuser`), Copy booking link (the thread's own `?t=` link for each unit the
+latest case offered, or why there is none), Hand to Sernia AI (the hand-off
+below, started from the page), what waits for the team, the thread's
+showings, the emails in order and each run of the agent with a link to its raw
+conversation.
+
+`inbox.py` serves it at `GET /api/zillow-leads/threads` and
+`GET /api/zillow-leads/threads/{thread_id}`, behind the Sernia sign-in. It reads
+only what is stored, so threads from before it need nothing new:
+
+- **Emails**: the newest run's saved case (`metadata.case.thread.messages`),
+  plus any reply a card or the automatic send sent after that case was built
+  (`approval[].sent_body`, `auto_delivery.body`). A reply written in Gmail or
+  in a Sernia AI chat shows after the lead's next email; the page says so and
+  links Gmail.
+- **Status**: what waits, by the team's pending rule
+  (`agent_conversations.models.pending_approvals`) across all of the thread's
+  conversations, else how the newest run ended.
+- **Showings**: `showing_attendees` tied to the thread, less a place booked
+  for a reply that was never sent (`reply_not_sent`).
+- **Booking links**: `lead_tours.lead_booking_for`, which makes the thread's
+  token the first time the page is read, as `showings_read` does.
 
 ## Handing a lead to the general agent
 
