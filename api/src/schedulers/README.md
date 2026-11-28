@@ -28,7 +28,7 @@ its full description when opened. They are written beside each registration
 | `sernia_scheduled_checks` | Sernia AI: scheduled inbox check | Days and hours set in Settings, ET; production only | `sernia_ai/triggers/scheduled_triggers.py` (`JOB_INFO`) |
 | `zillow-email-queue` | Zillow lead emails: process the queue | Wake-up: when a lead email's wait ends, or a retry is due | `zillow_leads/queue.py` (`JOB_INFO`, `QUEUE`) |
 | `wake-up-catch-up` | Wake-ups: catch up on waiting work | 2 minutes after startup, then every 15 minutes | `apscheduler_service/wakeups.py` (`CATCH_UP_JOB_INFO`) |
-| `escalation-outbox` | Emergency escalations: retry checks and calls | Every 15 seconds | `open_phone/escalation_delivery.py` (`RECOVERY_JOB_INFO`) |
+| `escalation-outbox` | Emergency escalations: retry checks and calls | Wake-up: when a check or call is due for another try | `open_phone/escalation_delivery.py` (`RECOVERY_JOB_INFO`, `QUEUE`) |
 | `showing-notices` | Showings: send due texts, invites and alerts | Every minute | `showing_bookings/holds.py` (`JOB_INFO`) |
 | `showing-details-removal` | Showings: remove prospects' details after 12 months | Daily, 3:30am ET | `showing_bookings/retention.py` (`JOB_INFO`) |
 | `hello_world_apscheduler_job` | Test job: hello world (local only) | Once, 30 seconds after startup | `apscheduler_service/service.py` (`HELLO_WORLD_JOB_INFO`) |
@@ -63,6 +63,12 @@ at once belongs in the request's `BackgroundTasks`.
   Both servers can also start the same wake-up, and the second to delete it gets
   `JobLookupError`; `ResilientAsyncIOScheduler` (`apscheduler_service/service.py`)
   keeps that from stopping the scheduler.
+- A run's own wake-up is deleted when the run starts, so the end-of-run write is
+  what keeps the queue going. When that write fails, `wake` tries again every
+  60 seconds in memory until it works. When APScheduler skips a wake-up because
+  the last run was still finishing (and deletes it, being one-time), a listener
+  sets it again. `min_delay` is counted from the write, so a slow read before it
+  cannot leave the next wake-up due before the run returns.
 - `misfire_grace_time=None`: a wake-up due while no server ran (a deploy) runs
   as soon as one does. APScheduler would otherwise drop it after a minute.
 - The queue's `next_due_at` must follow its claim's own rules. A time it

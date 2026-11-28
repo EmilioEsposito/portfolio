@@ -63,8 +63,11 @@ def fresh(monkeypatch) -> Iterator[AsyncIOScheduler]:
     monkeypatch.setattr(wakeups, "_QUEUES", {})
     monkeypatch.setattr(wakeups, "_LOCKS", {})
     monkeypatch.setattr(wakeups, "_RUNNING", set())
+    monkeypatch.setattr(wakeups, "_RETRIES", {})
+    monkeypatch.setattr(wakeups, "_listening_to", None)
     monkeypatch.setattr(wakeups, "_catch_up_registered", False)
     yield scheduler
+    wakeups.cancel_retries()
     if scheduler.running:
         scheduler.shutdown(wait=False)
 
@@ -163,6 +166,66 @@ async def test_a_wake_up_already_at_the_right_time_is_not_written_again(
     monkeypatch.setattr(wakeups, "_put", lambda *args: puts.append(args))
     await wakeups.wake("example-queue")
     assert puts == []
+
+
+@pytest.mark.asyncio
+async def test_min_delay_counts_from_the_write_not_the_call(scheduler, queue, table, monkeypatch):
+    """A slow read before the write must not leave the next wake-up due at once:
+    at the end of a run it would come due while the run is still finishing, and
+    APScheduler would skip and delete it."""
+    import asyncio
+
+    wakeups.register_queue(queue)
+    table.due = now() - timedelta(minutes=1)
+    read = table.next_due_at
+
+    async def slow_read():
+        await asyncio.sleep(0.6)
+        return await read()
+
+    slow = wakeups.WakeQueue(
+        job_id="example-queue", info=INFO, run=work_example_queue, next_due_at=slow_read
+    )
+    monkeypatch.setitem(wakeups._QUEUES, "example-queue", slow)
+    await wakeups.wake("example-queue", min_delay=timedelta(seconds=0.5))
+    # Counted from before the read, it would already be past.
+    assert scheduler.get_job("example-queue").next_run_time > now() + timedelta(seconds=0.3)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_wake_is_tried_again_until_the_database_is_back(
+    scheduler, queue, table, monkeypatch
+):
+    """The run's own wake-up was deleted when the run started; if the write that
+    replaces it fails, an in-memory retry is the only thing left to run the queue
+    before the catch-up job."""
+    import asyncio
+
+    monkeypatch.setattr(wakeups, "AFTER_ERROR", timedelta(seconds=0.2))
+    monkeypatch.setattr(wakeups, "RERUN_GAP", timedelta(seconds=0))
+    wakeups.register_queue(queue)
+    scheduler.remove_job("example-queue")
+    failures = [RuntimeError("database down"), RuntimeError("still down")]
+    read = table.next_due_at
+
+    async def flaky_read():
+        if failures:
+            raise failures.pop(0)
+        return await read()
+
+    flaky = wakeups.WakeQueue(
+        job_id="example-queue", info=INFO, run=work_example_queue, next_due_at=flaky_read
+    )
+    monkeypatch.setitem(wakeups._QUEUES, "example-queue", flaky)
+    table.due = now() + timedelta(minutes=3)
+    await wakeups.wake("example-queue")
+    assert scheduler.get_job("example-queue") is None
+    for _ in range(30):
+        if scheduler.get_job("example-queue") is not None:
+            break
+        await asyncio.sleep(0.05)
+    assert failures == []  # tried twice more: one failure, then success
+    assert close(scheduler.get_job("example-queue").next_run_time, table.due)
 
 
 @pytest.mark.asyncio
@@ -453,3 +516,62 @@ async def test_the_scheduler_keeps_running_when_another_server_took_a_job_first(
         )
     finally:
         scheduler.shutdown(wait=False)
+
+
+SKIP_RUNS: list[datetime] = []
+SKIP_TABLE = Table()
+
+
+@scheduled_job
+async def work_slowly_finishing_queue() -> None:
+    """A run whose next wake-up comes due before it has returned (the gap
+    swallowed by a slow write, say). APScheduler skips that wake-up and deletes
+    it; the skip listener must set it again."""
+    import asyncio
+
+    SKIP_RUNS.append(now())
+    if len(SKIP_RUNS) == 1:
+        wakeups._put(wakeups._scheduler(), wakeups.get_queue("skip-queue"), now())
+        await asyncio.sleep(0.5)  # still running when it comes due
+        SKIP_TABLE.due = now()  # and work is waiting
+    else:
+        SKIP_TABLE.due = None
+
+
+@pytest.mark.asyncio
+async def test_a_wake_up_skipped_because_the_last_run_was_finishing_is_set_again(
+    fresh, monkeypatch
+):
+    import asyncio
+
+    SKIP_RUNS.clear()
+    monkeypatch.setattr(wakeups, "RERUN_GAP", timedelta(seconds=0.2))
+    skipping = wakeups.WakeQueue(
+        job_id="skip-queue",
+        info=INFO,
+        run=work_slowly_finishing_queue,
+        next_due_at=SKIP_TABLE.next_due_at,
+    )
+    wakeups.register_queue(skipping)
+    fresh.start()
+    fresh.remove_job("skip-queue")
+    SKIP_TABLE.due = now()
+    await wakeups.wake("skip-queue")
+    for _ in range(40):
+        if len(SKIP_RUNS) >= 2:
+            break
+        await asyncio.sleep(0.1)
+    assert len(SKIP_RUNS) == 2, "the skipped wake-up was lost"
+
+
+@pytest.mark.asyncio
+async def test_a_sooner_retry_replaces_a_later_one(fresh):
+    """A skip's 5-second retry must not wait behind a failed write's 60-second one."""
+    wakeups._retry_later("example-queue", after=timedelta(seconds=60))
+    later = wakeups._RETRIES["example-queue"]
+    wakeups._retry_later("example-queue", after=timedelta(seconds=5))
+    sooner = wakeups._RETRIES["example-queue"]
+    assert later.cancelled() and not sooner.cancelled()
+    assert sooner.when() < later.when()
+    wakeups._retry_later("example-queue", after=timedelta(seconds=60))  # a later one is ignored
+    assert wakeups._RETRIES["example-queue"] is sooner

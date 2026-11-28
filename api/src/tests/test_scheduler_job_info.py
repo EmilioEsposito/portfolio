@@ -26,7 +26,6 @@ from api.src.sernia_ai.triggers import scheduled_triggers
 # check's schedule comes from Settings; here it is the default.
 PRODUCTION_JOBS = {
     "clickup_peppino_tasks_scheduled": "cron[hour='8,17', minute='0']",
-    "escalation-outbox": "interval[0:00:15]",
     "sernia_scheduled_checks": "cron[day_of_week='0,1,2,3,4', hour='8,11,14,17', minute='0']",
     "showing-details-removal": "cron[hour='3', minute='30']",
     "showing-notices": "interval[0:01:00]",
@@ -34,12 +33,11 @@ PRODUCTION_JOBS = {
 }
 # Queues with a wake-up job (apscheduler_service/wakeups.py): at startup each is
 # a one-time job set for shortly after the scheduler starts.
-WAKE_UP_QUEUES = {"zillow-email-queue"}
+WAKE_UP_QUEUES = {"escalation-outbox", "zillow-email-queue"}
 # Jobs whose function is not yet decorated with @scheduled_job, so their runs
 # from the production job store have no span. Each is fixed where its feature
 # is next changed; do not add to this.
 NOT_YET_TRACED = {
-    "escalation-outbox",
     "quo-lead-contacts",
     "showing-details-removal",
     "showing-notices",
@@ -54,6 +52,7 @@ def scheduler(monkeypatch) -> AsyncIOScheduler:
     monkeypatch.setattr(service, "_scheduler", fresh)
     monkeypatch.setattr(job_info, "_BY_JOB_ID", {})
     monkeypatch.setattr(wakeups, "_QUEUES", {})
+    monkeypatch.setattr(wakeups, "_listening_to", None)
     monkeypatch.setattr(wakeups, "_catch_up_registered", False)
     return fresh
 

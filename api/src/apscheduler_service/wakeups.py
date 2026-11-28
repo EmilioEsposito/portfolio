@@ -16,7 +16,9 @@ The wake-up is moved from the table:
 - at the end of every run (``rearm``), so a retry, or work that arrived during
   the run, gets its own wake-up; with nothing left it is removed and the queue
   is idle. While a run is in progress, ``wake`` leaves the queue alone: the end
-  of the run sees the new work;
+  of the run sees the new work. When that write fails, or APScheduler skips a
+  wake-up because the last run was still finishing (and deletes it), ``wake``
+  is tried again in memory until it works;
 - 30 seconds after each startup (``register_queue``), which also replaces a job
   left under the same id by older code;
 - by the catch-up job (``catch_up``) 2 minutes after each startup and every 15
@@ -49,6 +51,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import logfire
+from apscheduler.events import EVENT_JOB_MAX_INSTANCES, JobSubmissionEvent
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.triggers.date import DateTrigger
 
@@ -102,6 +105,11 @@ _QUEUES: dict[str, WakeQueue] = {}
 _LOCKS: dict[str, asyncio.Lock] = {}
 # Queues with a run in progress in this process (inside ``rearm``).
 _RUNNING: set[str] = set()
+# A retry of ``wake`` timed in this process, per queue, and the tasks those
+# retries start (kept so they are not garbage-collected mid-run).
+_RETRIES: dict[str, asyncio.TimerHandle] = {}
+_RETRY_TASKS: set[asyncio.Task] = set()
+_listening_to: object | None = None
 _catch_up_registered = False
 
 
@@ -151,7 +159,69 @@ def register_queue(queue: WakeQueue) -> None:
     """
     _QUEUES[queue.job_id] = queue
     remember(queue.job_id, queue.info)
-    _put(_scheduler(), queue, _utcnow() + STARTUP_DELAY)
+    scheduler = _scheduler()
+    _listen_for_skips(scheduler)
+    _put(scheduler, queue, _utcnow() + STARTUP_DELAY)
+
+
+def _listen_for_skips(scheduler: AsyncIOScheduler) -> None:
+    """Set a queue's wake-up again when APScheduler skips it.
+
+    APScheduler runs one instance of a job at a time. A wake-up that comes due
+    while its queue's previous run is still finishing (the run sets the next
+    wake-up just before it returns) is skipped, and a one-time job that is
+    skipped is deleted. Without this the queue would wait for the catch-up job.
+    """
+    global _listening_to
+    if _listening_to is scheduler:
+        return
+    scheduler.add_listener(_on_skipped, EVENT_JOB_MAX_INSTANCES)
+    _listening_to = scheduler
+
+
+def _on_skipped(event: JobSubmissionEvent) -> None:
+    if event.job_id in _QUEUES:
+        logfire.info(
+            "wake-up: {job_id} came due while its last run was finishing; setting it again",
+            job_id=event.job_id,
+        )
+        _retry_later(event.job_id, after=RERUN_GAP)
+
+
+def _retry_later(job_id: str, *, after: timedelta) -> None:
+    """Call ``wake`` for the queue again after ``after``, in this process.
+
+    For when the wake-up may be gone and the job store cannot be relied on to
+    bring it back: ``wake`` failed (the database, most likely), or APScheduler
+    skipped and deleted it. Kept in memory, so it does not need the database
+    that just failed; if it fails again it times another retry. One retry per
+    queue at a time: a sooner one replaces a later one.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # no event loop here (a test calling synchronously)
+    when = loop.time() + after.total_seconds()
+    pending = _RETRIES.get(job_id)
+    if pending is not None and not pending.cancelled():
+        if pending.when() <= when:
+            return
+        pending.cancel()
+
+    def fire() -> None:
+        _RETRIES.pop(job_id, None)
+        task = loop.create_task(wake(job_id, min_delay=RERUN_GAP))
+        _RETRY_TASKS.add(task)
+        task.add_done_callback(_RETRY_TASKS.discard)
+
+    _RETRIES[job_id] = loop.call_at(when, fire)
+
+
+def cancel_retries() -> None:
+    """Cancel the retries timed in this process (tests, between cases)."""
+    for handle in _RETRIES.values():
+        handle.cancel()
+    _RETRIES.clear()
 
 
 def _place(
@@ -159,8 +229,13 @@ def _place(
     queue: WakeQueue,
     due: datetime | None,
     not_before: datetime | None,
+    min_delay: timedelta | None,
 ) -> None:
-    """Make the queue's wake-up match ``due``: removed when None, else set for it."""
+    """Make the queue's wake-up match ``due``: removed when None, else set for it.
+
+    ``min_delay`` is counted from now, at the write: a wake-up set at the end of
+    a run must not come due before the run has returned, however long the read
+    before it took."""
     current = scheduler.get_job(queue.job_id)
     if due is None:
         if current is not None:
@@ -171,7 +246,7 @@ def _place(
             logfire.info("wake-up: {job_id} has nothing waiting", job_id=queue.job_id)
         return
     now = _utcnow()
-    run_at = max(due, now, not_before or now)
+    run_at = max(due, now + (min_delay or timedelta(0)), not_before or now)
     if (
         current is not None
         and isinstance(current.trigger, DateTrigger)
@@ -183,14 +258,22 @@ def _place(
     logfire.info("wake-up: {job_id} set for {run_at}", job_id=queue.job_id, run_at=run_at)
 
 
-async def wake(job_id: str, *, not_before: datetime | None = None) -> None:
+async def wake(
+    job_id: str,
+    *,
+    not_before: datetime | None = None,
+    min_delay: timedelta | None = None,
+) -> None:
     """Move the queue's wake-up to its earliest due work, read from its table.
 
     Call it after committing new work. ``not_before`` keeps the wake-up from
-    being earlier than that. Never raises: the work is already saved, and the
-    catch-up job sets the wake-up again if this one is lost. Does nothing for a
-    queue not registered here or while the scheduler is not running (background
-    automation off, or startup still under way: the startup run covers it).
+    being earlier than that time; ``min_delay`` from being sooner than that
+    from the moment it is written. Never raises: the work is already saved.
+    When reading the table or writing the job fails, the same call is tried
+    again in ``AFTER_ERROR``, in this process, until it works. Does nothing for
+    a queue not registered here or while the scheduler is not running
+    (background automation off, or startup still under way: the startup run
+    covers it).
     """
     queue = _QUEUES.get(job_id)
     if queue is None:
@@ -210,9 +293,16 @@ async def wake(job_id: str, *, not_before: datetime | None = None) -> None:
     async with lock:
         try:
             due = await queue.next_due_at()
-            _place(scheduler, queue, due, not_before)
+            _place(scheduler, queue, due, not_before, min_delay)
         except Exception:
-            logfire.exception("wake-up: {job_id} could not be set", job_id=job_id)
+            # A run's own wake-up is deleted when the run starts, so when the
+            # write that replaces it fails, nothing is left to run the queue.
+            logfire.exception(
+                "wake-up: {job_id} could not be set; trying again in {seconds} s",
+                job_id=job_id,
+                seconds=AFTER_ERROR.total_seconds(),
+            )
+            _retry_later(job_id, after=AFTER_ERROR)
     _ensure_catch_up(scheduler)
 
 
@@ -232,8 +322,7 @@ async def rearm(job_id: str) -> AsyncGenerator[None]:
         raise
     finally:
         _RUNNING.discard(job_id)
-        gap = AFTER_ERROR if failed else RERUN_GAP
-        await wake(job_id, not_before=_utcnow() + gap)
+        await wake(job_id, min_delay=AFTER_ERROR if failed else RERUN_GAP)
 
 
 def run_soon(job_id: str) -> bool:

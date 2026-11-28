@@ -2,6 +2,13 @@
 
 The database fences workers, not the provider: after an ambiguous POST we only
 reconcile. Studio has no documented create-execution idempotency key.
+
+Retries run on the queue's wake-up job (``apscheduler_service/wakeups.py``),
+not a poll. The first attempt runs at once: the webhook's ``BackgroundTasks``
+(``process_request``) or the caller of ``dispatch``. Before it, a backstop
+wake-up is set ``BACKSTOP`` out, in case the process dies before the attempt
+takes its lease. After every attempt the wake-up is moved to the earliest
+``next_attempt_at`` still waiting, or a live lease's end (``next_due_at``).
 """
 
 import asyncio
@@ -20,13 +27,20 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.src.apscheduler_service import wakeups
+from api.src.apscheduler_service.tracing import scheduled_job
 from api.src.contact.service import get_contact_by_slug
 from api.src.database.database import AsyncSessionFactory
 from api.src.open_phone.models import EscalationAttempt, EscalationDelivery, EscalationRequest
 from api.src.schedulers.job_info import JobInfo
 
+JOB_ID = "escalation-outbox"
 MAX_SEND_ATTEMPTS = 5
 LEASE_SECONDS = 120
+# The wake-up set before a first attempt, as a backstop: a process that dies
+# before the attempt takes its lease is retried this soon. One that dies after
+# is retried when the lease ends.
+BACKSTOP = timedelta(seconds=15)
 EXPIRY_MINUTES = 10
 TERMINAL = {"accepted", "failed", "manual", "duplicate"}
 SID_PATTERN = re.compile(r"FN[0-9a-fA-F]{32}\Z")
@@ -139,8 +153,18 @@ async def dispatch(
         ).scalar_one_or_none()
         if created:
             await add_recipients(session, request_id, numbers)
-    await process_deliveries(request_id)
+    await set_backstop()
+    try:
+        await process_deliveries(request_id)
+    finally:
+        await wakeups.wake(JOB_ID)
     return await report(request_id)
+
+
+async def set_backstop() -> None:
+    """Before a first attempt, once its rows are committed: make sure the
+    wake-up runs within ``BACKSTOP`` if nothing else moves it."""
+    await wakeups.wake(JOB_ID, min_delay=BACKSTOP)
 
 
 async def report(request_id: str) -> DeliveryReport:
@@ -156,7 +180,19 @@ async def report(request_id: str) -> DeliveryReport:
 
 
 async def process_request(request_id: str) -> None:
-    """Recoverable assessment; no provider side effect until the decision is committed."""
+    """Recoverable assessment; no provider side effect until the decision is committed.
+
+    Afterwards the wake-up is moved for whatever it left due later: a retry of
+    the assessment, or of a call. Inside the wake-up's own run that waits for
+    the run's end.
+    """
+    try:
+        await _assess_and_deliver(request_id)
+    finally:
+        await wakeups.wake(JOB_ID)
+
+
+async def _assess_and_deliver(request_id: str) -> None:
     from api.src.open_phone.escalate import ai_assess_for_escalation, never_escalate_from_numbers
 
     token, now = str(uuid4()), utcnow()
@@ -567,7 +603,52 @@ async def process_deliveries(request_id: str | None = None) -> None:
         await asyncio.gather(*(process_delivery(i, studio) for i in ids))
 
 
+async def next_due_at() -> datetime | None:
+    """When the wake-up should run next, by the rules the workers claim by.
+
+    An assessment still waiting (``pending``, or ``assessing`` with a lease that
+    may run out) and a call not yet settled (any state but the final ones) are
+    each due at ``next_attempt_at``, or when a live lease ends: a row another
+    worker holds is skipped until then, by ``process_request`` and
+    ``process_delivery`` alike. A call's ``next_attempt_at`` is never later than
+    its request's ten-minute deadline, so a call still waiting then is woken to
+    be marked for a person. None when nothing is waiting.
+    """
+    now = utcnow()
+    async with AsyncSessionFactory() as session:
+        requests = (
+            await session.execute(
+                select(EscalationRequest.next_attempt_at, EscalationRequest.lease_until).where(
+                    EscalationRequest.state.in_(["pending", "assessing"])
+                )
+            )
+        ).all()
+        deliveries = (
+            await session.execute(
+                select(EscalationDelivery.next_attempt_at, EscalationDelivery.lease_until).where(
+                    EscalationDelivery.state.not_in(TERMINAL)
+                )
+            )
+        ).all()
+    times = [
+        max(next_attempt_at, lease_until)
+        if lease_until is not None and lease_until > now
+        else next_attempt_at
+        for next_attempt_at, lease_until in [*requests, *deliveries]
+    ]
+    return min(times, default=None)
+
+
+@scheduled_job
 async def recover_escalations() -> None:
+    """The wake-up's run: every assessment and call that is due, then the next
+    wake-up from the tables. Its import path is stored with the job; do not
+    move or rename it."""
+    async with wakeups.rearm(JOB_ID):
+        await _recover_due()
+
+
+async def _recover_due() -> None:
     async with AsyncSessionFactory() as session:
         ids = (
             await session.scalars(
@@ -607,23 +688,23 @@ RECOVERY_JOB_INFO = JobInfo(
         "of placing them a second time. Anything still not done ten minutes after the text "
         "arrived, or out of tries, is left for a person and logged as an error."
         "\n\n"
-        "A retry waits at least 15 seconds, and the job looks every 15 seconds. Paused or "
-        "removed, the first attempt still happens when a text arrives, but nothing is "
-        "retried after a crash, a deploy or a Twilio error."
+        "It is not on a timer. A text or call that needs another try sets it for that "
+        "try's time, at least 15 seconds away; the first attempt also sets it 15 seconds "
+        "out in case the server stops mid-attempt. With nothing waiting it is idle. It "
+        "also runs 30 seconds after each deploy, and the catch-up job sets it again if a "
+        "wake-up is lost. Removed, the first attempt still happens when a text arrives."
     ),
+)
+
+QUEUE = wakeups.WakeQueue(
+    job_id=JOB_ID,
+    info=RECOVERY_JOB_INFO,
+    run=recover_escalations,
+    next_due_at=next_due_at,
 )
 
 
 def register_escalation_recovery() -> None:
-    from api.src.apscheduler_service.service import get_scheduler, upsert_job
-
-    upsert_job(
-        get_scheduler(),
-        info=RECOVERY_JOB_INFO,
-        id="escalation-outbox",
-        func=recover_escalations,
-        trigger="interval",
-        seconds=15,
-        max_instances=1,
-        coalesce=True,
-    )
+    """Register the retry wake-up. Called at startup when background automation is
+    on; it replaces the every-15-seconds job the queue had before."""
+    wakeups.register_queue(QUEUE)
