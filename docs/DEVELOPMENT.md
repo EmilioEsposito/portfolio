@@ -28,7 +28,7 @@ pnpm config:check web
 
 The full API currently requires its integration configuration even if you are only working on one feature. For web-only work, configure the web service and use `pnpm dev`; backend-backed features still need the API. The default backend test suite uses dummy provider credentials and does not require live third-party accounts.
 
-Keep inference keys server-side. `PORTFOLIO_OPENROUTER_API_KEY` serves operational inference; `PUBLIC_PORTFOLIO_OPENROUTER_API_KEY` is a separate capped key for public demos. Setup details are in the [inference guide](../api/src/utils/README.md), [Google integration guide](../api/src/google/README.md), and [development configuration guide](../scripts/README.md). The latter documents service allowlists, cloud credential resolution, and configuration precedence.
+Keep inference keys server-side. `LOCAL_PORTFOLIO_OPENROUTER_API_KEY` serves local operational inference and evals; `PUBLIC_PORTFOLIO_OPENROUTER_API_KEY` is a separate capped key for public demos. Setup details are in the [inference guide](../api/src/utils/README.md), [Google integration guide](../api/src/google/README.md), and [development configuration guide](../scripts/README.md). The latter documents service allowlists, cloud credential resolution, and configuration precedence.
 
 ### Prepare the database and run
 

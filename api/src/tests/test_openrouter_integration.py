@@ -1,7 +1,6 @@
 """Live integration tests for the Sernia AI → OpenRouter gateway.
 
-These hit the real OpenRouter API. They require `PORTFOLIO_OPENROUTER_API_KEY`
-(bridged to `OPENROUTER_API_KEY` in `api/__init__.py`) and skip otherwise.
+These hit the real OpenRouter API. They require a dedicated `LOCAL_PORTFOLIO_OPENROUTER_API_KEY` and skip otherwise.
 
 Run with:
     pytest -m live api/src/tests/test_openrouter_integration.py -v -s
@@ -36,8 +35,8 @@ from api.src.sernia_ai.model_config import build_run_kwargs  # noqa: E402
 pytestmark = [
     pytest.mark.live,
     pytest.mark.skipif(
-        not os.environ.get("OPENROUTER_API_KEY"),
-        reason="PORTFOLIO_OPENROUTER_API_KEY not set",
+        os.getenv("LOCAL_PORTFOLIO_OPENROUTER_API_KEY", "") in {"", "test-openrouter-key"},
+        reason="Dedicated local OpenRouter key not configured",
     ),
 ]
 

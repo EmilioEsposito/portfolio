@@ -12,9 +12,6 @@ import os
 
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-anthropic-key")
-# sernia_agent's main model is an OpenRouter model (see sernia_ai/model_config.py);
-# OpenRouterProvider raises at construction without a key.
-os.environ.setdefault("OPENROUTER_API_KEY", "test-openrouter-key")
 os.environ.setdefault("PUBLIC_PORTFOLIO_OPENROUTER_API_KEY", "test-public-openrouter-key")
 
 # Several modules raise at import time when their service credentials are
