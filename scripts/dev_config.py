@@ -24,7 +24,7 @@ API_KEYS = set(
     """CLERK_SECRET_KEY CLICKUP_API_KEY
 CRON_SECRET CLERK_WEBHOOK_SECRET GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET
 GOOGLE_SERVICE_ACCOUNT_CREDENTIALS OPENAI_API_KEY QUO_API_KEY_PORTFOLIO QUO_WEBHOOK_SECRET
-PORTFOLIO_OPENROUTER_API_KEY PUBLIC_PORTFOLIO_OPENROUTER_API_KEY SERNIA_ANTHROPIC_API_KEY
+LOCAL_PORTFOLIO_OPENROUTER_API_KEY PUBLIC_PORTFOLIO_OPENROUTER_API_KEY SERNIA_ANTHROPIC_API_KEY
 SESSION_SECRET_KEY TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN VAPID_CLAIM_EMAIL VAPID_PRIVATE_KEY
 VAPID_PUBLIC_KEY ESCALATION_CUSTOM_INSTRUCTIONS SERNIA_TEAM_PHONE TWILIO_ESCALATION_FROM_NUMBER
 ESCALATION_IGNORED_SENDERS GOOGLE_SHOWINGS_OAUTH_CLIENT_ID GOOGLE_SHOWINGS_OAUTH_CLIENT_SECRET
@@ -45,7 +45,7 @@ REQUIRED = {
         """DATABASE_URL DATABASE_URL_UNPOOLED CLERK_SECRET_KEY SESSION_SECRET_KEY
 GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET GOOGLE_OAUTH_REDIRECT_URI
 CLICKUP_API_KEY TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN
-PORTFOLIO_OPENROUTER_API_KEY PUBLIC_PORTFOLIO_OPENROUTER_API_KEY
+PUBLIC_PORTFOLIO_OPENROUTER_API_KEY
 SERNIA_TEAM_PHONE TWILIO_ESCALATION_FROM_NUMBER""".split()
     ),
     "web": {"CLERK_SECRET_KEY", "VITE_CLERK_PUBLISHABLE_KEY"},
@@ -126,6 +126,18 @@ def environment(
     service: str, values: dict[str, str], host: dict[str, str], source: str
 ) -> dict[str, str]:
     allowed = API_KEYS if service == "api" else WEB_KEYS
+    if service == "api":
+        local_key = values.get("LOCAL_PORTFOLIO_OPENROUTER_API_KEY", "").strip()
+        if local_key and local_key in (
+            values.get("PORTFOLIO_OPENROUTER_API_KEY", "").strip(),
+            host.get("PORTFOLIO_OPENROUTER_API_KEY", "").strip(),
+            values.get("OPENROUTER_API_KEY", "").strip(),
+            host.get("OPENROUTER_API_KEY", "").strip(),
+            values.get("PUBLIC_PORTFOLIO_OPENROUTER_API_KEY", "").strip(),
+        ):
+            raise ConfigError(
+                "LOCAL_PORTFOLIO_OPENROUTER_API_KEY must be a separate development credential"
+            )
     env = {k: v for k, v in host.items() if k in BASELINE}
     env.update({k: v for k, v in values.items() if k in allowed})
     # Only local input can select databases, ports, or enable automation. Hosted
@@ -299,6 +311,12 @@ def main(arguments: list[str] | None = None) -> int:
         for key in sorted(REQUIRED[args.service]):
             print(
                 f"{args.service} {key}: {'missing' if key in missing else 'configured'}", flush=True
+            )
+        if args.service == "api":
+            ready = bool(env.get("LOCAL_PORTFOLIO_OPENROUTER_API_KEY", "").strip("* ="))
+            print(
+                f"api LOCAL_PORTFOLIO_OPENROUTER_API_KEY: {'configured' if ready else 'missing (local inference disabled)'}",
+                flush=True,
             )
         if missing:
             return 1

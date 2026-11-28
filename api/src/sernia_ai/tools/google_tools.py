@@ -51,6 +51,7 @@ from api.src.google.gmail.service import (
 from api.src.google.gmail.threading import GMAIL_SCOPES, _get_threading_headers
 from api.src.sernia_ai.config import SUB_AGENT_MODEL
 from api.src.sernia_ai.deps import SerniaDeps
+from api.src.utils.openrouter_models import resolve_model
 
 # Reusable annotated type for tools that accept an email account override
 UserEmailAccount = Annotated[
@@ -70,7 +71,7 @@ UserEmailAccount = Annotated[
 # ---------------------------------------------------------------------------
 
 _email_summarizer = Agent(
-    SUB_AGENT_MODEL,
+    resolve_model(SUB_AGENT_MODEL),
     instructions=(
         "You are a concise email summarizer. Given an email body, produce a short "
         "summary that preserves: sender name, key questions or requests, specific "

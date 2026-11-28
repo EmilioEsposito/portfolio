@@ -92,7 +92,7 @@ A service redeploy is required for environment changes to affect running workers
 
 ## OpenRouter dependency
 
-- Uses the existing server-side `PORTFOLIO_OPENROUTER_API_KEY`; create/manage
+- Uses `LOCAL_PORTFOLIO_OPENROUTER_API_KEY` locally and `PORTFOLIO_OPENROUTER_API_KEY` on Railway; create/manage
   operational keys at https://openrouter.ai/settings/keys. Never use the public
   demo key or a TypeSafe key here.
 - Model: `typesafe/jev-1.13`.

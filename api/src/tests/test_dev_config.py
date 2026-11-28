@@ -375,3 +375,28 @@ def test_google_backend_credentials_and_clerk_remain_supported():
     assert web["CLERK_SECRET_KEY"] == values["CLERK_SECRET_KEY"]
     assert web["VITE_CLERK_PUBLISHABLE_KEY"] == values["VITE_CLERK_PUBLISHABLE_KEY"]
     assert not any(name.startswith("GOOGLE_") for name in web)
+
+
+@pytest.mark.parametrize("source", ["local", "railway"])
+def test_development_launcher_isolates_operations_key(source):
+    values = {
+        "PORTFOLIO_OPENROUTER_API_KEY": "hosted",
+        "PUBLIC_PORTFOLIO_OPENROUTER_API_KEY": "public",
+        "OPENROUTER_API_KEY": "ambient",
+    }
+    env = config.environment("api", values, {}, source)
+    assert "LOCAL_PORTFOLIO_OPENROUTER_API_KEY" not in env
+    assert "PORTFOLIO_OPENROUTER_API_KEY" not in env
+    assert "OPENROUTER_API_KEY" not in env
+    for unsafe_key in ("hosted", "ambient", "public"):
+        with pytest.raises(config.ConfigError, match="separate development credential"):
+            config.environment(
+                "api", dict(values, LOCAL_PORTFOLIO_OPENROUTER_API_KEY=unsafe_key), {}, source
+            )
+
+    values["LOCAL_PORTFOLIO_OPENROUTER_API_KEY"] = "local"
+    assert (
+        config.environment("api", values, {}, source)["LOCAL_PORTFOLIO_OPENROUTER_API_KEY"]
+        == "local"
+    )
+    assert "LOCAL_PORTFOLIO_OPENROUTER_API_KEY" not in config.environment("web", values, {}, source)

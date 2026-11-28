@@ -50,7 +50,7 @@ export function apiEnvironment(): Record<string, string> {
     // conftest.py sets for pytest. None of them works against a real service.
     OPENAI_API_KEY: "test-openai-key",
     ANTHROPIC_API_KEY: "test-anthropic-key",
-    OPENROUTER_API_KEY: "test-openrouter-key",
+    LOCAL_PORTFOLIO_OPENROUTER_API_KEY: "test-openrouter-key",
     PUBLIC_PORTFOLIO_OPENROUTER_API_KEY: "test-public-openrouter-key",
     CLERK_SECRET_KEY: "test-clerk-secret",
     CLERK_WEBHOOK_SECRET: "test-clerk-webhook",

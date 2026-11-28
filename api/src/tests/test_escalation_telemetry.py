@@ -115,7 +115,7 @@ def test_luna_adapter_keeps_explicit_gateway_token_counts():
             },
         }
     )
-    usage = assessment.EscalationLunaModel(assessment.LUNA_MODEL)._map_usage(response)
+    usage = assessment.luna_agent().model._map_usage(response)
     assert usage.details["token_counts_reported"] == 1
     assert usage.input_tokens == 1234
     assert usage.output_tokens == 56
@@ -136,7 +136,7 @@ def test_luna_adapter_marks_missing_usage_unknown():
             "choices": [],
         }
     )
-    usage = assessment.EscalationLunaModel(assessment.LUNA_MODEL)._map_usage(response)
+    usage = assessment.luna_agent().model._map_usage(response)
     assert usage.details["token_counts_reported"] == 0
 
 
