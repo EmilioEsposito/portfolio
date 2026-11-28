@@ -33,7 +33,7 @@ ordinary one: every gated tool waits for approval. See
 | Zillow email queue | [`../zillow_leads/queue.py`](../zillow_leads/QUEUE.md) |
 | General-agent SMS and scheduled triggers | [`triggers/`](triggers/README.md) |
 | Offline lead evaluations and private review data | [`../zillow_leads/evals/`](../zillow_leads/evals/README.md) |
-| Showing bookings, shared calendars, resident notice | [Issue #368](https://github.com/EmilioEsposito/portfolio/issues/368), planned; `../zillow_leads/tours.py` is the integration boundary |
+| Showing bookings, shared calendars, resident notice | [`../showing_bookings/`](../showing_bookings/README.md); the general agent reads, books and cancels through `tools/showing_tools.py` |
 
 The retired `api/src/zillow_email/` implementation has been removed. Active queue
 names such as `zillow_email_jobs` are retained; they are not legacy runtime code.
@@ -282,6 +282,7 @@ The agent operates in three modalities, each with distinct behavior:
 - **Internal/external SMS separation** — Routing keeps internal phone numbers out of external threads; mixed internal+external **group texts** are hard-blocked deterministically — a group is always all-internal or all-external (see [`tools/README.md`](tools/README.md))
 - **Unit isolation** — Cross-unit tenant group texts blocked; roommates within a unit share one group thread (see [`tools/README.md`](tools/README.md))
 - **HITL approval** — External SMS, emails, task deletion, contact updates/deletes, and calendar writes (create or delete) for events with external attendees require human approval. Internal-only calendar writes are not gated. The dedicated Zillow Leads Agent has its own approval setting, enabled by default. Its explicit automatic mode never grants tool permissions to the general agent. Its delivery path is described in the [lead-agent guide](../zillow_leads/README.md#runtime-boundaries).
+- **Showings** — `showing_book` and `showing_cancel` always wait for a person's approval. Their first call changes nothing and answers with what the booking or cancellation would do and who would be told; the agent calls again with that text as `effect`, so the card states it, and nothing happens if it changed by the time it is approved. `texts_accepted` is set only on the word of the person in the chat. Bookings go through the Booking settings tab's own code (`team_actions.book_for_caller`, `cancelling`), so the booking service's checks, holds and send mode apply. See [`tools/README.md`](tools/README.md).
 - **Universal kill switch** — DB-backed toggle disables all automated triggers
 - **Rate limiting** — Per-source cooldowns prevent runaway trigger loops
 - **Repeat-call loop breaker** — A tool call that fails identically twice in one run gets a "STOP, change approach" instruction appended to the error, so the agent can't spend its whole request budget re-sending arguments that already failed. See [`tools/README.md`](tools/README.md#repeat-call-loop-breaker-_loggingpy)

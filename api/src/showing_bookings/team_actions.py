@@ -167,15 +167,38 @@ async def book_for_caller(
     taken_by: str,
     now: datetime,
     texts: TextSender | None = None,
+    zillow_thread_id: str | None = None,
+    expected_effect: str | None = None,
 ) -> TeamBooking:
     """Book a caller into one of the unit's open times. Raises ``Refused``.
 
     ``taken_by`` is who on the team took the booking; with texts accepted it is
     the consent record's page.
+
+    ``zillow_thread_id`` ties the booking to a Zillow lead's thread, as a page
+    booking through the lead's own link is tied (``bookings.book``), so the lead
+    agent's next case for that thread lists it as the lead's own showing. Only
+    the general agent's tool passes it (``sernia_ai/tools/showing_tools.py``);
+    the tab's form cannot. The row keeps source ``team`` and no lead
+    conversation: nothing that applies only to a place the lead agent's reply
+    booked (``delivery_checks.reply_unsettled``, the reminder by email, the
+    link's "add your details") applies to it.
+
+    ``expected_effect`` is the paragraph a person approved (``effects.preview_booking``).
+    With it, the preview is worked out again under the booking's locks, before
+    anything is saved or sent, and ``effects.EffectChanged`` is raised, carrying the
+    paragraph as it now reads, unless it is the same.
     """
     async with AsyncSessionFactory() as session:
         listing, rules = await bookings._listing(session, body.unit, now, only_open=False)
     start, name, mobile, email = _check_fields(body)
+    checks = None
+    if expected_effect is not None:
+        from api.src.showing_bookings import effects  # effects imports this module
+
+        checks = effects.booking_still_as_approved(
+            body, expected_effect, now=now, zillow_thread_id=zillow_thread_id
+        )
     placed = await bookings.place_booking(
         listing,
         rules,
@@ -187,8 +210,10 @@ async def book_for_caller(
             email=email,
             texts_accepted=body.texts,
             consent_page=f"team:{taken_by}",
+            zillow_thread_id=zillow_thread_id,
         ),
         now=now,
+        checks=checks,
     )
     attendee = placed.attendee
     confirmation = None
