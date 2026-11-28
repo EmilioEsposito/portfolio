@@ -220,8 +220,8 @@ class TestWiring:
     def wakes(self, monkeypatch) -> list[dict]:
         calls: list[dict] = []
 
-        async def wake(job_id, *, not_before=None):
-            calls.append({"job_id": job_id, "not_before": not_before})
+        async def wake(job_id, *, not_before=None, min_delay=None):
+            calls.append({"job_id": job_id, "not_before": not_before, "min_delay": min_delay})
 
         monkeypatch.setattr(d.wakeups, "wake", wake)
         return calls
@@ -240,8 +240,8 @@ class TestWiring:
         assert attempted_after == [1]  # the backstop was set before the first attempt
         backstop, after = wakes
         assert backstop["job_id"] == after["job_id"] == d.JOB_ID
-        assert close(backstop["not_before"], now() + d.BACKSTOP)
-        assert after["not_before"] is None
+        assert backstop["min_delay"] == d.BACKSTOP
+        assert after["min_delay"] is None and after["not_before"] is None
 
     @pytest.mark.asyncio
     async def test_dispatch_moves_the_wake_up_even_when_the_attempt_raises(
@@ -252,7 +252,7 @@ class TestWiring:
             await d.dispatch(
                 "Synthetic emergency", source_key="test:" + str(uuid4()), numbers=NUMBERS
             )
-        assert len(wakes) == 2 and wakes[1]["not_before"] is None
+        assert len(wakes) == 2 and wakes[1]["min_delay"] is None
 
     @pytest.mark.asyncio
     async def test_an_assessment_moves_the_wake_up_even_when_it_fails(self, wakes, monkeypatch):
@@ -271,7 +271,7 @@ class TestWiring:
             escalate, "ai_assess_for_escalation", AsyncMock(side_effect=RuntimeError("outage"))
         )
         await d.process_request(request_id)
-        assert wakes == [{"job_id": d.JOB_ID, "not_before": None}]
+        assert wakes == [{"job_id": d.JOB_ID, "not_before": None, "min_delay": None}]
         assert close(await d.next_due_at(), now() + timedelta(seconds=30))
 
     @pytest.mark.asyncio
@@ -292,7 +292,7 @@ class TestWiring:
             async with AsyncSessionFactory() as s:
                 await routes.webhook(webhook_payload(event_id, message_id), tasks, s)
             assert len(tasks.tasks) == 1  # the first attempt still runs at once
-            assert len(wakes) == 1 and close(wakes[0]["not_before"], now() + d.BACKSTOP)
+            assert len(wakes) == 1 and wakes[0]["min_delay"] == d.BACKSTOP
             # A duplicate delivery of the same webhook sets nothing.
             async with AsyncSessionFactory() as s:
                 await routes.webhook(webhook_payload(event_id, message_id), BackgroundTasks(), s)
@@ -306,7 +306,7 @@ class TestWiring:
         monkeypatch.setattr(d, "process_deliveries", AsyncMock())
         await d.recover_escalations()
         assert len(wakes) == 1
-        assert close(wakes[0]["not_before"], now() + wakeups.RERUN_GAP)
+        assert wakes[0]["min_delay"] == wakeups.RERUN_GAP
 
 
 @pytest.fixture
@@ -318,6 +318,8 @@ def scheduler(monkeypatch) -> Iterator[AsyncIOScheduler]:
     monkeypatch.setattr(wakeups, "_QUEUES", {})
     monkeypatch.setattr(wakeups, "_LOCKS", {})
     monkeypatch.setattr(wakeups, "_RUNNING", set())
+    monkeypatch.setattr(wakeups, "_RETRYING", set())
+    monkeypatch.setattr(wakeups, "_listening_to", None)
     monkeypatch.setattr(wakeups, "_catch_up_registered", False)
     yield fresh
     if fresh.running:

@@ -63,6 +63,12 @@ at once belongs in the request's `BackgroundTasks`.
   Both servers can also start the same wake-up, and the second to delete it gets
   `JobLookupError`; `ResilientAsyncIOScheduler` (`apscheduler_service/service.py`)
   keeps that from stopping the scheduler.
+- A run's own wake-up is deleted when the run starts, so the end-of-run write is
+  what keeps the queue going. When that write fails, `wake` tries again every
+  60 seconds in memory until it works. When APScheduler skips a wake-up because
+  the last run was still finishing (and deletes it, being one-time), a listener
+  sets it again. `min_delay` is counted from the write, so a slow read before it
+  cannot leave the next wake-up due before the run returns.
 - `misfire_grace_time=None`: a wake-up due while no server ran (a deploy) runs
   as soon as one does. APScheduler would otherwise drop it after a minute.
 - The queue's `next_due_at` must follow its claim's own rules. A time it

@@ -52,6 +52,7 @@ def scheduler(monkeypatch) -> AsyncIOScheduler:
     monkeypatch.setattr(service, "_scheduler", fresh)
     monkeypatch.setattr(job_info, "_BY_JOB_ID", {})
     monkeypatch.setattr(wakeups, "_QUEUES", {})
+    monkeypatch.setattr(wakeups, "_listening_to", None)
     monkeypatch.setattr(wakeups, "_catch_up_registered", False)
     return fresh
 

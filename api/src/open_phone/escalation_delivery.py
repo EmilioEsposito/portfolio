@@ -164,7 +164,7 @@ async def dispatch(
 async def set_backstop() -> None:
     """Before a first attempt, once its rows are committed: make sure the
     wake-up runs within ``BACKSTOP`` if nothing else moves it."""
-    await wakeups.wake(JOB_ID, not_before=utcnow() + BACKSTOP)
+    await wakeups.wake(JOB_ID, min_delay=BACKSTOP)
 
 
 async def report(request_id: str) -> DeliveryReport:

@@ -575,7 +575,7 @@ class TestWakeUp:
         await queue.process_zillow_email_queue()
         wake.assert_awaited_once()
         assert wake.await_args.args == (queue.JOB_ID,)
-        assert wake.await_args.kwargs["not_before"] > datetime.now(UTC)
+        assert wake.await_args.kwargs["min_delay"] == queue.wakeups.RERUN_GAP
 
     @pytest.mark.asyncio
     async def test_a_run_while_automation_is_off_still_sets_the_wake_up(self, monkeypatch):
