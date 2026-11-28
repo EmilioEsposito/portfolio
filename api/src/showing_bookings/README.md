@@ -1278,7 +1278,7 @@ number is not known to be wrong and who is not marked a no-show, gets one text
 
 `lead_contacts.py`. Everyone whose mobile we have gets a Quo Lead contact, as
 the team's `quo-contact` skill writes them (sernia-knowledge,
-`.claude/skills/quo-contact/SKILL.md`): first name `Lead 324-11 Jonah`, last
+`.claude/skills/quo-contact/SKILL.md`): first name `Lead 324-11 Quinn`, last
 name the rest of the name or `.`, role `Lead`, company `324`, the mobile in
 E.164 labelled `mobile`, an email labelled `Email`, the Property and Unit #
 fields, and tags `324` and, for a Zillow lead, `Zillow Lead`. Never the

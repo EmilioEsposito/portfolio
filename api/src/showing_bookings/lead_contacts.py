@@ -15,7 +15,7 @@ Two sources, each queued as a job in ``lead_contact_jobs``:
 Each contact follows the team's ``quo-contact`` skill (sernia-knowledge,
 ``.claude/skills/quo-contact/SKILL.md``):
 
-- first name ``Lead 324-11 Jonah``, last name the rest of the name or ``.``;
+- first name ``Lead 324-11 Quinn``, last name the rest of the name or ``.``;
   role ``Lead``; company the property's street number (``324``);
 - the mobile in E.164 labelled ``mobile``; an email labelled ``Email``;
 - the Property and Unit # custom fields; tags ``324``, and ``Zillow Lead`` when

@@ -45,8 +45,8 @@ def claimed(**fields) -> Claimed:
         id=1,
         attempts=1,
         phone=PHONE,
-        name="Jonah Example",
-        email="jonah@example.com",
+        name="Quinn Example",
+        email="quinn@example.com",
         unit="324-11",
         zillow_thread_id=THREAD,
     )
@@ -63,7 +63,7 @@ def lead(**default) -> dict:
         "id": "CTlead",
         "createdAt": "2026-06-02T12:53:06.209Z",
         "defaultFields": {
-            "firstName": "Lead 320-02 Jonah",
+            "firstName": "Lead 320-02 Quinn",
             "lastName": ".",
             "company": "320",
             "role": "Lead",
@@ -88,12 +88,12 @@ def test_a_new_lead_contact_is_written_as_the_skill_says():
     payload = new_contact(person_of(claimed()))
 
     assert payload["defaultFields"] == {
-        "firstName": "Lead 324-11 Jonah",
+        "firstName": "Lead 324-11 Quinn",
         "lastName": "Example",
         "role": "Lead",
         "company": "324",
         "phoneNumbers": [{"name": "mobile", "value": PHONE}],
-        "emails": [{"name": "Email", "value": "jonah@example.com"}],
+        "emails": [{"name": "Email", "value": "quinn@example.com"}],
     }
     assert custom(payload) == {
         PROPERTY_FIELD: "324",
@@ -106,12 +106,12 @@ def test_a_new_lead_contact_is_written_as_the_skill_says():
 def test_what_the_booking_does_not_say_is_left_out_or_marked():
     person = person_of(
         claimed(
-            name="  jonah  ", email="lead+abc@convo.zillow.com", unit="324-3", zillow_thread_id=None
+            name="  quinn  ", email="lead+abc@convo.zillow.com", unit="324-3", zillow_thread_id=None
         )
     )
     payload = new_contact(person)
 
-    assert payload["defaultFields"]["firstName"] == "Lead 324-03 jonah"
+    assert payload["defaultFields"]["firstName"] == "Lead 324-03 quinn"
     assert payload["defaultFields"]["lastName"] == "."
     assert "emails" not in payload["defaultFields"]  # never Zillow's relay address
     assert custom(payload)[TAGS_FIELD] == ["324"]  # not from a Zillow thread
@@ -123,9 +123,9 @@ def test_an_existing_lead_gets_only_what_it_lacks_and_keeps_every_list():
     payload = filled_in(lead(), person_of(claimed()))
 
     default = payload["defaultFields"]
-    assert default["firstName"] == "Lead 320-02 Jonah"  # never renamed
+    assert default["firstName"] == "Lead 320-02 Quinn"  # never renamed
     assert (default["lastName"], default["company"], default["role"]) == ("Example", "320", "Lead")
-    assert default["emails"] == [{"name": "Email", "value": "jonah@example.com"}]
+    assert default["emails"] == [{"name": "Email", "value": "quinn@example.com"}]
     assert default["phoneNumbers"] == [{"id": "PH1", "name": "mobile", "value": PHONE}]
     assert payload["customFields"] == [
         {"id": "CF1", "key": PROPERTY_FIELD, "value": "320"},
@@ -178,7 +178,7 @@ async def test_a_new_number_is_made_and_a_second_time_finds_it():
     assert first.result == "created" and again == lead_contacts.Synced(
         "unchanged", first.contact_id
     )
-    assert store.contacts[first.contact_id]["defaultFields"]["firstName"] == "Lead 324-11 Jonah"
+    assert store.contacts[first.contact_id]["defaultFields"]["firstName"] == "Lead 324-11 Quinn"
 
 
 @pytest.mark.asyncio
@@ -315,7 +315,7 @@ async def test_a_showing_long_past_is_not_queued(world):
 async def test_a_zillow_lead_with_a_number_is_queued_once_with_no_email(world):
     for _ in range(2):  # the lead agent runs on each new email in the thread
         await lead_contacts.queue_zillow_lead(
-            THREAD, name="Jonah Example", phone="(412) 555-0131", unit="324-11", now=world.now
+            THREAD, name="Quinn Example", phone="(412) 555-0131", unit="324-11", now=world.now
         )
     await lead_contacts.queue_zillow_lead(
         "thread-2", name="No Number", phone=None, unit="324-11", now=world.now
@@ -329,7 +329,7 @@ async def test_a_zillow_lead_with_a_number_is_queued_once_with_no_email(world):
 
     assert report.created == 1
     (made,) = store.contacts.values()
-    assert made["defaultFields"]["firstName"] == "Lead 324-11 Jonah"
+    assert made["defaultFields"]["firstName"] == "Lead 324-11 Quinn"
     assert "emails" not in made["defaultFields"]
     assert custom(made)[TAGS_FIELD] == ["Zillow Lead", "324"]
     (job,) = await jobs()
@@ -417,7 +417,7 @@ async def test_the_writer_says_when_trying_later_may_work(monkeypatch, answer, r
 async def test_the_writer_looks_a_number_up_afresh(monkeypatch):
     from api.src.open_phone import service
 
-    held = contact("Jonah Example", PHONE, prop="324", unit="11", role="Lead")
+    held = contact("Quinn Example", PHONE, prop="324", unit="11", role="Lead")
     quo = Quo(
         httpx.Response(200, json={"data": [held]}),
         httpx.Response(200, json={"data": [held]}),
@@ -445,7 +445,7 @@ def test_the_live_writer_refuses_to_run_in_tests():
 @pytest.mark.parametrize("role", ["Lead", "Prior Tenant", "Vendor", "Partner", "lead"])
 def test_a_lead_or_other_non_resident_without_lease_dates_leaves_a_unit_vacant(role):
     contacts = StandInContacts()
-    contacts.add("Lead 320-03 Jonah", PHONE, unit=UNIT, lease_start=None, lease_end=None, role=role)
+    contacts.add("Lead 320-03 Quinn", PHONE, unit=UNIT, lease_start=None, lease_end=None, role=role)
 
     assert residents.residents_in(contacts.added, UNIT, world_day()) == residents.Found()
 
@@ -462,7 +462,7 @@ def test_anyone_else_without_lease_dates_is_still_a_problem(role):
 
 def test_a_lead_beside_a_current_tenant_changes_nothing():
     contacts = StandInContacts()
-    contacts.add("Lead 320-03 Jonah", PHONE, unit=UNIT, lease_start=None, role="Lead")
+    contacts.add("Lead 320-03 Quinn", PHONE, unit=UNIT, lease_start=None, role="Lead")
     contacts.add("Riley Chen", ALEX_MOBILE, unit=UNIT)
 
     found = residents.residents_in(contacts.added, UNIT, world_day())
@@ -493,7 +493,7 @@ async def test_the_lead_agents_outcome_with_a_number_queues_its_contact(
     from api.src.zillow_leads import handle
 
     await clear_showing_data()
-    lead = {"name": "Jonah Example", "phone": phone, "unit": "324-11"}
+    lead = {"name": "Quinn Example", "phone": phone, "unit": "324-11"}
     monkeypatch.setattr(handle, "load_lead_thread", AsyncMock(return_value=thread(message(0))))
     monkeypatch.setattr(handle, "respond", AsyncMock(return_value=outcome(lead=lead)))
     try:
