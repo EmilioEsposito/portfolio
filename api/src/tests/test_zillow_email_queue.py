@@ -454,3 +454,134 @@ class TestAlreadyCompleted:
         monkeypatch.undo()  # use the real _already_completed
         monkeypatch.setattr(queue, "get_agent_conversation", AsyncMock(return_value=conversation))
         assert await queue._already_completed("zillow-T1-1") is expected
+
+
+class TestWakeUp:
+    """The worker runs when work is due (apscheduler_service/wakeups.py). Each
+    test names what a wrong due time would cause: a lead answered late, or a
+    worker that wakes every few seconds with nothing it may take."""
+
+    @pytest.mark.asyncio
+    async def test_an_email_is_due_when_its_batching_wait_ends(self, monkeypatch):
+        monkeypatch.setattr(
+            queue,
+            "get_zillow_email_config",
+            AsyncMock(return_value={"debounce_seconds": 300, "require_approval": True}),
+        )
+        await enqueue("m1")
+        due = await queue.next_due_at()
+        assert abs(due - later(seconds=300)) < timedelta(seconds=5)
+
+    @pytest.mark.asyncio
+    async def test_nothing_waiting_means_no_wake_up(self):
+        assert await queue.next_due_at() is None
+        await enqueue("m1")
+        await queue.process_zillow_email_queue()
+        assert (await rows())["m1"].state == "done"
+        assert await queue.next_due_at() is None
+
+    @pytest.mark.asyncio
+    async def test_no_wake_up_while_automation_is_off(self, monkeypatch):
+        await enqueue("m1")
+        monkeypatch.setattr(queue, "is_sernia_ai_enabled", AsyncMock(return_value=False))
+        assert await queue.next_due_at() is None
+
+    @pytest.mark.asyncio
+    async def test_a_thread_being_worked_on_is_due_when_its_lease_ends(self):
+        """A thread with a live lease cannot be claimed, so "due now" would make
+        the worker wake every few seconds for the length of the run."""
+        await enqueue("m1", thread_id="T1")
+        claim = await queue.claim_next_thread()
+        await enqueue("m2", thread_id="T1")  # due at once, but its thread is busy
+        due = await queue.next_due_at()
+        assert abs(due - (datetime.now(UTC) + queue.LEASE)) < timedelta(seconds=5)
+        await queue.complete_thread(claim)
+        assert await queue.next_due_at() <= datetime.now(UTC)  # now m2 can go
+
+    @pytest.mark.asyncio
+    async def test_another_thread_is_not_held_up_by_a_lease(self):
+        await enqueue("m1", thread_id="T1")
+        await queue.claim_next_thread()
+        await enqueue("m2", thread_id="T2")
+        assert await queue.next_due_at() <= datetime.now(UTC)
+
+    @pytest.mark.asyncio
+    async def test_a_failed_run_is_due_at_its_retry(self):
+        await enqueue("m1")
+        claim = await queue.claim_next_thread()
+        await queue.fail_thread(claim, "boom")
+        due = await queue.next_due_at()
+        assert abs(due - later(seconds=queue.RETRY_BASE.total_seconds())) < timedelta(seconds=5)
+
+    @pytest.mark.asyncio
+    async def test_a_dead_workers_thread_is_due_when_its_lease_runs_out(self):
+        await enqueue("m1")
+        await queue.claim_next_thread()  # and the worker dies
+        due = await queue.next_due_at()
+        assert abs(due - (datetime.now(UTC) + queue.LEASE)) < timedelta(seconds=5)
+
+    def test_due_times_follow_the_claims_head_batch(self):
+        """A batch being retried keeps its time; a newer email in the thread waits
+        behind it rather than making the thread due sooner."""
+        now = datetime.now(UTC)
+
+        def row(id_, state="pending", conversation_id=None, at=now, **values):
+            return SimpleNamespace(
+                id=id_,
+                thread_id="T1",
+                state=state,
+                conversation_id=conversation_id,
+                next_attempt_at=at,
+                lease_until=values.get("lease_until"),
+                expires_at=values.get("expires_at", now + timedelta(hours=1)),
+                attempts=values.get("attempts", 0),
+            )
+
+        retrying = row(1, conversation_id="zillow-T1-1", at=now + timedelta(minutes=4))
+        newer = row(2, at=now + timedelta(minutes=1))
+        assert queue.earliest_due([retrying, newer], now) == now + timedelta(minutes=4)
+        assert queue.earliest_due([], now) is None
+        # The head batch expired: the claim expires it now, and the next batch heads.
+        expired = row(
+            1,
+            conversation_id="zillow-T1-1",
+            at=now + timedelta(minutes=4),
+            expires_at=now - timedelta(seconds=1),
+        )
+        assert queue.earliest_due([expired, newer], now) == now
+        assert queue.earliest_due([newer], now) == now + timedelta(minutes=1)
+        out_of_attempts = row(
+            1,
+            conversation_id="zillow-T1-1",
+            at=now + timedelta(minutes=4),
+            attempts=queue.MAX_ATTEMPTS,
+        )
+        assert queue.earliest_due([out_of_attempts], now) == now
+
+    @pytest.mark.asyncio
+    async def test_queuing_an_email_sets_the_wake_up(self, monkeypatch):
+        wake = AsyncMock()
+        monkeypatch.setattr(queue.wakeups, "wake", wake)
+        await enqueue("m1")
+        wake.assert_awaited_once_with(queue.JOB_ID)
+        await enqueue("m1")  # a redelivery queues nothing and sets nothing
+        wake.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_each_run_sets_the_next_wake_up(self, monkeypatch):
+        await enqueue("m1")
+        wake = AsyncMock()
+        monkeypatch.setattr(queue.wakeups, "wake", wake)
+        await queue.process_zillow_email_queue()
+        wake.assert_awaited_once()
+        assert wake.await_args.args == (queue.JOB_ID,)
+        assert wake.await_args.kwargs["not_before"] > datetime.now(UTC)
+
+    @pytest.mark.asyncio
+    async def test_a_run_while_automation_is_off_still_sets_the_wake_up(self, monkeypatch):
+        """It reads "nothing due" then, so the queue goes idle instead of spinning."""
+        monkeypatch.setattr(queue, "is_sernia_ai_enabled", AsyncMock(return_value=False))
+        wake = AsyncMock()
+        monkeypatch.setattr(queue.wakeups, "wake", wake)
+        await queue.process_zillow_email_queue()
+        wake.assert_awaited_once()

@@ -1,6 +1,6 @@
 # Zillow lead queue
 
-Zillow lead processing through a **durable queue**. When an email from `zillow.com` arrives via Gmail Pub/Sub, a row is written to the `zillow_email_jobs` table. A scheduled worker (every 30 seconds) picks up due jobs, groups them by lead thread, and hands each thread to the **dedicated lead agent** ([Zillow Leads Agent](README.md)), once per thread.
+Zillow lead processing through a **durable queue**. When an email from `zillow.com` arrives via Gmail Pub/Sub, a row is written to the `zillow_email_jobs` table. A worker picks up due jobs, groups them by lead thread, and hands each thread to the **dedicated lead agent** ([Zillow Leads Agent](README.md)), once per thread. The worker is not on a timer: it is the queue's wake-up job ([`wakeups.py`](../apscheduler_service/wakeups.py)), set when an email is queued for the time its wait ends, and set again from the table at the end of every run (`next_due_at`). With nothing waiting it is idle.
 
 Zillow email does not start the general Sernia agent. That agent has tools and access to company data, and a lead's email is text written by a stranger; the lead agent has no tools and sees nothing private. Replies either wait for approval or use the dedicated automatic-delivery path, according to the lead agent’s own settings. Code fixes the Zillow relay recipient. See the package README for delivery checks and recovery behavior.
 
@@ -16,8 +16,10 @@ flowchart TD
     CHECK -->|No| DONE["Normal email processing"]
     CHECK -->|Yes| ENQ["enqueue_zillow_email()<br/>INSERT … ON CONFLICT DO NOTHING"]
     ENQ --> ROW[("zillow_email_jobs<br/>state = pending")]
+    ENQ --> WAKE["wakeups.wake()<br/>wake-up set for the earliest due job"]
 
-    TICK["APScheduler, every 30s<br/>process_zillow_email_queue()"] --> ENABLED{"Triggers<br/>enabled?"}
+    WAKE -.-> TICK["Wake-up job, when due<br/>process_zillow_email_queue()"]
+    TICK --> ENABLED{"Triggers<br/>enabled?"}
     ENABLED -->|No| IDLE["Do nothing"]
     ENABLED -->|Yes| CLAIM["claim_next_thread()<br/>next due thread → running, leased"]
     ROW -.-> CLAIM
@@ -53,6 +55,7 @@ flowchart TD
   2. a batch whose conversation was already saved in full is marked done without running again;
   3. delivery consumes the pending reply under a conversation lock. Automatic delivery also reserves the inbound RFC Message-ID before calling Gmail; an uncertain result becomes an inspect-only team task, never an automatic retry.
 - **Retries with backoff, then stop** — a crashed or unsaved run goes back to `pending` (2 minutes, then 4). After three attempts it is parked as `failed` with an error-level log.
+- **Woken when due, not polled** — `next_due_at` reads the table by the claim's own rules: each thread's head batch at its earliest `next_attempt_at`, a thread held by a live lease when that lease ends, and each live lease's end (a worker that dies). The end of every run sets the wake-up from it, no sooner than 5 seconds later; with nothing waiting, or with automated runs off, there is no wake-up. A wake-up that came due during a deploy runs when the new server starts, and the 15-minute catch-up job sets it again if one is ever lost.
 - **No email content in the table** — a job holds IDs, subject and sender only. The agent reads the email from Gmail when it runs.
 - **Shared-mailbox thread** — a job holds the Gmail IDs of the watched mailbox, but the lead agent works in the shared one, where the same email has different IDs. The worker looks up the shared copy by RFC `Message-ID` ([`thread.py`](thread.py)) and passes that thread on. An email with no shared copy yet, or a Gmail error during the lookup, fails the batch, which is retried.
 - **Instructions are in the repository** — the lead agent's prompt is [`prompts/policy.md`](prompts/policy.md) between a short `role.md` and `record.md`, versioned by commit so a change can be evaluated before it merges. The general agent reads the same `policy.md` as its `zillow-auto-reply` skill, which is now built in code ([`sernia_ai/lead_policy.py`](../sernia_ai/lead_policy.py)) and no longer kept in the workspace.
@@ -79,7 +82,8 @@ To retry a parked job after fixing the cause, set it back to waiting:
 
 `queue.py` owns the worker; `models.py` owns `ZillowEmailJob`. The persisted
 `zillow_email_jobs` table, `zillow-email-queue` job ID, advisory lock key,
-conversation IDs, leases, and retry policy remain unchanged.
+conversation IDs, leases, and retry policy remain unchanged. The job under that
+ID changed from an interval to a one-time wake-up; startup replaces the old one.
 
 APScheduler stores Python callable paths. The former
 `sernia_ai/triggers/zillow_email_event_trigger.py` retains only a worker import

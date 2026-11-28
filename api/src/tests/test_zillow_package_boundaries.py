@@ -38,21 +38,15 @@ def test_persisted_scheduler_reference_still_resolves():
     )
 
 
-def test_registration_replaces_the_existing_job_without_changing_its_schedule(monkeypatch):
-    from api.src.apscheduler_service import service
+def test_registration_sets_a_wake_up_under_the_same_job_id_and_function(monkeypatch):
+    """The wake-up keeps the job id and function path production's job store has,
+    so the old server can still load it while a deploy runs."""
+    from api.src.apscheduler_service import wakeups
 
-    scheduler = object()
-    upsert = Mock()
-    monkeypatch.setattr(service, "get_scheduler", lambda: scheduler)
-    monkeypatch.setattr(service, "upsert_job", upsert)
+    register = Mock()
+    monkeypatch.setattr(wakeups, "register_queue", register)
     queue.register_zillow_email_queue()
-    upsert.assert_called_once_with(
-        scheduler,
-        info=queue.JOB_INFO,
-        id="zillow-email-queue",
-        func=queue.process_zillow_email_queue,
-        trigger="interval",
-        seconds=30,
-        max_instances=2,
-        coalesce=True,
-    )
+    register.assert_called_once_with(queue.QUEUE)
+    assert queue.QUEUE.job_id == "zillow-email-queue"
+    assert queue.QUEUE.run is queue.process_zillow_email_queue
+    assert queue.QUEUE.next_due_at is queue.next_due_at

@@ -178,7 +178,11 @@ function JobCard(props: {
             <Detail label="Executor">{shown(job.executor)}</Detail>
             <Detail label="Max instances">{shown(job.max_instances)}</Detail>
             <Detail label="Misfire grace">
-              {job.misfire_grace_time === null ? "Not set yet" : `${job.misfire_grace_time} s`}
+              {job.misfire_grace_time !== null
+                ? `${job.misfire_grace_time} s`
+                : job.wake_up && job.next_run_time
+                  ? "None: runs however late"
+                  : "Not set yet"}
             </Detail>
             <Detail label="Pending">{String(job.pending)}</Detail>
           </dl>
@@ -193,7 +197,8 @@ function JobCard(props: {
             )}
             {busy === "run" ? "Starting…" : "Run now"}
           </Button>
-          {job.service === "apscheduler" && (
+          {/* A wake-up is set again from its table whenever work arrives, so deleting it does nothing lasting. */}
+          {job.service === "apscheduler" && !job.wake_up && (
             <Button
               size="sm"
               variant="destructive"
@@ -399,7 +404,7 @@ export function Scheduler({ apiBaseUrl }: SchedulerProps) {
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Scheduler</h1>
         <p className="text-sm text-muted-foreground">
-          The jobs the API runs on its own schedule. Open one to see what it does. Times are Eastern.
+          The jobs the API runs on a schedule, or when work is due. Open one to see what it does. Times are Eastern.
         </p>
       </div>
       <Button

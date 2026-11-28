@@ -9,6 +9,7 @@ import logfire
 import pytz
 import requests
 
+from api.src.apscheduler_service.tracing import scheduled_job
 from api.src.contact.service import get_contact_by_slug
 from api.src.open_phone.service import send_message
 from api.src.schedulers.job_info import JobInfo
@@ -28,6 +29,7 @@ if not CLICKUP_API_KEY:
 headers = {"accept": "application/json", "Authorization": CLICKUP_API_KEY}
 
 
+@scheduled_job
 async def get_peppino_view_tasks():
     """
     Get all tasks from a view.

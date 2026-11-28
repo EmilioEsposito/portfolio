@@ -183,6 +183,9 @@ async def _apscheduler_startup_async() -> None:
             )
 
             register_lead_contacts()
+            from api.src.apscheduler_service.wakeups import register_catch_up
+
+            register_catch_up()
 
         # Start the scheduler AFTER the span closes and with a clean OTel context.
         # APScheduler's internal event loop inherits the current trace context —
