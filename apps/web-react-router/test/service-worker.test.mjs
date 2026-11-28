@@ -189,6 +189,33 @@ test("a click moves an open team chat tab to the notification's conversation", a
   ]);
 });
 
+test("a lead's notification moves an open chat tab to the lead's page, with nothing posted to the chat", async () => {
+  const events = [];
+  const tab = {
+    url: "https://example.test/team/chat?id=other",
+    postMessage(message) {
+      events.push(["message", message.type, message.url]);
+    },
+    navigate(url) {
+      events.push(["navigate", url]);
+    },
+    focus: async () => {
+      events.push(["focus"]);
+    },
+  };
+  const opened = await clickNotification(
+    { url: "/team/leads/threads/1a2b3c4d5e6f7a8b", conversation_id: "zillow-1-2", type: "approval" },
+    [tab],
+  );
+  assert.deepEqual(opened, []);
+  assert.deepEqual(events, [["navigate", "/team/leads/threads/1a2b3c4d5e6f7a8b"], ["focus"]]);
+});
+
+test("a lead's notification opens the lead's page when no chat tab is open", async () => {
+  const opened = await clickNotification({ url: "/team/leads/threads/1a2b3c4d5e6f7a8b", conversation_id: "zillow-1-2" }, []);
+  assert.deepEqual(opened, ["/team/leads/threads/1a2b3c4d5e6f7a8b"]);
+});
+
 // The app icon's badge: the notifications shown since the app was last opened
 // and still showing.
 

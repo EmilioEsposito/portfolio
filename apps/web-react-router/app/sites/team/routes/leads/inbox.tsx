@@ -6,7 +6,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { cn } from "~/lib/utils";
-import { ShowingBadge, StatusBadge } from "~/sites/team/components/lead-badges";
+import { OutdatedBadge, ShowingBadge, StatusBadge } from "~/sites/team/components/lead-badges";
 import {
   LEADS_API,
   type LeadThreadList,
@@ -48,6 +48,7 @@ function ThreadItem({ row, now }: { row: LeadThreadRow; now: Date }) {
           {row.unit && <span className="text-xs text-muted-foreground">{row.unit}</span>}
           <span className="order-last flex basis-full flex-wrap gap-1.5 sm:order-none sm:basis-auto">
             <StatusBadge status={row.status} waitingSince={row.waiting_since} now={now} />
+            {row.draft_outdated && <OutdatedBadge />}
             {row.showing && <ShowingBadge showing={row.showing} />}
           </span>
           <time

@@ -9,7 +9,7 @@ import {
 } from "~/components/ui/card";
 import { Label } from "~/components/ui/label";
 import { cn } from "~/lib/utils";
-import { LEAD_NEEDS_A_PERSON } from "~/sites/team/lib/lead-hand-off";
+import { LEAD_NEEDS_A_PERSON, LEAD_REPLY } from "~/sites/team/lib/lead-hand-off";
 import { MessageEditSheet } from "~/sites/team/components/chat/message-edit-sheet";
 import {
   AlertCircle,
@@ -448,6 +448,8 @@ function ApprovalItem({
 }) {
   const { value: msgValue } = getMessageFromArgs(item.args);
   const hasMessageArg = msgValue !== "";
+  // A Zillow lead's reply is the lead agent's draft, not Sernia AI's.
+  const author = item.toolName === LEAD_REPLY ? "The lead agent" : "Sernia AI";
   const [isEditing, setIsEditing] = useState(false);
   const editedBody = decision.editedBody ?? msgValue;
   const isEdited = editedBody !== msgValue;
@@ -521,7 +523,7 @@ function ApprovalItem({
               </p>
               {isEdited && (
                 <div className="mt-1 flex items-center justify-between gap-2 text-xs text-amber-600 dark:text-amber-400">
-                  <span>Your version replaces Sernia AI's draft.</span>
+                  <span>Your version replaces {author === "Sernia AI" ? "Sernia AI" : "the lead agent"}&rsquo;s draft.</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -541,6 +543,7 @@ function ApprovalItem({
                 draft={msgValue}
                 value={editedBody}
                 onSave={onSetEditedBody}
+                author={author}
               />
             </div>
           )}

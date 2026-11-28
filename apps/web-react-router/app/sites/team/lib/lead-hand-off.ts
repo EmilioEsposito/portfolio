@@ -16,6 +16,9 @@ export const HAND_OFF_END = "[End of hand-off]";
 /** The card that asks for a person. Nothing on it can be approved. */
 export const LEAD_NEEDS_A_PERSON = "lead_needs_a_person";
 
+/** The card with the lead agent's drafted reply (api/src/zillow_leads/handle.py SEND_REPLY). */
+export const LEAD_REPLY = "send_lead_reply";
+
 /** The first message of a handed-off chat: the person's words, then the block. */
 export function withHandOff(block: string, words: string): string {
   return `${words.trim()}\n\n${block.trim()}`;

@@ -34,7 +34,11 @@ through the authenticated API. `service.py` encrypts notifications with VAPID an
 sends them to the browser vendor's push service. The service worker displays the
 notification and opens `/team/chat?id=…` (`team_links.chat_path`) when it is clicked.
 
-Both agents use the same approval notifications.
+Both agents use the same approval notifications. A Zillow lead's card passes
+`url` to `notify_pending_approval`, so its push opens the lead's page
+(`team_links.lead_thread_path`), where the card is decided beside the lead's
+emails and showings. An open chat tab is moved there; it is told to reload a
+conversation only when the push opens one.
 
 ### No push about a conversation its reader has open
 
