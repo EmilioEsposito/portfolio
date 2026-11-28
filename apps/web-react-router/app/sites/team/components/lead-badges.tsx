@@ -59,3 +59,15 @@ export function ShowingBadge({ showing }: { showing: ShowingSummary }) {
     </Badge>
   );
 }
+
+/** A waiting draft was written before the lead's showings changed: it may say the wrong thing. */
+export function OutdatedBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="border-red-400 bg-red-50 font-normal text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
+    >
+      Showings changed after the draft
+    </Badge>
+  );
+}

@@ -39,6 +39,16 @@ export interface ShowingSummary {
   cancelled_by?: string | null;
 }
 
+/** A showing booked or cancelled after a waiting card was written: its draft did not know. */
+export interface ShowingChange {
+  kind: "booked" | "cancelled";
+  unit: string;
+  starts_at: string;
+  booked_by: string;
+  at: string;
+  cancelled_by?: string | null;
+}
+
 export interface LeadThreadRow {
   thread_id: string;
   first_name: string;
@@ -53,6 +63,8 @@ export interface LeadThreadRow {
   activity_at: string;
   status: LeadStatus;
   waiting_since: string | null;
+  /** A waiting draft was written before a showing was booked or cancelled. */
+  draft_outdated?: boolean;
   showing: ShowingSummary | null;
 }
 
@@ -101,6 +113,7 @@ export interface WaitingCard {
   args: Record<string, any>;
   since: string;
   chat_path: string;
+  showing_changes?: ShowingChange[];
 }
 
 export type RunResult =
@@ -202,6 +215,25 @@ export function listTime(iso: string | null, now: Date = new Date()): string {
 export function fullTime(iso: string | null): string {
   const when = parse(iso);
   return when ? WHEN.format(when) : "";
+}
+
+const DAY_AT = new Intl.DateTimeFormat("en-US", { timeZone: ZONE, weekday: "short", month: "short", day: "numeric" });
+
+/** A showing's time as a sentence says it: "Sun, Nov 29 at 1:30 PM". */
+export function dayAt(iso: string | null): string {
+  const when = parse(iso);
+  return when ? `${DAY_AT.format(when)} at ${CLOCK.format(when)}` : "";
+}
+
+/**
+ * What changed after a draft was written, as the card says it:
+ * "Jordan booked 12-3 for Sun, Nov 29 at 1:30 PM after this draft was written."
+ */
+export function changeLine(change: ShowingChange): string {
+  if (change.kind === "booked") {
+    return `${change.booked_by} booked ${change.unit} for ${dayAt(change.starts_at)} after this draft was written.`;
+  }
+  return `The showing of ${change.unit} on ${dayAt(change.starts_at)} was ${cancelledBy(change.cancelled_by)} after this draft was written.`;
 }
 
 /** How long something has waited: "5 min", "3 h", "2 days". */

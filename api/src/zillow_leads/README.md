@@ -304,7 +304,7 @@ sent gets none, and nothing is queued with the switch off. See
 | Decision | `agent.py`, `prompts/` | `respond(case)` returns one of the three typed outcomes |
 | Review and delivery | `handle.py`, `auto_reply.py`, `relay.py` | Persist the outcome; use manual approval or an idempotent automatic send; book what an approved reply confirms (switch on); the one relay rule for where email may go |
 | Lead settings | `settings.py` | Authenticated settings API, explicit approval opt-in/out, validated batching window |
-| Lead inbox | `inbox.py` | Read API for the team's leads list and each lead's page; no Gmail calls |
+| Lead inbox | `inbox.py`, `reply_links.py` | Read API for the team's leads list and each lead's page (no Gmail calls); the thread's token on an approved reply's booking links |
 | Offline evaluation | `evals/` | Replay scenarios, exact checks, human labels, LLM judge; never imported by runtime code |
 
 The general agent lives in [`sernia_ai/general_agent.py`](../sernia_ai/general_agent.py). It
@@ -349,7 +349,7 @@ Shared services have independent owners:
   service's reminder by email goes only to that stored route, checked again by
   the same rule.
 - **Approval is configurable for this agent only.** With approval on, replies
-  wait in `/team/chat`. With it off, new replies may be sent automatically;
+  wait on the lead's page (`/team/leads/threads/<thread id>`) and in `/team/chat`. With it off, new replies may be sent automatically;
   pending drafts are not swept up. Escalations and team follow-ups remain tasks
   for a person. NoReply sends nothing. A reply that would book, move or cancel a
   showing still waits unless its own box is ticked (see "Showings agreed by
@@ -413,6 +413,25 @@ latest case offered, or why there is none), Hand to Sernia AI (the hand-off
 below, started from the page), what waits for the team, the thread's
 showings, the emails in order and each run of the agent with a link to its raw
 conversation.
+
+What waits is decided on the page with the chat's own card: approve, edit in
+the full-screen editor, or reject a draft; mark a question handled. Both go
+through the same approval endpoint as the chat. When one of the thread's
+showings was booked or cancelled after a waiting draft's case was built, the
+card says so first ("Jordan booked 320-03 for Wed, Apr 14 at 4:00 PM after this
+draft was written."), and the list marks the row: a draft asking a lead to book
+may be written before they booked. A draft's push, the team home's approvals
+and a lead conversation in the chat ("Open lead") lead to the page.
+
+**The thread's token on an approved reply.** Before an approved reply is sent,
+edited or not, every link in it to a unit's booking page
+(`<SHOWING_PUBLIC_BASE_URL>/showings/<unit>`, with or without the scheme or
+`www.`) is given this thread's token (`reply_links.py`): added where it is
+missing, put in place of another thread's. The cancel page and other links are
+left alone. Whether the reply counts as edited is decided on what the person
+wrote, and the approval record keeps what was sent and `booking_links_fixed`.
+The automatic send is unchanged: its check still refuses any link the case did
+not supply.
 
 `inbox.py` serves it at `GET /api/zillow-leads/threads` and
 `GET /api/zillow-leads/threads/{thread_id}`, behind the Sernia sign-in. It reads

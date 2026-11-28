@@ -167,6 +167,23 @@ class LeadShowing(BaseModel):
     showings_path: str
 
 
+class ShowingChange(BaseModel):
+    """A showing of the thread's booked or cancelled after a waiting card was written.
+
+    The card's case did not know it, so its draft may now say the wrong thing:
+    a draft asking the lead to book, written before they booked.
+    """
+
+    kind: Literal["booked", "cancelled"]
+    unit: str
+    starts_at: datetime
+    # The name given when booking.
+    booked_by: str
+    # When it was booked or cancelled.
+    at: datetime
+    cancelled_by: str | None = None
+
+
 class WaitingCard(BaseModel):
     """A card in one of the thread's conversations that waits for a person."""
 
@@ -179,6 +196,8 @@ class WaitingCard(BaseModel):
     args: dict[str, Any]
     since: datetime
     chat_path: str
+    # The thread's showings booked or cancelled after the card's case was built.
+    showing_changes: list[ShowingChange] = Field(default_factory=list)
 
 
 class AgentRun(BaseModel):
@@ -226,6 +245,9 @@ class LeadThreadRow(BaseModel):
     status: Status
     # When the oldest card still waiting was written.
     waiting_since: datetime | None = None
+    # A waiting draft was written before a showing of the thread was booked or
+    # cancelled, so it may no longer fit (``ShowingChange``).
+    draft_outdated: bool = False
     showing: ShowingSummary | None = None
 
 
@@ -652,6 +674,11 @@ def thread_row(
         unit = views[-1].unit
     latest = found[-1] if found else None
     waiting = [run.created_at for run in runs if run.pending]
+    outdated = any(
+        showing_changes(views, run.case.get("now") or run.created_at)
+        for run in runs
+        if any(card.get("tool_name") == SEND_REPLY for card in run.pending)
+    )
     return (
         LeadThreadRow(
             thread_id=runs[-1].thread_id,
@@ -667,6 +694,7 @@ def thread_row(
             activity_at=_activity(runs, found, views),
             status=thread_status(runs),
             waiting_since=min(waiting) if waiting else None,
+            draft_outdated=outdated,
             showing=showing_summary(views),
         ),
         found,
@@ -674,7 +702,35 @@ def thread_row(
     )
 
 
-def waiting_cards(runs: list[Run]) -> list[WaitingCard]:
+def showing_changes(views: list[LeadShowing], since: datetime) -> list[ShowingChange]:
+    """What happened to the thread's showings after ``since``, in the order it happened."""
+    changes = []
+    for view in views:
+        if view.booked_at and view.booked_at > since:
+            changes.append(
+                ShowingChange(
+                    kind="booked",
+                    unit=view.unit,
+                    starts_at=view.starts_at,
+                    booked_by=view.booked_by,
+                    at=view.booked_at,
+                )
+            )
+        if view.cancelled_at and view.cancelled_at > since:
+            changes.append(
+                ShowingChange(
+                    kind="cancelled",
+                    unit=view.unit,
+                    starts_at=view.starts_at,
+                    booked_by=view.booked_by,
+                    at=view.cancelled_at,
+                    cancelled_by=view.cancelled_by,
+                )
+            )
+    return sorted(changes, key=lambda change: change.at)
+
+
+def waiting_cards(runs: list[Run], views: list[LeadShowing]) -> list[WaitingCard]:
     return [
         WaitingCard(
             conversation_id=run.id,
@@ -684,6 +740,8 @@ def waiting_cards(runs: list[Run]) -> list[WaitingCard]:
             args=_dict(card.get("args")),
             since=run.created_at,
             chat_path=team_links.chat_path(run.id),
+            # Measured from when the case was built: the draft knew nothing later.
+            showing_changes=showing_changes(views, run.case.get("now") or run.created_at),
         )
         for run in runs
         for card in run.pending
@@ -841,7 +899,7 @@ async def read_thread(thread_id: str = Path(pattern=THREAD_ID)) -> LeadThreadPag
         emails=found,
         emails_read_at=runs[-1].case.get("now") or runs[-1].created_at,
         showings=views,
-        waiting=waiting_cards(runs),
+        waiting=waiting_cards(runs, views),
         runs=agent_runs(runs),
         booking_links=links,
         booking_links_problem=problem,

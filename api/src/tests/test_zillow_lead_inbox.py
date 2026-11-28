@@ -456,3 +456,71 @@ def test_the_listing_asked_about_is_found_by_unit_or_address(unit, address, expe
     listings = [LISTING.model_dump(), OTHER.model_dump()]
     found = inbox._listing_for(listings, unit, address)
     assert (found or {}).get("unit") == expected
+
+
+# A draft written before the lead booked (the incident the inbox exists for)
+
+
+@pytest.mark.asyncio
+async def test_a_draft_written_before_a_booking_says_so_on_its_card_and_row(leads):
+    thread_id, _, two = await casey(leads)
+
+    page = (await get(f"/zillow-leads/threads/{thread_id}")).json()
+
+    (card,) = page["waiting"]
+    (change,) = card["showing_changes"]
+    assert change["kind"] == "booked"
+    assert change["unit"] == "12-3" and change["booked_by"] == "Jordan"
+    assert page["thread"]["draft_outdated"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_booking_the_draft_already_knew_of_is_not_a_change(leads):
+    thread_id = leads.thread_id()
+    showing = await add_showing(
+        await add_agent(), unit="12-3", starts_at=datetime.now(UTC) + timedelta(days=2)
+    )
+    await add_attendee(showing, name="Jordan", thread=thread_id)
+    await leads.run(thread_id, outcome(), message(0, subject=SUBJECT, body=FIRST))
+
+    page = (await get(f"/zillow-leads/threads/{thread_id}")).json()
+
+    (card,) = page["waiting"]
+    assert card["showing_changes"] == []
+    assert page["thread"]["draft_outdated"] is False
+    assert page["thread"]["showing"]["state"] == "booked"
+
+
+@pytest.mark.asyncio
+async def test_a_cancellation_after_the_draft_is_a_change_too(leads):
+    thread_id = leads.thread_id()
+    showing = await add_showing(
+        await add_agent(), unit="12-3", starts_at=datetime.now(UTC) + timedelta(days=2)
+    )
+    attendee = await add_attendee(showing, name="Jordan", thread=thread_id)
+    await leads.run(thread_id, outcome(), message(0, subject=SUBJECT, body=FIRST))
+    async with AsyncSessionFactory() as session:
+        row = await session.get(ShowingAttendee, attendee)
+        row.status, row.cancel_reason = "cancelled", "prospect"
+        row.cancelled_at = datetime.now(UTC)
+        await session.commit()
+
+    page = (await get(f"/zillow-leads/threads/{thread_id}")).json()
+
+    (change,) = page["waiting"][0]["showing_changes"]
+    assert (change["kind"], change["cancelled_by"]) == ("cancelled", "prospect")
+    assert page["thread"]["draft_outdated"] is True
+
+
+@pytest.mark.asyncio
+async def test_the_team_homes_approvals_name_a_leads_thread(leads):
+    from api.src.agent_conversations.identity import AGENT_NAME
+    from api.src.agent_conversations.models import list_pending_conversations
+
+    thread_id, _, two = await casey(leads, booked=False)
+
+    pending = await list_pending_conversations(agent_name=AGENT_NAME, limit=200)
+
+    (row,) = [row for row in pending if row["conversation_id"] == two]
+    # The team home links it to the lead's page rather than the chat.
+    assert row["lead_thread_id"] == thread_id
