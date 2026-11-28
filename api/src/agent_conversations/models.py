@@ -823,6 +823,15 @@ async def _pending_approvals(session: AsyncSession, ids: list[str]) -> dict[str,
     return pending
 
 
+async def pending_approvals(session: AsyncSession, ids: list[str]) -> dict[str, list[dict]]:
+    """The cards waiting in each of ``ids``, by the same rule as the team's pending list.
+
+    For readers outside this module that name the conversations themselves, such
+    as the lead inbox (``zillow_leads/inbox.py``). Reads no history into Python.
+    """
+    return await _pending_approvals(session, ids)
+
+
 def extract_pending_approval_from_messages(messages: list[ModelMessage]) -> list[dict]:
     """
     Extract all pending approval info from stored messages.

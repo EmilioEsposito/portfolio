@@ -88,6 +88,7 @@ from api.src.showing_bookings.public_routes import (
 from api.src.showing_bookings.routes import router as showing_bookings_router
 from api.src.team_tasks.routes import router as team_tasks_router
 from api.src.user.routes import router as user_router
+from api.src.zillow_leads.inbox import router as zillow_leads_inbox_router
 from api.src.zillow_leads.settings import router as zillow_leads_router
 
 # from api.src.future_features.schema import Query as FutureQuery, Mutation as FutureMutation
@@ -360,6 +361,7 @@ app.include_router(agent_conversations_router, prefix="/api/agent-conversations"
 # Existing clients retain their conversation URLs; both mounts share auth and handlers.
 app.include_router(agent_conversations_router, prefix="/api/sernia-ai")
 app.include_router(zillow_leads_router, prefix="/api")
+app.include_router(zillow_leads_inbox_router, prefix="/api")
 app.include_router(team_tasks_router, prefix="/api")
 app.include_router(open_phone_router, prefix="/api")
 app.include_router(cron_router, prefix="/api")
