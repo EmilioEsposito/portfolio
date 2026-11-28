@@ -45,8 +45,10 @@ export const TEAM_API_PATHS = [
   // Rental listing data: the listings, showing rules, Zillow ads and history.
   "/api/rental-listings",
   "/api/rental-listings/",
-  // The lead agent's settings.
+  // The lead agent's settings, and the leads list and each lead's page.
   "/api/zillow-leads/settings",
+  "/api/zillow-leads/threads",
+  "/api/zillow-leads/threads/",
   // Tasks: the open ClickUp and Quo tasks, and completing one.
   "/api/team-tasks",
   "/api/team-tasks/",

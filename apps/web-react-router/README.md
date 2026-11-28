@@ -75,7 +75,7 @@ and have no redirects.
 | All conversations | `/team/admin` |
 | Message tenants | `/team/tenants` |
 | Scheduler | `/team/scheduler` |
-| Lead agent: overview, listing data, agent settings, booking settings | `/team/leads`, `/team/leads/listings`, `/team/leads/settings`, `/team/leads/bookings` |
+| Lead agent: the leads list and each lead's page, listing data, agent settings, booking settings, how it works | `/team/leads`, `/team/leads/threads/<thread id>`, `/team/leads/listings`, `/team/leads/settings`, `/team/leads/bookings`, `/team/leads/overview` |
 
 - Where: on a Sernia host always, whether or not the public pages are switched
   on, and on any other host only outside production (`RAILWAY_ENVIRONMENT_NAME`

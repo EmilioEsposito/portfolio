@@ -1,7 +1,7 @@
 import { privateChatInput } from "~/sites/team/lib/private-chat-input";
 import type { Route } from "./+types/chat";
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Link, useSearchParams, useNavigate } from "react-router";
+import { Link, useLocation, useSearchParams, useNavigate } from "react-router";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useAuth, useUser } from "@clerk/react-router";
@@ -46,7 +46,7 @@ import {
   type PendingApproval,
 } from "~/sites/team/components/chat/tool-cards";
 import { processMessage } from "~/sites/team/components/chat/process-message";
-import { splitHandOff, withHandOff } from "~/sites/team/lib/lead-hand-off";
+import { handOffFromState, splitHandOff, withHandOff } from "~/sites/team/lib/lead-hand-off";
 import { useFileAttachments } from "~/sites/team/hooks/use-file-attachments";
 import {
   FileAttachmentButton,
@@ -2245,11 +2245,17 @@ export default function SerniaChatPage() {
   const { user } = useUser();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const isAdmin = isTeamAdmin(user?.primaryEmailAddress?.emailAddress);
   const urlConversationId = searchParams.get("id");
   const [conversationId, setConversationId] = useState<string>(
     () => urlConversationId || crypto.randomUUID(),
+  );
+  // A hand-off started on a lead's page arrives as router state on a new
+  // chat (~/sites/team/lib/lead-hand-off.ts). Read once, at the first render.
+  const [arrivingHandOff] = useState(() =>
+    urlConversationId ? null : handOffFromState(location.state),
   );
 
   // Loaded messages for the current conversation (null = new conversation)
@@ -2269,8 +2275,20 @@ export default function SerniaChatPage() {
   const [conversationModality, setConversationModality] =
     useState<string>("web_chat");
   // Zillow lead conversations and the chats they were handed to name each other.
-  const [leadLinks, setLeadLinks] = useState<LeadLinks>(NO_LEAD_LINKS);
-  const [firstSend, setFirstSend] = useState<FirstSend | null>(null);
+  const [leadLinks, setLeadLinks] = useState<LeadLinks>(() =>
+    arrivingHandOff
+      ? { ...NO_LEAD_LINKS, handOffFrom: arrivingHandOff.from }
+      : NO_LEAD_LINKS,
+  );
+  const [firstSend, setFirstSend] = useState<FirstSend | null>(() =>
+    arrivingHandOff
+      ? {
+          conversationId,
+          text: arrivingHandOff.text,
+          handOffFrom: arrivingHandOff.from,
+        }
+      : null,
+  );
   const intendedConversationIdRef = useRef(conversationId);
   const conversationLoadGenerationRef = useRef(0);
   const conversationLoadAbortRef = useRef<AbortController | null>(null);

@@ -162,6 +162,9 @@ _PROFILE = re.compile(
     + ")"
 )
 _PADDING = " \xa0\n"  # Zillow separates fields with non-breaking spaces
+# The heading over what Zillow's form added to a message, one "- Label: value"
+# line each below it. The lead inbox (``inbox.py``) splits a message here.
+FORM_HEADING = "Zillow form details (not written by the lead):"
 # The button ends the lead's message. Zillow sometimes follows it with suggested
 # replies and an advert for its own application, which go with it.
 _BUTTON = re.compile(r"\s*Send application.*\Z", re.S)
@@ -202,7 +205,7 @@ def tidy_zillow_form(body: str) -> str:
         [
             body or "(no message text)",
             "",
-            "Zillow form details (not written by the lead):",
+            FORM_HEADING,
             *details,
         ]
     )

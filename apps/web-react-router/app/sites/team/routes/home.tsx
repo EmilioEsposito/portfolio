@@ -142,7 +142,7 @@ export default function TeamHome() {
           ))}
         </ul>
         <p className="text-sm">
-          <Link to="/team/leads" className="underline underline-offset-4">
+          <Link to="/team/leads/overview" className="underline underline-offset-4">
             How it works
           </Link>
           <span className="text-muted-foreground">: how leads become replies and showings, and who is told what.</span>

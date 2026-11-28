@@ -6,7 +6,7 @@ Sernia team; public demos keep their own routes and user-scoped access.
 
 | File | Responsibility |
 | --- | --- |
-| `models.py` | Conversation storage, pending approvals, history, and persistence |
+| `models.py` | Conversation storage, pending approvals (`pending_approvals` for readers that name the conversations, such as the lead inbox), history, and persistence |
 | `routes.py` | Team conversation details, messages, history, pending queue, approval dispatch, and deletion |
 | `auth.py` | Verified-Sernia router gate and current-user identity helpers |
 | `schemas.py` | Existing approval request payloads |

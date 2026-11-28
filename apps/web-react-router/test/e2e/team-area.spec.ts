@@ -46,7 +46,15 @@ test("/team signed out on the Sernia host is the team's sign-in page", async ({ 
 });
 
 test("every team page is behind the same sign-in, and an unknown team page is the team's 404", async ({ page }) => {
-  for (const path of ["/team/chat?id=conversation-1", "/team/leads", "/team/leads/bookings", "/team/tenants", "/team/scheduler"]) {
+  for (const path of [
+    "/team/chat?id=conversation-1",
+    "/team/leads",
+    "/team/leads/threads/1a2b3c4d5e6f7a8b",
+    "/team/leads/overview",
+    "/team/leads/bookings",
+    "/team/tenants",
+    "/team/scheduler",
+  ]) {
     const response = await page.goto(path);
     expect(response?.status(), path).toBe(200);
     await expect(page.getByRole("heading", { level: 1 }), path).toHaveText("This area is for the Sernia Capital team.");

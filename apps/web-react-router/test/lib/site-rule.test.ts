@@ -151,6 +151,8 @@ const TEAM_CALLS: Record<(typeof TEAM_API_PATHS)[number], string[]> = {
   "/api/rental-listings": ["/api/rental-listings"],
   "/api/rental-listings/": ["/api/rental-listings/history?limit=50", "/api/rental-listings/listings/900-01"],
   "/api/zillow-leads/settings": ["/api/zillow-leads/settings"],
+  "/api/zillow-leads/threads": ["/api/zillow-leads/threads?limit=100"],
+  "/api/zillow-leads/threads/": ["/api/zillow-leads/threads/1a2b3c4d5e6f7a8b"],
   "/api/team-tasks": ["/api/team-tasks"],
   "/api/team-tasks/": ["/api/team-tasks/clickup/86abc1/status", "/api/team-tasks/quo/TKone/status"],
   "/api/contacts/slug/sernia": ["/api/contacts/slug/sernia"],
@@ -198,6 +200,8 @@ test("on a Sernia host the /api proxy refuses everything else, `..` tricks inclu
     "/api/contacts/slug/sernia/../../",
     "/api/open_phone/tenants/../contacts",
     "/api/zillow-leads/settings/../queue",
+    "/api/zillow-leads/threads/../queue",
+    "/api/zillow-leads/threadsx",
     "/api/showing-bookings/public/../../docs",
     "/api/open_phone/../sernia-ai/chat",
     "http://example.test/api/sernia-ai/chat",
@@ -256,6 +260,9 @@ test("the team's pages are at the addresses the backend links to", () => {
     "/team/leads/listings",
     "/team/leads/settings",
     "/team/leads/bookings",
+    "/team/leads/overview",
+    // A lead's page: calendar events and notifications link here.
+    "/team/leads/threads/:threadId",
   ]) {
     assert.ok(paths.includes(path), path);
   }

@@ -43,3 +43,24 @@ export function splitHandOff(text: string): {
     words: text.slice(0, start).trim(),
   };
 }
+
+/**
+ * A hand-off started on a lead's page (/team/leads/threads/:threadId). That
+ * page fetches the block, then opens /team/chat with no conversation id and
+ * this in the router state; the chat page starts a new chat with it, and its
+ * first navigation (to the new chat's id) drops the state, so a reload or Back
+ * does not send it again.
+ */
+export interface ArrivingHandOff {
+  /** The lead conversation the hand-off closes. */
+  from: string;
+  /** The first message: the person's words, then the block (`withHandOff`). */
+  text: string;
+}
+
+export function handOffFromState(state: unknown): ArrivingHandOff | null {
+  const handOff = (state as { handOff?: { from?: unknown; text?: unknown } } | null)?.handOff;
+  if (!handOff || typeof handOff.from !== "string" || typeof handOff.text !== "string") return null;
+  if (!handOff.from || !handOff.text.includes(HAND_OFF_START)) return null;
+  return { from: handOff.from, text: handOff.text };
+}

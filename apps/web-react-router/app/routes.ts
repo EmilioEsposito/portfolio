@@ -56,10 +56,14 @@ export default [
       route("scheduler", "sites/team/routes/scheduler.tsx"),
       route("clear-cache", "sites/team/routes/clear-cache.ts"),
       route("leads", "sites/team/routes/leads/layout.tsx", [
-        index("sites/team/routes/leads/overview.tsx"),
+        index("sites/team/routes/leads/inbox.tsx"),
+        // One lead. Calendar events and notifications link here
+        // (api/src/utils/team_links.py), so the path stays.
+        route("threads/:threadId", "sites/team/routes/leads/thread.tsx"),
         route("listings", "sites/team/routes/leads/listings.tsx"),
         route("settings", "sites/team/routes/leads/settings.tsx"),
         route("bookings", "sites/team/routes/leads/bookings.tsx"),
+        route("overview", "sites/team/routes/leads/overview.tsx"),
       ]),
     ]),
   ]),
