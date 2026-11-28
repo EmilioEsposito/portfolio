@@ -599,8 +599,10 @@ async def _enqueue_booking_notices(
         payload=CalendarPayload(
             operation="create",
             calendar_id=calendar_id,
-            summary=wording.invite_summary(visit),
-            description=wording.invite_description(link),
+            summary=wording.invite_summary(visit, attendee.name),
+            description=wording.invite_description(
+                visit, link, team_phone_or_none(), replaces=replaces
+            ),
             location=showing.address,
             starts_at=showing.starts_at,
             ends_at=showing.ends_at,
@@ -1406,6 +1408,15 @@ class TeamPhone(BaseModel):
     extension: str
     # Dials the number, pauses after connecting, then the extension.
     tel_href: str
+
+
+def team_phone_or_none() -> str | None:
+    """The team line for a prospect's questions, or None when it is not configured:
+    a missing number leaves the line out, never a booking."""
+    try:
+        return team_phone()
+    except PhoneConfigError:
+        return None
 
 
 async def team_phone_after_check(body: TurnstileRequest, facts: RequestFacts) -> TeamPhone:

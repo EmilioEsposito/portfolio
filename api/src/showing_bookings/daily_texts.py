@@ -1,4 +1,5 @@
-"""The host's morning text and the prospect's apply text, queued by the job every minute.
+"""The host's morning text and the prospect's texts 1 hour before and after a showing,
+queued by the job every minute.
 
 ``queue_due(now=)`` is one step of ``holds.send_pending``. Each part queues
 only what is due by ``now`` and not queued yet, so it is safe every minute and
@@ -25,7 +26,15 @@ catches up after a missed run.
   ``APPLY_LOOKBACK`` are left alone, so a job that was off for days does not
   text people about a showing long past.
 
-Every text is a notice in the outbox behind the guard. Both parts queue holding
+- The text 1 hour before (``prospect_hour_reminder``): one text to each person
+  still booked in a scheduled showing whom we may text (a mobile, consent, a
+  number not known to be wrong, a settled reply), from 1 hour before the start,
+  unless they booked less than 75 minutes before it (``HOUR_BOOKED_BY``): the
+  confirmation just told them. It goes at any hour, and is not sent once less
+  than 45 minutes are left (``HOUR_LAST``), after the start, or after a
+  cancellation, which stops it with the booking's other notices.
+
+Every text is a notice in the outbox behind the guard. Every part queues holding
 the shared booking lock, in the module's lock order.
 """
 
@@ -44,6 +53,10 @@ from api.src.showing_bookings import bookings, delivery_checks, outbox, wording
 from api.src.showing_bookings.delivery_checks import (
     APPLY_KIND,
     HOST_MORNING_KIND,
+    HOUR_BEFORE,
+    HOUR_BOOKED_BY,
+    HOUR_KIND,
+    HOUR_LAST,
     MORNING,
     MORNING_ENDS,
 )
@@ -64,6 +77,7 @@ class DailyTextReport(BaseModel):
 
     host_mornings: int = 0
     apply_texts: int = 0
+    hour_texts: int = 0
 
 
 def apply_url() -> str:
@@ -191,6 +205,48 @@ async def _queue_apply_texts(session: AsyncSession, now: datetime, rules: Showin
     return len(people)
 
 
+async def _queue_hour_texts(session: AsyncSession, now: datetime, rules: ShowingRules) -> int:
+    queued = select(ShowingNotice.attendee_id).where(
+        ShowingNotice.kind == HOUR_KIND, ShowingNotice.attendee_id.is_not(None)
+    )
+    rows = (
+        await session.execute(
+            select(ShowingAttendee, Showing)
+            .join(Showing, Showing.id == ShowingAttendee.showing_id)
+            .where(
+                Showing.status == "scheduled",
+                Showing.starts_at <= now + HOUR_BEFORE,
+                Showing.starts_at >= now + HOUR_LAST,
+                ShowingAttendee.status == "booked",
+                ShowingAttendee.id.not_in(queued),
+            )
+            .order_by(ShowingAttendee.id)
+            .with_for_update(of=ShowingAttendee)
+        )
+    ).all()
+    people = [
+        (person, showing)
+        for person, showing in rows
+        if delivery_checks.can_text(person)
+        and person.created_at <= showing.starts_at - HOUR_BOOKED_BY
+    ]
+    for person, showing in people:
+        await outbox.enqueue(
+            session,
+            kind=HOUR_KIND,
+            channel="sms",
+            showing_id=showing.id,
+            attendee_id=person.id,
+            recipient=person.mobile,
+            recipient_key=f"attendee:{person.id}",
+            payload=TextPayload(
+                body=wording.hour_reminder_text(bookings.visit_of(showing, rules), person.name)
+            ),
+            now=now,
+        )
+    return len(people)
+
+
 async def queue_due(*, now: datetime) -> DailyTextReport:
     """Queue the morning texts and apply texts due by ``now`` and not queued yet."""
     report = DailyTextReport()
@@ -200,7 +256,8 @@ async def queue_due(*, now: datetime) -> DailyTextReport:
         # then their notices, then showings.
         await bookings.lock(session, bookings.BOOKING_LOCK)
         report.apply_texts = await _queue_apply_texts(session, now, rules)
+        report.hour_texts = await _queue_hour_texts(session, now, rules)
         report.host_mornings = await _queue_mornings(session, now, rules.timezone)
-    if report.host_mornings or report.apply_texts:
+    if report.host_mornings or report.apply_texts or report.hour_texts:
         logfire.info("showing daily texts queued", **report.model_dump())
     return report
