@@ -13,6 +13,7 @@ from api.src.database.app_settings import AppSetting
 from api.src.database.database import AsyncSessionFactory
 from api.src.showing_bookings.models import (
     CalendarConnection,
+    LeadContactJob,
     Showing,
     ShowingAgentRecord,
     ShowingAttendee,
@@ -37,6 +38,7 @@ def at(hour: int, minute: int = 0, day: date = SHOWING_DAY) -> datetime:
 async def clear_showing_data() -> None:
     async with AsyncSessionFactory() as session:
         for table in (
+            LeadContactJob,
             ShowingNotice,
             ShowingAttendee,
             Showing,

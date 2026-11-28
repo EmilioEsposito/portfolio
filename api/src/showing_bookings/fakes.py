@@ -276,6 +276,7 @@ def contact(
     lease_start: str | None = _SAMPLE_LEASE[0],
     lease_end: str | None = _SAMPLE_LEASE[1],
     company: str = "",
+    role: str | None = None,
 ) -> dict:
     """A Quo contact as the API returns it, with the tenant custom fields."""
     first, _, last = name.partition(" ")
@@ -291,6 +292,7 @@ def contact(
             "firstName": first,
             "lastName": last,
             "company": company,
+            "role": role,
             "phoneNumbers": [{"name": "mobile", "value": mobile}] if mobile else [],
         },
         "customFields": [field for field in fields if field["value"] is not None],

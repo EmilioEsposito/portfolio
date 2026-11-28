@@ -134,7 +134,9 @@ async def get_all_contacts(client: httpx.AsyncClient | None = None) -> list[dict
 def invalidate_contact_cache() -> None:
     """Force a cache refresh on next access (e.g. after contact create/update)."""
     global _cache_ts
-    _cache_ts = 0
+    # Not 0: ``time.monotonic()`` counts from boot, so on a machine up for less
+    # than the TTL a timestamp of 0 still reads as fresh.
+    _cache_ts = float("-inf")
 
 
 async def find_contacts_by_phone(

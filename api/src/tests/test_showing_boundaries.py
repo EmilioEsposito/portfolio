@@ -13,7 +13,9 @@
   Google, and only a sender module talks to the repo's provider packages
   (``api.src.open_phone`` and ``api.src.google``). The one reader,
   ``quo_contacts.py``, lists contacts for the resident lookup, sends nothing
-  and is imported only by ``residents.py``; the tenant field rules
+  and is imported only by ``residents.py``; the Lead contact writer,
+  ``quo_lead_contacts.py``, writes contacts, sends nothing and is imported only
+  by ``lead_contacts.py``; the tenant field rules
   (``api.src.open_phone.tenants``) are pure functions any file may use.
 - Nothing in the module uses ``send_message`` or ``create_calendar_event``,
   the repo's general senders, which have no guard.
@@ -44,6 +46,7 @@ SENDERS = {
     "api.src.showing_bookings.google_calendar": {"connections.py"},
     "api.src.showing_bookings.google_lists": {"connections.py"},
     "api.src.showing_bookings.quo_contacts": {"residents.py"},
+    "api.src.showing_bookings.quo_lead_contacts": {"lead_contacts.py"},
 }
 SENDER_FILES = {"quo.py", "google_calendar.py", "push.py", "gmail_thread.py"}
 # The lead agent's module and its Gmail sends: reached only by the Gmail sender.
@@ -52,6 +55,8 @@ LEAD_AGENT_SENDS = {"send_thread_email", "send_reply", "send_email"}
 GMAIL_SENDER = "gmail_thread.py"
 # Reads Quo's contacts and sends nothing.
 READER_FILES = {"quo_contacts.py"}
+# Writes the team's Lead contacts in Quo and sends nothing.
+CONTACT_WRITER_FILES = {"quo_lead_contacts.py"}
 # Pure functions in a provider package: no I/O, no import side effects.
 PURE_PROVIDER_MODULES = ("api.src.open_phone.tenants",)
 PROVIDER_PACKAGES = ("api.src.open_phone", "api.src.google", "api.src.agent_conversations.push")
@@ -158,7 +163,7 @@ def test_each_sender_is_imported_only_where_allowed():
 
 def test_only_sender_modules_talk_to_the_provider_packages():
     for name, tree in sources().items():
-        if name not in SENDER_FILES | READER_FILES:
+        if name not in SENDER_FILES | READER_FILES | CONTACT_WRITER_FILES:
             assert reaches_a_provider(tree) == [], name
 
 
@@ -167,6 +172,14 @@ def test_the_contact_reader_sends_nothing():
     assert uses_a_method(tree, SENDING_METHODS) == []
     assert uses_a_general_sender(tree) == []
     assert reaches_a_provider(tree)
+
+
+def test_the_lead_contact_writer_sends_nothing():
+    tree = sources()["quo_lead_contacts.py"]
+    assert uses_a_method(tree, SENDING_METHODS) == []
+    assert uses_a_general_sender(tree) == []
+    assert reaches_a_provider(tree)
+    assert "/v1/messages" not in texts()["quo_lead_contacts.py"]
 
 
 def test_only_the_google_files_reach_google():

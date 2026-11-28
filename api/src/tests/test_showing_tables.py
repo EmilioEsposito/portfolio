@@ -33,6 +33,7 @@ TABLES = {
     "showings",
     "showing_attendees",
     "showing_notices",
+    "lead_contact_jobs",
 }
 
 

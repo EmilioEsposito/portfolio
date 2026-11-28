@@ -178,6 +178,11 @@ async def _apscheduler_startup_async() -> None:
             )
 
             register_showing_details_removal()
+            from api.src.showing_bookings.lead_contacts import (
+                register_job as register_lead_contacts,
+            )
+
+            register_lead_contacts()
 
         # Start the scheduler AFTER the span closes and with a clean OTel context.
         # APScheduler's internal event loop inherits the current trace context —
