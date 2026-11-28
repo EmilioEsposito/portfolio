@@ -10,6 +10,7 @@ import {
 } from "~/components/ui/card";
 import { Label } from "~/components/ui/label";
 import { cn } from "~/lib/utils";
+import { LEAD_NEEDS_A_PERSON } from "~/sites/team/lib/lead-hand-off";
 import {
   AlertCircle,
   CheckCircle2,
@@ -184,28 +185,10 @@ export function ToolApprovalCard({
   const allDecided = pendingList.every((p) => decisions[p.toolCallId]?.approved !== null);
   const decidedCount = pendingList.filter((p) => decisions[p.toolCallId]?.approved !== null).length;
 
-  const handleSubmitAll = async () => {
-    if (!allDecided) return;
-
+  const submitDecisions = async (decisionList: ApprovalDecisionPayload[]) => {
     setProcessing(true);
     onProcessingChange?.(true);
     try {
-      const decisionList: ApprovalDecisionPayload[] = pendingList.map((p) => {
-        const d = decisions[p.toolCallId];
-        const { key: msgKey, value: originalValue } = getMessageFromArgs(p.args);
-        const overrideArgs =
-          d.editedBody && d.editedBody !== originalValue
-            ? { [msgKey]: d.editedBody }
-            : undefined;
-
-        return {
-          tool_call_id: p.toolCallId,
-          approved: d.approved === true,
-          override_args: overrideArgs,
-          reason: d.approved ? undefined : "Denied by user",
-        };
-      });
-
       const result = await submitApprovalDecisions({
         apiBase,
         conversationId,
@@ -220,6 +203,27 @@ export function ToolApprovalCard({
       setProcessing(false);
       onProcessingChange?.(false);
     }
+  };
+
+  const handleSubmitAll = async () => {
+    if (!allDecided) return;
+    await submitDecisions(
+      pendingList.map((p) => {
+        const d = decisions[p.toolCallId];
+        const { key: msgKey, value: originalValue } = getMessageFromArgs(p.args);
+        const overrideArgs =
+          d.editedBody && d.editedBody !== originalValue
+            ? { [msgKey]: d.editedBody }
+            : undefined;
+
+        return {
+          tool_call_id: p.toolCallId,
+          approved: d.approved === true,
+          override_args: overrideArgs,
+          reason: d.approved ? undefined : "Denied by user",
+        };
+      }),
+    );
   };
 
   // Quick actions for single item or batch
@@ -240,6 +244,26 @@ export function ToolApprovalCard({
   };
 
   const isDisabled = processing || isProcessing;
+
+  // A lead escalation asks for a person. Nothing on it can be approved or
+  // denied, so it gets one button, and that button saves at once.
+  if (pendingList.every((p) => p.toolName === LEAD_NEEDS_A_PERSON)) {
+    return (
+      <LeadNeedsPersonCard
+        items={pendingList}
+        disabled={isDisabled}
+        saving={processing}
+        onHandled={() =>
+          submitDecisions(
+            pendingList.map((p) => ({
+              tool_call_id: p.toolCallId,
+              approved: true,
+            })),
+          )
+        }
+      />
+    );
+  }
 
   return (
     <Card className="border-2 border-amber-500 bg-amber-50 dark:bg-amber-950/20">
@@ -315,6 +339,83 @@ export function ToolApprovalCard({
               <CheckCircle2 className="w-4 h-4" />
             )}
             {processing ? "Processing..." : hasMultiple ? "Submit Decisions" : allDecided ? (decisions[pending.toolCallId]?.approved ? "Approve" : "Deny") : "Choose Action"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * A Zillow lead the lead agent could not answer alone: its question, why it
+ * asked, and anything it noted for the team. "Mark handled" closes the task
+ * and sends nothing. Handing the lead to Sernia AI is done from the message
+ * box under the conversation, not from this card.
+ */
+function LeadNeedsPersonCard({
+  items,
+  disabled,
+  saving,
+  onHandled,
+}: {
+  items: PendingApproval[];
+  disabled: boolean;
+  saving: boolean;
+  onHandled: () => void;
+}) {
+  return (
+    <Card className="border-2 border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <AlertCircle className="w-5 h-5 text-amber-500" />
+          <CardTitle className="text-sm font-medium">
+            Lead needs a person
+          </CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {items.map((item) => {
+          const notes: string[] = Array.isArray(item.args?.team_notes)
+            ? item.args.team_notes
+            : [];
+          return (
+            <div
+              key={item.toolCallId}
+              className="rounded-lg border bg-background px-3 py-2 space-y-2 text-sm"
+            >
+              {item.args?.question && (
+                <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+                  {item.args.question}
+                </p>
+              )}
+              {item.args?.why && (
+                <p className="text-xs text-muted-foreground whitespace-pre-wrap [overflow-wrap:anywhere]">
+                  Why: {item.args.why}
+                </p>
+              )}
+              {notes.length > 0 && (
+                <ul className="list-disc pl-5 text-xs space-y-1 [overflow-wrap:anywhere]">
+                  {notes.map((note, index) => (
+                    <li key={index}>{note}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })}
+        <div className="flex pt-2 border-t">
+          <Button
+            size="sm"
+            onClick={onHandled}
+            disabled={disabled}
+            className="gap-1"
+          >
+            {saving ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4" />
+            )}
+            {saving ? "Saving…" : "Mark handled"}
           </Button>
         </div>
       </CardContent>

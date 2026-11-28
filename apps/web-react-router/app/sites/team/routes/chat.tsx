@@ -1,7 +1,7 @@
 import { privateChatInput } from "~/sites/team/lib/private-chat-input";
 import type { Route } from "./+types/chat";
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useSearchParams, useNavigate } from "react-router";
+import { Link, useSearchParams, useNavigate } from "react-router";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useAuth, useUser } from "@clerk/react-router";
@@ -46,6 +46,7 @@ import {
   type PendingApproval,
 } from "~/sites/team/components/chat/tool-cards";
 import { processMessage } from "~/sites/team/components/chat/process-message";
+import { splitHandOff, withHandOff } from "~/sites/team/lib/lead-hand-off";
 import { useFileAttachments } from "~/sites/team/hooks/use-file-attachments";
 import {
   FileAttachmentButton,
@@ -242,6 +243,43 @@ function messagesSignature(msgs: any[]): string {
 // Inner chat component — remounts on conversation switch via `key` prop
 // ---------------------------------------------------------------------------
 
+/** A message a new chat sends as it opens, and the lead conversation behind it. */
+interface FirstSend {
+  conversationId: string;
+  text: string;
+  handOffFrom: string;
+}
+
+/** The lead context a hand-off carried, folded away under the person's words. */
+function LeadContext({
+  context,
+  leadConversationId,
+}: {
+  context: string;
+  leadConversationId: string | null;
+}) {
+  return (
+    <details className="max-w-full rounded-lg border bg-muted/40 text-xs text-muted-foreground">
+      <summary className="cursor-pointer px-3 py-1.5 select-none">
+        Lead context sent with this message
+      </summary>
+      <div className="border-t px-3 py-2 space-y-2">
+        {leadConversationId && (
+          <Link
+            to={`/team/chat?id=${encodeURIComponent(leadConversationId)}`}
+            className="underline underline-offset-2"
+          >
+            Open the lead agent's conversation
+          </Link>
+        )}
+        <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+          {context}
+        </p>
+      </div>
+    </details>
+  );
+}
+
 function ChatView({
   conversationId,
   initialMessages,
@@ -251,6 +289,12 @@ function ChatView({
   getToken,
   readOnly = false,
   onMountedChange,
+  lead = false,
+  handOffTo = null,
+  handOffFrom = null,
+  onHandOff,
+  firstSend = null,
+  onFirstSendTaken,
 }: {
   conversationId: string;
   initialMessages: any[];
@@ -260,6 +304,16 @@ function ChatView({
   getToken: () => Promise<string | null>;
   readOnly?: boolean;
   onMountedChange?: (mounted: boolean) => void;
+  /** A Zillow lead conversation: a message here hands the lead to Sernia AI. */
+  lead?: boolean;
+  /** The chat this lead conversation was handed to, if it was. */
+  handOffTo?: string | null;
+  /** The lead conversation this chat was started from, if it was. */
+  handOffFrom?: string | null;
+  onHandOff?: (words: string) => Promise<void>;
+  /** A message to send as soon as this new chat opens (a hand-off's first). */
+  firstSend?: FirstSend | null;
+  onFirstSendTaken?: () => void;
 }) {
   const [pendingApproval, setPendingApproval] =
     useState<PendingApproval | null>(initialPending);
@@ -297,6 +351,10 @@ function ChatView({
   );
   const [sendingFollowUp, setSendingFollowUp] = useState(false);
   const [followUpError, setFollowUpError] = useState<string | null>(null);
+  const [handOffError, setHandOffError] = useState<string | null>(null);
+  const [handingOff, setHandingOff] = useState(false);
+  // A chat that opens with a message to send never shows the empty welcome.
+  const [openedWithSend] = useState(() => firstSend !== null);
   const followUpRequest = useRef<AbortController | null>(null);
   const followUpKey = `sernia-follow-up-${conversationId}`;
   // Reuse the input ID after an ambiguous HTTP response, including after reload.
@@ -1039,7 +1097,7 @@ function ChatView({
     composerDisabled ||
     (canSteer
       ? !input.trim() || attachment.hasFiles
-      : !input.trim() && (!attachment.hasFiles || !!pendingApproval));
+      : !input.trim() && (!attachment.hasFiles || !!pendingApproval || lead));
 
   // Auto-resize textarea
   useEffect(() => {
@@ -1070,6 +1128,30 @@ function ChatView({
     const text = input.trim();
     const hasContent = text || attachment.hasFiles;
     if (!hasContent) return;
+
+    // A lead conversation cannot be continued. What is typed here opens a new
+    // chat where Sernia AI takes the lead on (the page does that), and the
+    // card left waiting here is closed once that chat has started.
+    if (lead) {
+      if (!text || !onHandOff) return;
+      setHandOffError(null);
+      setHandingOff(true);
+      handleApprovalProcessingChange(true);
+      try {
+        await onHandOff(text);
+        sessionStorage.removeItem(draftKey);
+      } catch (err) {
+        setHandOffError(
+          err instanceof Error && err.message
+            ? err.message
+            : "Couldn't hand this lead to Sernia AI. Try again.",
+        );
+      } finally {
+        setHandingOff(false);
+        handleApprovalProcessingChange(false);
+      }
+      return;
+    }
 
     // Deny-with-feedback path: when a HITL approval is pending and the user
     // types a message, submit implicitly denies every pending tool call and
@@ -1152,6 +1234,24 @@ function ChatView({
     await rememberPendingRequest(parts);
     sendMessage({ role: "user", parts });
   };
+
+  // A hand-off opens this chat with its first message ready: send it once, as
+  // a typed message would be sent, naming the lead conversation it came from.
+  const firstSendTakenRef = useRef(false);
+  useEffect(() => {
+    if (!firstSend || firstSendTakenRef.current) return;
+    firstSendTakenRef.current = true;
+    onFirstSendTaken?.();
+    const parts: any[] = [{ type: "text", text: firstSend.text }];
+    void (async () => {
+      await rememberPendingRequest(parts);
+      sendMessage(
+        { role: "user", parts },
+        { body: { handoff_from: firstSend.handOffFrom } },
+      );
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstSend]);
 
   const handleApprovalComplete = useCallback(
     (result: any) => {
@@ -1281,7 +1381,11 @@ function ChatView({
           ? "Confirming your response"
           : "Reconnecting to your response"
         : isProcessingApproval
-          ? "Sernia AI is completing the action"
+          ? handingOff
+            ? "Handing this lead to Sernia AI"
+            : lead
+              ? "Saving"
+              : "Sernia AI is completing the action"
           : "Sernia AI is thinking";
   const showStreamError =
     (status === "error" && !isRecoverableStreamError) ||
@@ -1327,7 +1431,7 @@ function ChatView({
             </div>
           </div>
         )}
-        {messages.length === 0 ? (
+        {messages.length === 0 && !openedWithSend ? (
           <div className="mx-auto w-full max-w-3xl px-4">
             <div className="flex flex-col items-center gap-4 py-8">
               <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
@@ -1346,6 +1450,9 @@ function ChatView({
               const { segments } = processMessage(message);
               const isLastAssistant =
                 message.role === "assistant" && index === messages.length - 1;
+              // A user turn can hold only bookkeeping (the tools a loaded
+              // skill made available): nothing to show, so no empty row.
+              if (message.role === "user" && segments.length === 0) return null;
 
               return (
                 <div
@@ -1372,20 +1479,31 @@ function ChatView({
                             segments.filter((s) => s.type === "file") as any
                           }
                         />
-                        {segments.some((s) => s.type === "text") && (
-                          <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden max-w-full">
-                            <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-                              {segments.find((s) => s.type === "text")?.type ===
-                              "text"
-                                ? (
-                                    segments.find(
-                                      (s) => s.type === "text",
-                                    ) as any
-                                  ).content
-                                : ""}
-                            </p>
-                          </div>
-                        )}
+                        {segments.some((s) => s.type === "text") &&
+                          (() => {
+                            // A hand-off's first message carries the lead
+                            // context after the person's words: show their
+                            // words, and keep the context folded away.
+                            const { words, context } = splitHandOff(
+                              (segments.find((s) => s.type === "text") as any)
+                                .content,
+                            );
+                            return (
+                              <>
+                                <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden max-w-full">
+                                  <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
+                                    {words}
+                                  </p>
+                                </div>
+                                {context !== null && (
+                                  <LeadContext
+                                    context={context}
+                                    leadConversationId={handOffFrom}
+                                  />
+                                )}
+                              </>
+                            );
+                          })()}
                       </>
                     ) : (
                       <>
@@ -1592,7 +1710,7 @@ function ChatView({
           ref={inputBarRef}
           className="shrink-0 flex mx-auto px-4 bg-background pt-3 md:pt-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-[calc(1rem+env(safe-area-inset-bottom))] gap-2 w-full md:max-w-3xl border-t max-md:fixed max-md:left-0 max-md:right-0 max-md:bottom-[var(--keyboard-inset,0px)] max-md:z-30"
         >
-          {messages.length === 0 ? (
+          {messages.length === 0 && !openedWithSend ? (
             <div className="flex flex-col gap-4 w-full">
               <p className="text-sm text-muted-foreground text-center">
                 Try a suggestion or type your own request
@@ -1671,12 +1789,37 @@ function ChatView({
             </div>
           ) : (
             <div className="flex flex-col gap-2 w-full">
-              {pendingApproval && (
-                <p className="text-xs text-amber-700 dark:text-amber-400 px-1">
-                  Sending a message will deny the pending action
-                  {allPendingApprovals.length > 1 ? "s" : ""} — your text
-                  becomes the feedback the AI sees.
-                </p>
+              {lead ? (
+                <>
+                  {handOffTo && (
+                    <p className="text-xs text-muted-foreground px-1">
+                      This lead was handed to Sernia AI.{" "}
+                      <Link
+                        to={`/team/chat?id=${encodeURIComponent(handOffTo)}`}
+                        className="underline underline-offset-2"
+                      >
+                        Open that chat
+                      </Link>
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground px-1">
+                    A message here opens a new chat where Sernia AI takes this
+                    lead on.
+                  </p>
+                  {handOffError && (
+                    <p role="alert" className="text-sm text-destructive px-1">
+                      {handOffError}
+                    </p>
+                  )}
+                </>
+              ) : (
+                pendingApproval && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400 px-1">
+                    Sending a message will deny the pending action
+                    {allPendingApprovals.length > 1 ? "s" : ""} — your text
+                    becomes the feedback the AI sees.
+                  </p>
+                )
               )}
               <FilePreviewStrip
                 files={attachment.files}
@@ -1689,6 +1832,7 @@ function ChatView({
                     status === "submitted" ||
                     status === "streaming" ||
                     !!pendingApproval ||
+                    lead ||
                     isProcessingApproval ||
                     hasUnresolvedResponse
                   }
@@ -1711,9 +1855,11 @@ function ChatView({
                   placeholder={
                     canSteer
                       ? "Add a follow-up while Sernia AI works…"
-                      : pendingApproval
-                        ? "Type feedback to deny pending action… or use the Approve/Deny buttons above."
-                        : "Ask Sernia AI anything..."
+                      : lead
+                        ? "Tell Sernia AI what to do with this lead…"
+                        : pendingApproval
+                          ? "Type feedback to deny pending action… or use the Approve/Deny buttons above."
+                          : "Ask Sernia AI anything..."
                   }
                   className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-base md:text-sm bg-muted"
                   rows={1}
@@ -1740,8 +1886,20 @@ function ChatView({
                     type="button"
                     onClick={() => handleSubmit()}
                     size="icon"
-                    aria-label={canSteer ? "Send follow-up" : "Send message"}
-                    title={canSteer ? "Send follow-up" : "Send message"}
+                    aria-label={
+                      canSteer
+                        ? "Send follow-up"
+                        : lead
+                          ? "Hand to Sernia AI"
+                          : "Send message"
+                    }
+                    title={
+                      canSteer
+                        ? "Send follow-up"
+                        : lead
+                          ? "Hand to Sernia AI"
+                          : "Send message"
+                    }
                     disabled={sendDisabled}
                     className="h-9 w-9 shrink-0 rounded-lg"
                   >
@@ -2094,6 +2252,18 @@ function ChatHeader({
 // Outer page component — manages conversation selection & sidebar layout
 // ---------------------------------------------------------------------------
 
+interface LeadLinks {
+  lead: boolean;
+  handOffTo: string | null;
+  handOffFrom: string | null;
+}
+
+const NO_LEAD_LINKS: LeadLinks = {
+  lead: false,
+  handOffTo: null,
+  handOffFrom: null,
+};
+
 export default function SerniaChatPage() {
   useVisualViewportHeight();
   const { isSignedIn, getToken } = useAuth();
@@ -2123,6 +2293,9 @@ export default function SerniaChatPage() {
   );
   const [conversationModality, setConversationModality] =
     useState<string>("web_chat");
+  // Zillow lead conversations and the chats they were handed to name each other.
+  const [leadLinks, setLeadLinks] = useState<LeadLinks>(NO_LEAD_LINKS);
+  const [firstSend, setFirstSend] = useState<FirstSend | null>(null);
   const intendedConversationIdRef = useRef(conversationId);
   const conversationLoadGenerationRef = useRef(0);
   const conversationLoadAbortRef = useRef<AbortController | null>(null);
@@ -2194,6 +2367,11 @@ export default function SerniaChatPage() {
         setConversationId(convId);
         setLoadedMessages(data.messages || []);
         setLoadedRun(data.run ?? null);
+        setLeadLinks({
+          lead: data.lead_conversation === true,
+          handOffTo: data.hand_off_to ?? null,
+          handOffFrom: data.hand_off_from ?? null,
+        });
         setConversationModality(
           opts?.modality ||
             // ai_sms_from_* = 1:1 AI SMS threads; ai_sms_group_* = group
@@ -2293,21 +2471,65 @@ export default function SerniaChatPage() {
       navigator.serviceWorker?.removeEventListener("message", handler);
   }, [isSignedIn, loadConversation]);
 
-  const startNewConversation = useCallback(() => {
-    const newId = crypto.randomUUID();
-    conversationLoadGenerationRef.current += 1;
-    conversationLoadAbortRef.current?.abort();
-    intendedConversationIdRef.current = newId;
-    newConversationIds.current.add(newId);
-    setConversationId(newId);
-    setLoadedMessages([]);
-    setLoadedRun(null);
-    setConversationLoadError(null);
-    setLoadedPending(null);
-    setLoadedAllPending([]);
-    setConversationModality("web_chat");
-    navigate(`/team/chat?id=${newId}`, { replace: true });
-  }, [navigate]);
+  const startNewConversation = useCallback(
+    (opts?: { handOff?: { from: string; text: string } }) => {
+      const newId = crypto.randomUUID();
+      conversationLoadGenerationRef.current += 1;
+      conversationLoadAbortRef.current?.abort();
+      intendedConversationIdRef.current = newId;
+      newConversationIds.current.add(newId);
+      setConversationId(newId);
+      setLoadedMessages([]);
+      setLoadedRun(null);
+      setConversationLoadError(null);
+      setLoadedPending(null);
+      setLoadedAllPending([]);
+      setConversationModality("web_chat");
+      setLeadLinks({
+        ...NO_LEAD_LINKS,
+        handOffFrom: opts?.handOff?.from ?? null,
+      });
+      setFirstSend(
+        opts?.handOff
+          ? {
+              conversationId: newId,
+              text: opts.handOff.text,
+              handOffFrom: opts.handOff.from,
+            }
+          : null,
+      );
+      // A hand-off keeps the lead conversation one step back in history.
+      navigate(`/team/chat?id=${newId}`, { replace: !opts?.handOff });
+    },
+    [navigate],
+  );
+
+  // A message typed in a lead conversation: fetch the lead context the API
+  // writes, then open a new chat whose first message is the person's words
+  // followed by that context. Nothing has changed if the fetch fails.
+  const handOffLead = useCallback(
+    async (words: string) => {
+      const leadConversationId = conversationId;
+      const token = await getToken();
+      const res = await fetch(
+        `${API_BASE}/conversation/${encodeURIComponent(leadConversationId)}/hand-off`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(
+          typeof error.detail === "string"
+            ? error.detail
+            : "Couldn't hand this lead to Sernia AI. Try again.",
+        );
+      }
+      const { block } = await res.json();
+      startNewConversation({
+        handOff: { from: leadConversationId, text: withHandOff(block, words) },
+      });
+    },
+    [conversationId, getToken, startNewConversation],
+  );
 
   const handleSelectConversation = useCallback(
     (convId: string, modality?: string) => {
@@ -2334,7 +2556,7 @@ export default function SerniaChatPage() {
       <ConversationSidebar
         activeConversationId={conversationId}
         onSelectConversation={handleSelectConversation}
-        onNewConversation={startNewConversation}
+        onNewConversation={() => startNewConversation()}
         onDeleteConversation={handleDeleteConversation}
       />
       <SidebarInset className="min-w-0 overflow-x-hidden">
@@ -2371,7 +2593,7 @@ export default function SerniaChatPage() {
           >
             <ChatHeader
               isAdmin={isAdmin}
-              onNewConversation={startNewConversation}
+              onNewConversation={() => startNewConversation()}
             />
 
             <TeamDeviceBanner />
@@ -2390,6 +2612,16 @@ export default function SerniaChatPage() {
                 getToken={getToken}
                 readOnly={conversationModality === "sms"}
                 onMountedChange={handleChatViewMountedChange}
+                lead={leadLinks.lead}
+                handOffTo={leadLinks.handOffTo}
+                handOffFrom={leadLinks.handOffFrom}
+                onHandOff={handOffLead}
+                firstSend={
+                  firstSend?.conversationId === conversationId
+                    ? firstSend
+                    : null
+                }
+                onFirstSendTaken={() => setFirstSend(null)}
               />
             </TabsContent>
 

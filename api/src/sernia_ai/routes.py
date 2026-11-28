@@ -41,6 +41,7 @@ from api.src.agent_conversations.run_state import (
 )
 from api.src.database.app_settings import AppSetting
 from api.src.database.database import DBSession
+from api.src.sernia_ai import lead_hand_off
 from api.src.sernia_ai.chat_runs import (
     ChatRun,
     cancel_run,
@@ -93,6 +94,13 @@ async def chat_sernia(
         for value in (conversation_id, request_id)
     ):
         raise HTTPException(400, "Invalid conversation or request ID")
+    # Set by the chat page when this message hands on a Zillow lead conversation
+    # (see ``lead_hand_off.py``). It counts only on a conversation's first turn.
+    hand_off_from = body.pop("handoff_from", None)
+    if hand_off_from is not None and (
+        not isinstance(hand_off_from, str) or not 1 <= len(hand_off_from) <= 200
+    ):
+        raise HTTPException(400, "Invalid hand-off")
     messages = body.get("messages", [])
     last_message = messages[-1] if messages else None
     if not last_message or last_message.get("role") != "user":
@@ -130,13 +138,20 @@ async def chat_sernia(
         if is_lead_conversation(existing.metadata_):
             raise HTTPException(
                 409,
-                "This conversation belongs to the Zillow lead agent. Approve or reject its draft, or start a new chat.",
+                "This conversation belongs to the Zillow lead agent. Decide its card, or send "
+                "a message from it in the team chat to hand the lead to Sernia AI.",
             )
         require_idle(existing.metadata_)
         if (existing.metadata_ or {}).get("web_chat_run", {}).get("id") == request_id:
             raise HTTPException(
                 409, "This request was already accepted. Reopen the conversation to see its result."
             )
+
+    handed_off = None
+    if hand_off_from and not existing:
+        handed_off = await lead_hand_off.lead_context(session, hand_off_from)
+        if handed_off is None:
+            raise HTTPException(404, "That lead conversation was not found.")
 
     history = await get_conversation_messages(
         conversation_id,
@@ -152,8 +167,17 @@ async def chat_sernia(
         AGENT_NAME,
         [*history, *accepted_messages],
         clerk_user_id=user.id,
-        metadata={RUN_KEY: run, FOLLOW_UPS_KEY: []},
+        metadata={
+            RUN_KEY: run,
+            FOLLOW_UPS_KEY: [],
+            **(lead_hand_off.started_from(handed_off) if handed_off else {}),
+        },
     )
+    if handed_off:
+        # The new conversation exists now, so the lead's card can stop waiting.
+        await lead_hand_off.close_lead(
+            handed_off, to_conversation_id=conversation_id, by=_display_name(user)
+        )
     logfire.info(
         "sernia chat accepted",
         conversation_id=conversation_id,
@@ -182,6 +206,26 @@ async def chat_sernia(
     response.headers["X-Sernia-Steering"] = "1"
     response.headers["X-Conversation-Id"] = conversation_id
     return response
+
+
+@router.get("/conversation/{conversation_id}/hand-off")
+async def lead_hand_off_block(
+    conversation_id: str,
+    user: SerniaUser = Depends(_get_sernia_user),
+    session: DBSession = None,
+) -> dict[str, str]:
+    """What a chat that takes over a Zillow lead conversation opens with.
+
+    Reads only. Nothing runs and no card changes until the chat page sends the
+    person's message to ``/chat`` with ``handoff_from`` (see ``lead_hand_off.py``).
+    """
+    lead = await lead_hand_off.lead_context(session, conversation_id)
+    if lead is None:
+        raise HTTPException(404, "That lead conversation was not found.")
+    return {
+        "conversation_id": conversation_id,
+        "block": lead_hand_off.block(lead, by=_display_name(user)),
+    }
 
 
 class CancelChatRequest(BaseModel):

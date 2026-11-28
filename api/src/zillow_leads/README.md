@@ -41,8 +41,10 @@ flowchart TD
     MODE -->|Yes| APPROVE[Person approves, edits, or rejects]
     MODE -->|No| AUTO[Validate and reserve automatic send]
     AUTO --> SEND
-    HELP --> APPROVE
+    HELP --> TASK[Person marks it handled]
     APPROVE --> SEND[Code sends approved reply to fixed Zillow relay]
+    APPROVE -.->|types a message instead| HANDOFF[New chat: general agent takes the lead on, behind its own approvals]
+    TASK -.->|types a message instead| HANDOFF
     subgraph PLANNED[Planned booking system: issue 368]
         CAL[Shared calendars + showing rules] --> TIMES[Open times / existing showings]
         TIMES --> BOOK[Prospect books or joins a showing]
@@ -317,7 +319,10 @@ lead never imports or resumes the general agent.
 `zillow_leads/` is a sibling of `sernia_ai/` and imports no general-agent code.
 The queue, case preparation, policy, delivery, settings, and evals live here.
 The general agent's policy adapter lives with its consumer in
-[`sernia_ai/lead_policy.py`](../sernia_ai/lead_policy.py).
+[`sernia_ai/lead_policy.py`](../sernia_ai/lead_policy.py), and so does its side
+of a hand-off ([`sernia_ai/lead_hand_off.py`](../sernia_ai/lead_hand_off.py)).
+[`handoff.py`](handoff.py) is this package's side: what a lead conversation
+tells the next one, and closing its cards.
 
 Shared services have independent owners:
 
@@ -357,7 +362,12 @@ Shared services have independent owners:
   a still-current thread, a valid Zillow route, resolved Gmail threading, and
   the shared automation gate must all pass. Otherwise the draft stays for review.
 - **Separate histories.** A lead conversation cannot be continued as a general
-  agent chat. The chat endpoint refuses it.
+  agent chat. The chat endpoint refuses it. A person can hand the lead on in a
+  new chat; see "Handing a lead to the general agent".
+- **Two cards, two meanings.** A drafted reply (`send_lead_reply`) is approved,
+  edited or rejected. An escalation or a team follow-up (`lead_needs_a_person`)
+  is a task: its one button is "Mark handled", which sends nothing, and its push
+  is titled "Lead needs a person" and carries the question.
 - **Recorded decisions.** Approvals record sent-unchanged, edited, or rejected
   and the outgoing text. Automatically converting those records into eval
   scenarios/labels is still planned.
@@ -381,6 +391,58 @@ The UI tabs are Architecture (`/team/leads`), Rental listing data
 settings (`/team/leads/bookings`), on the team site. Management tabs require a
 verified Sernia account. The public write-up stays at
 `https://eesposito.com/systems/leasing-leads`.
+
+## Handing a lead to the general agent
+
+A card sometimes needs more than a click: the reply should say something else,
+or the lead asked about something the listing does not hold. A person types
+what they want in the message box under the lead conversation. The chat page
+then opens a new chat with the general agent, and the lead conversation stays
+as the record of what the lead agent did.
+
+```mermaid
+flowchart TD
+    CARD[Lead conversation: a draft or a question waits] --> WHO{What does the person do?}
+    WHO -->|Approves or edits the draft| SEND[Code sends it to the Zillow relay]
+    WHO -->|Marks the question handled| DONE[Card closes, nothing is sent]
+    WHO -->|Types a message| NEW[New chat with the general agent: their words, then the lead context]
+    NEW --> CLOSE[Lead card closes: the draft is not sent, a link points to the new chat]
+    NEW --> GENERAL[General agent works with its own tools]
+    GENERAL -->|Email to the lead: waits for approval| SEND2[Sent to the Zillow relay, in the same Gmail thread]
+    GENERAL -->|Listing fact: waits for approval| DATA[(Rental listings)]
+    SEND2 --> NEXT[The lead's next email is a new case for the lead agent]
+    DATA --> NEXT
+```
+
+- **Only a person starts it.** An escalation alone creates a card and a push.
+  No general-agent run starts until someone sends a message from the lead
+  conversation.
+- **A new conversation, not a continued one.** `GET
+  /api/sernia-ai/conversation/{id}/hand-off` returns the lead context as text
+  (`handoff.lead_context`): the Gmail thread, the Zillow relay address and
+  message to reply to, what the lead agent did, and the case it was given. The
+  page sends the person's words followed by that block as the first message of
+  a new chat, with `handoff_from` naming the lead conversation.
+- **The lead card closes when the new chat is accepted** (`handoff.close`). A
+  waiting draft is rejected, so it cannot also be approved later; a place
+  booked for it is cancelled as for any rejection. The lead conversation's
+  metadata gets `hand_off` (where it went, who, when), and the new chat's gets
+  `hand_off_from`.
+- **The general agent's gates apply unchanged.** Its email to the lead waits
+  for approval and shows its recipient. Listing facts wait for approval.
+  Automatic sending never applies to these chats. A reply sent this way does
+  not book, move or cancel a showing: the lead's booking link and the Booking
+  settings tab still do.
+- **The agents share the Gmail thread and the listings, nothing else.** Each
+  lead conversation is one decision on one batch of emails, and every case is
+  built again from the thread. So a reply sent or a fact saved from the new
+  chat is seen by the lead agent on the lead's next email, without either agent
+  reading the other's conversation.
+
+This puts a stranger's email in front of an agent with tools, which the split
+exists to avoid for unattended runs. It is acceptable here because a person is
+present and asked for it, and because the general agent could already read
+these emails through its Gmail tools.
 
 ## Rental listing data
 
