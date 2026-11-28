@@ -246,11 +246,12 @@ async def test_catch_up_sets_every_queue_again(scheduler, queue, table):
 
 
 @pytest.mark.asyncio
-async def test_the_catch_up_job_runs_every_15_minutes(scheduler):
+async def test_the_catch_up_job_runs_2_minutes_after_startup_then_every_15(scheduler):
     wakeups.register_catch_up()
     job = scheduler.get_job(wakeups.CATCH_UP_JOB_ID)
     assert isinstance(job.trigger, IntervalTrigger)
     assert job.trigger.interval == timedelta(minutes=15)
+    assert close(job.next_run_time, now() + timedelta(minutes=2))
     assert job.func is wakeups.catch_up
 
 
@@ -404,3 +405,51 @@ def test_a_wake_up_stored_in_postgres_comes_back_traced_and_never_dropped():
     finally:
         with sync_engine.begin() as connection:
             connection.execute(text(f'DROP TABLE IF EXISTS "{table_name}"'))
+
+
+@pytest.mark.asyncio
+async def test_the_scheduler_keeps_running_when_another_server_took_a_job_first():
+    """During a deploy two servers share the job store and both start the same
+    wake-up; the second to delete it gets JobLookupError. Plain APScheduler then
+    sets no next timer and this server runs no job again."""
+    import asyncio
+
+    ticks: list[datetime] = []
+    woken: list[datetime] = []
+
+    async def tick() -> None:
+        ticks.append(now())
+
+    async def wake_up() -> None:
+        woken.append(now())
+
+    scheduler = service.ResilientAsyncIOScheduler(
+        jobstores={"default": MemoryJobStore()}, jobstore_retry_interval=0.2
+    )
+    scheduler.start()
+    try:
+        scheduler.add_job(tick, "interval", seconds=0.3, id="tick")
+        store = scheduler._jobstores["default"]
+        executor = scheduler._executors["default"]
+        submit = executor.submit_job
+
+        def submit_then_lose_the_race(job, run_times):
+            submit(job, run_times)
+            if job.id == "wake-up":
+                store.remove_job("wake-up")  # the other server deleted it first
+
+        executor.submit_job = submit_then_lose_the_race
+        scheduler.add_job(
+            wake_up,
+            "date",
+            run_date=now() + timedelta(milliseconds=200),
+            id="wake-up",
+            misfire_grace_time=None,
+        )
+        await asyncio.sleep(1.5)
+        assert woken, "the wake-up should have run"
+        assert [t for t in ticks if t > woken[0] + timedelta(milliseconds=300)], (
+            "no job ran after the failed pass: the scheduler stalled"
+        )
+    finally:
+        scheduler.shutdown(wait=False)

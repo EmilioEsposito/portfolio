@@ -19,9 +19,10 @@ The wake-up is moved from the table:
   of the run sees the new work;
 - 30 seconds after each startup (``register_queue``), which also replaces a job
   left under the same id by older code;
-- every 15 minutes by the catch-up job (``catch_up``), for a wake-up that was
-  lost: a database blip between a commit and the job store write, or a code
-  path that adds work and forgets to call ``wake``.
+- by the catch-up job (``catch_up``) 2 minutes after each startup and every 15
+  minutes after that, for a wake-up that was lost: a database blip between a
+  commit and the job store write, a code path that adds work and forgets to
+  call ``wake``, or a deploy, when the old server shares the job store.
 
 ``misfire_grace_time=None`` makes a wake-up that came due while no server was
 running (a deploy) run as soon as one is. Without it APScheduler drops a
@@ -59,6 +60,12 @@ if TYPE_CHECKING:
 
 CATCH_UP_JOB_ID = "wake-up-catch-up"
 CATCH_UP_EVERY = timedelta(minutes=15)
+# The catch-up's first run after the API starts. During a deploy the old server
+# shares the job store for a while: it can start a wake-up without setting the
+# next one (older code), and wake-ups it sets are not seen by this server's
+# timer until its next run of any job. This run, once the old server is gone,
+# sets every queue's wake-up from its table again.
+CATCH_UP_AFTER_STARTUP = timedelta(minutes=2)
 # A queue's first run after the API starts, once startup has settled.
 STARTUP_DELAY = timedelta(seconds=30)
 # The soonest a queue runs again after a run ends. Work that is due at once
@@ -253,8 +260,8 @@ async def catch_up() -> None:
 CATCH_UP_JOB_INFO = JobInfo(
     name="Wake-ups: catch up on waiting work",
     summary=(
-        "Every 15 minutes, makes sure each job that runs when work is due is set to run "
-        "for the work waiting in its table."
+        "Every 15 minutes, and 2 minutes after each deploy, makes sure each job that runs "
+        "when work is due is set for the work waiting in its table."
     ),
     description=(
         "The jobs on this page that say they run when work is due are not on a timer. "
@@ -263,8 +270,10 @@ CATCH_UP_JOB_INFO = JobInfo(
         "of every run. With nothing waiting the job is idle."
         "\n\n"
         "This job checks each of those tables and sets the job again. It only matters when "
-        "a wake-up was lost, for example when the database failed between saving the work "
-        "and setting the job. It sends nothing and changes no work itself."
+        "a wake-up was lost: the database failed between saving the work and setting the "
+        "job, or, during a deploy, the old server used a wake-up without setting the next. "
+        "So it also runs 2 minutes after each deploy. It sends nothing and changes no work "
+        "itself."
         "\n\n"
         "Removed, a lost wake-up leaves its work waiting until the next deploy. It is "
         "registered again on each startup and whenever another job notices it is missing."
@@ -285,6 +294,7 @@ def register_catch_up() -> None:
         func=catch_up,
         trigger="interval",
         seconds=int(CATCH_UP_EVERY.total_seconds()),
+        next_run_time=_utcnow() + CATCH_UP_AFTER_STARTUP,
         coalesce=True,
         max_instances=1,
     )

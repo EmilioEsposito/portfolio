@@ -16,7 +16,7 @@ from apscheduler.job import Job
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler, run_in_event_loop
 
 from api.src.apscheduler_service.tracing import is_traced, scheduled_job
 from api.src.contact.service import get_contact_by_slug
@@ -45,6 +45,45 @@ logfire.info("APScheduler Job.__str__ has been monkey-patched to include job_id.
 
 _scheduler_lock = threading.Lock()
 _scheduler: AsyncIOScheduler | None = None
+
+
+class ResilientAsyncIOScheduler(AsyncIOScheduler):
+    """An AsyncIOScheduler that keeps running after a failed pass over its jobs.
+
+    Each pass (``_process_jobs``) starts the jobs that are due, then deletes a
+    one-time job, or saves an interval or cron job's next run time. Those last
+    writes are not guarded. When one raises, APScheduler's ``wakeup`` never sets
+    its next timer, and this process runs no job again until a job is added.
+    Two causes:
+
+    - During a deploy two servers share the job store. Both start the same
+      one-time job (a queue's wake-up), and the second to delete it gets
+      ``JobLookupError``.
+    - A database error on that write.
+
+    Here the next pass is set ``jobstore_retry_interval`` seconds out instead
+    (10 by default). The job whose write failed had already been started.
+    """
+
+    @run_in_event_loop
+    def wakeup(self):
+        self._stop_timer()
+        try:
+            wait_seconds = self._process_jobs()
+        except JobLookupError:
+            logfire.warn(
+                "APScheduler: a job was gone when its run was recorded (another server "
+                "sharing the job store took it); next pass in {seconds} s",
+                seconds=self.jobstore_retry_interval,
+            )
+            wait_seconds = self.jobstore_retry_interval
+        except Exception:
+            logfire.exception(
+                "APScheduler: a pass over the jobs failed; next pass in {seconds} s",
+                seconds=self.jobstore_retry_interval,
+            )
+            wait_seconds = self.jobstore_retry_interval
+        self._start_timer(wait_seconds)
 
 
 def get_scheduler() -> AsyncIOScheduler:
@@ -89,7 +128,7 @@ def get_scheduler() -> AsyncIOScheduler:
             logfire.info("Creating APScheduler (AsyncIOScheduler) with MemoryJobStore (local dev).")
             jobstores = {"default": MemoryJobStore()}
 
-        scheduler = AsyncIOScheduler(
+        scheduler = ResilientAsyncIOScheduler(
             jobstores=jobstores,
             job_defaults={
                 "misfire_grace_time": 60  # Grace time in seconds for missed job execution

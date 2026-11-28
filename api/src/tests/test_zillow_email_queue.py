@@ -525,20 +525,38 @@ class TestWakeUp:
         behind it rather than making the thread due sooner."""
         now = datetime.now(UTC)
 
-        def row(id_, state="pending", conversation_id=None, at=now, lease_until=None):
+        def row(id_, state="pending", conversation_id=None, at=now, **values):
             return SimpleNamespace(
                 id=id_,
                 thread_id="T1",
                 state=state,
                 conversation_id=conversation_id,
                 next_attempt_at=at,
-                lease_until=lease_until,
+                lease_until=values.get("lease_until"),
+                expires_at=values.get("expires_at", now + timedelta(hours=1)),
+                attempts=values.get("attempts", 0),
             )
 
         retrying = row(1, conversation_id="zillow-T1-1", at=now + timedelta(minutes=4))
         newer = row(2, at=now + timedelta(minutes=1))
         assert queue.earliest_due([retrying, newer], now) == now + timedelta(minutes=4)
         assert queue.earliest_due([], now) is None
+        # The head batch expired: the claim expires it now, and the next batch heads.
+        expired = row(
+            1,
+            conversation_id="zillow-T1-1",
+            at=now + timedelta(minutes=4),
+            expires_at=now - timedelta(seconds=1),
+        )
+        assert queue.earliest_due([expired, newer], now) == now
+        assert queue.earliest_due([newer], now) == now + timedelta(minutes=1)
+        out_of_attempts = row(
+            1,
+            conversation_id="zillow-T1-1",
+            at=now + timedelta(minutes=4),
+            attempts=queue.MAX_ATTEMPTS,
+        )
+        assert queue.earliest_due([out_of_attempts], now) == now
 
     @pytest.mark.asyncio
     async def test_queuing_an_email_sets_the_wake_up(self, monkeypatch):

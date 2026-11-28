@@ -419,6 +419,9 @@ def earliest_due(rows: Sequence[ZillowEmailJob], now: datetime) -> datetime | No
 
     ``rows`` are the pending and running rows, oldest first. The candidates:
 
+    - now, for a claimable row too old or out of attempts: the claim expires or
+      parks it first, and it is left out of its thread's head batch, as the
+      claim leaves it out;
     - each thread's head batch, at its earliest ``next_attempt_at`` (the time
       ``_next_due_batch`` takes it), or when the thread's lease ends if a run
       holds it, since a thread with a live lease is not claimed at all;
@@ -434,8 +437,12 @@ def earliest_due(rows: Sequence[ZillowEmailJob], now: datetime) -> datetime | No
 
     by_thread: dict[str, list[ZillowEmailJob]] = {}
     for row in rows:
-        if _is_claimable(row, now):
-            by_thread.setdefault(row.thread_id, []).append(row)
+        if not _is_claimable(row, now):
+            continue
+        if row.expires_at <= now or row.attempts >= MAX_ATTEMPTS:
+            times.append(now)
+            continue
+        by_thread.setdefault(row.thread_id, []).append(row)
     for thread_id, thread_rows in by_thread.items():
         ready_at = min(r.next_attempt_at for r in _head_batch(thread_rows))
         if thread_id in leases:

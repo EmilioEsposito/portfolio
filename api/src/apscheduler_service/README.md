@@ -28,6 +28,12 @@ the general agent's scheduled checks.
 - Never move or rename a stored job's function. During a deploy the old server
   shares the job store, and APScheduler deletes a stored job whose function it
   cannot import.
+- `get_scheduler()` builds a `ResilientAsyncIOScheduler`. When APScheduler's
+  pass over its jobs raises after starting them (a one-time job another server
+  sharing the store already deleted, or a database error on that write), plain
+  `AsyncIOScheduler` sets no next timer and runs no job again in that process
+  until a job is added. This one tries again in `jobstore_retry_interval`
+  seconds (10).
 
 ## Job Store: Local vs Railway
 
