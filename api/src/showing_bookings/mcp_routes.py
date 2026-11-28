@@ -23,10 +23,11 @@ the whole of what the MCP can reach in this module:
   nothing is done and the answer is 409 ``effect_changed`` with the paragraph
   as it now reads. Then ``team_actions.book_for_caller``,
   ``cancelling.cancel_showing`` or ``cancelling.remove_attendee`` runs, as
-  from the Booking settings tab, with ``effects.booking_still_as_approved`` or
-  ``cancellation_still_as_approved`` as its ``checks``: the paragraph is worked
-  out once more under the action's own locks, so a join or a calendar change
-  that lands after the first comparison still changes nothing.
+  from the Booking settings tab, with the paragraph as ``expected_effect``: it
+  is worked out once more under the action's own locks, so a join or a
+  calendar change that lands after the first comparison still changes nothing
+  (``effects.EffectChanged``, answered the same way; its ``effect`` is None
+  when the action can no longer be done at all).
 
 A refusal answers ``{"detail": {"code", "message", "fields"}}``. Another host
 and who came are not here: neither the agent nor the MCP has a tool for them,
@@ -81,27 +82,9 @@ def _refusal(refused: Refused) -> HTTPException:
     return HTTPException(refused.status, refused.detail())
 
 
-def _changed(effect: str) -> HTTPException:
-    return HTTPException(
-        409,
-        {
-            "code": EFFECT_CHANGED,
-            "message": "What this would do changed after it was approved. Nothing was done.",
-            "fields": {},
-            "effect": effect,
-        },
-    )
-
-
-async def _changed_under_lock(refused: Refused, preview) -> HTTPException:
-    """The action's own check refused: answer as the first comparison does, with the
-    paragraph as it reads now, or with why nothing can be done now."""
-    if refused.code != EFFECT_CHANGED:
-        return _refusal(refused)
-    try:
-        return _changed(await preview())
-    except HTTPException as now_refused:
-        return now_refused
+def _changed(changed: effects.EffectChanged) -> HTTPException:
+    """409 ``effect_changed``, with the paragraph as it reads now (None: cannot be done)."""
+    return HTTPException(409, {**changed.detail(), "effect": changed.effect})
 
 
 class Effect(BaseModel):
@@ -188,7 +171,7 @@ async def preview_booking(body: BookingRequest, user: McpUser, now: Now):
 async def book(body: Booking, user: McpUser, now: Now, texts: Texts):
     preview = await _booking_effect(body, now)
     if preview.sentence != body.effect:
-        raise _changed(preview.sentence)
+        raise _changed(effects.EffectChanged(preview.sentence))
     try:
         booked = await team_actions.book_for_caller(
             body.team_request(),
@@ -196,16 +179,12 @@ async def book(body: Booking, user: McpUser, now: Now, texts: Texts):
             now=now,
             texts=texts,
             zillow_thread_id=body.thread(),
-            checks=effects.booking_still_as_approved(
-                body.team_request(), body.effect, now=now, zillow_thread_id=body.thread()
-            ),
+            expected_effect=body.effect,
         )
+    except effects.EffectChanged as changed:
+        raise _changed(changed) from None
     except Refused as refused:
-
-        async def again() -> str:
-            return (await _booking_effect(body, now)).sentence
-
-        raise await _changed_under_lock(refused, again) from None
+        raise _refusal(refused) from None
     logfire.info(
         "showing bookings: booking added through the Sernia MCP",
         user_id=user.id,
@@ -267,21 +246,20 @@ async def preview_cancellation(body: CancellationRequest, user: McpUser, now: No
 async def cancel(body: Cancellation, user: McpUser, now: Now, texts: Texts):
     sentence = await _cancellation_effect(body, now)
     if sentence != body.effect:
-        raise _changed(sentence)
-    checks = effects.cancellation_still_as_approved(
-        body.showing_id, body.attendee_id, body.effect, now=now
-    )
+        raise _changed(effects.EffectChanged(sentence))
     try:
         if body.attendee_id is None:
             done = await cancelling.cancel_showing(
-                body.showing_id, now=now, texts=texts, checks=checks
+                body.showing_id, now=now, texts=texts, expected_effect=body.effect
             )
         else:
             done = await cancelling.remove_attendee(
-                body.showing_id, body.attendee_id, now=now, texts=texts, checks=checks
+                body.showing_id, body.attendee_id, now=now, texts=texts, expected_effect=body.effect
             )
+    except effects.EffectChanged as changed:
+        raise _changed(changed) from None
     except Refused as refused:
-        raise await _changed_under_lock(refused, lambda: _cancellation_effect(body, now)) from None
+        raise _refusal(refused) from None
     except cancelling.NotFound:
         raise _refusal(
             Refused(404, "unknown_showing", "That showing or person no longer exists.")

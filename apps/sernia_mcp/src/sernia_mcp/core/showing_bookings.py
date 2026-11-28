@@ -50,7 +50,7 @@ def _refusal(detail: Any) -> RefusedError:
         return RefusedError(str(detail or "The API refused this."))
     message = str(detail.get("message") or "The API refused this.")
     if detail.get("code") == _EFFECT_CHANGED:
-        return EffectChangedError(message, str(detail.get("effect", "")))
+        return EffectChangedError(message, str(detail.get("effect") or ""))
     fields = "; ".join(f"{name}: {line}" for name, line in (detail.get("fields") or {}).items())
     return RefusedError(f"{message} ({fields})" if fields else message, detail.get("code"))
 

@@ -1480,10 +1480,10 @@ so these five routes are all the MCP can reach in this module:
 The MCP shows the preview's paragraph on its Approve card and sends it back
 on Approve. The booking and cancellation routes work the paragraph out again
 first; if it differs, nothing is done and the answer is 409 `effect_changed`
-with the paragraph as it now reads in `detail.effect`. They then pass
-`booking_still_as_approved` or `cancellation_still_as_approved` as `checks`,
-so the action checks it once more under its own locks and refuses the same
-way (`detail.effect` is empty then; the message says what it would do now). Refusals answer
+with the paragraph as it now reads in `detail.effect`. They then pass it as
+`expected_effect`, so the action checks it once more under its own locks and
+refuses the same way (`EffectChanged`; `detail.effect` is null when the action
+can no longer be done, and the message says why). Refusals answer
 `{"detail": {"code", "message", "fields"}}` with the codes above. These
 routes do not check that a person clicked Approve; the card is the MCP's.
 There is no route for another host or attendance.
