@@ -127,7 +127,9 @@ async def conversation_id(monkeypatch):
     cid = f"test-lead-{uuid.uuid4().hex}"
     monkeypatch.setattr(listing_data, "load", AsyncMock(return_value=listing_data.Loaded()))
     monkeypatch.setattr(handle, "notify_pending_approval", AsyncMock())
-    monkeypatch.setattr(handle, "send_reply", AsyncMock(return_value="Email sent."))
+    monkeypatch.setattr(
+        handle, "send_reply", AsyncMock(return_value=handle.Delivery("Email sent."))
+    )
     yield cid
     async with AsyncSessionFactory() as session:
         await session.execute(delete(AgentConversation).where(AgentConversation.id == cid))
@@ -374,7 +376,7 @@ class TestApplyApproval:
 
         async def slow_send(route, body):
             await asyncio.sleep(0.3)  # long enough for the other request to arrive
-            return "Email sent."
+            return handle.Delivery("Email sent.")
 
         handle.send_reply.side_effect = slow_send
 

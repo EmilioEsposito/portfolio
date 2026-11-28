@@ -81,7 +81,9 @@ async def lead(monkeypatch):
     monkeypatch.setenv("SHOWING_PUBLIC_BASE_URL", BASE)
     monkeypatch.setattr(listing_data, "load", AsyncMock(return_value=listing_data.Loaded()))
     monkeypatch.setattr(handle, "notify_pending_approval", AsyncMock())
-    monkeypatch.setattr(handle, "send_reply", AsyncMock(return_value="Email sent."))
+    monkeypatch.setattr(
+        handle, "send_reply", AsyncMock(return_value=handle.Delivery("Email sent."))
+    )
     thread_id = f"t{uuid.uuid4().hex[:15]}"
     cid = f"test-links-{uuid.uuid4().hex}"
     made = []

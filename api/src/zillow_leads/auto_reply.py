@@ -342,7 +342,7 @@ async def maybe_send_reply(conversation_id: str, case: LeadCase, reply: Reply) -
     # The committed review card cannot send anything. A crash from here on
     # leaves an inspect-only task, never an actionable duplicate send approval.
     try:
-        result = await handle.send_reply(route, reply.reply_body, threading=threading)
+        delivery = await handle.send_reply(route, reply.reply_body, threading=threading)
     except Exception as error:
         logfire.exception(
             "zillow lead: automatic delivery uncertain", conversation_id=conversation_id
@@ -353,14 +353,18 @@ async def maybe_send_reply(conversation_id: str, case: LeadCase, reply: Reply) -
                 conversation_id, prepared, handle.send_result(error), review.tool_call_id
             )
         return
+    result = delivery.text
     sent: dict[str, Any] = {
-        "status": "sent",
+        # Captured outside production (``handle.send_reply``); this path is off
+        # there anyway (``is_sernia_ai_enabled``).
+        "status": "captured" if delivery.captured else "sent",
         "body": reply.reply_body,
         "at": datetime.now(UTC).isoformat(),
     }
     saved: dict[str, Any] = {"auto_delivery": sent}
     if prepared is not None:
         # Settled before the result is saved, so a failed save cannot leave it open.
+        # A captured reply settles as sent, as for an approved one.
         prepared = await lead_bookings.after_send(prepared, "sent", now=datetime.now(UTC))
         saved["showing_booking"] = prepared.record()
         result = f"{result} {prepared.note(case.timezone)}"

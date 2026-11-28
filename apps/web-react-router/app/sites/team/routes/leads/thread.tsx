@@ -347,6 +347,7 @@ function EmailItem({ email, leadName }: { email: LeadEmail; leadName: string }) 
           {fullTime(email.sent_at)}
           {email.sent_by === "inbox" && " · approved here"}
           {email.sent_by === "automatic" && " · sent automatically"}
+          {email.sent_by === "captured" && " · captured, not sent"}
         </p>
       </div>
       <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere]">{email.text || "(no message text)"}</p>

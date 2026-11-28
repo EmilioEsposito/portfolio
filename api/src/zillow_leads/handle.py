@@ -26,6 +26,13 @@ is made here, in code, from facts the lead cannot influence:
   sent if the time is refused; see ``apply_approval``. The automatic send
   sends a reply that would change a booking only when the setting for its
   kind is on, and books it the same way (``auto_reply``).
+- **An email reaches a lead only from production.** A preview's database is
+  a copy of production's, so its threads are real people's. Anywhere else an
+  approved reply is captured, not sent (``captures_lead_email``, the booking
+  guard's own rule): it is saved on the conversation as a sent one would be,
+  marked ``captured``, and settles its booking as capture mode settles a
+  captured notice, as if it had gone out. ``send_thread_email``, the one Gmail
+  call, refuses outside production too.
 
 A conversation saved by this module is marked with ``HANDLER``. Approvals for
 it are applied here (``apply_approval``) and never resume a model: the reply
@@ -70,8 +77,9 @@ from api.src.google.common.config import (
 from api.src.google.common.service_account_auth import get_delegated_credentials
 from api.src.google.gmail.service import send_email as _send_email
 from api.src.google.gmail.threading import GMAIL_SCOPES, _get_threading_headers
-from api.src.showing_bookings import lead_bookings
+from api.src.showing_bookings import guard, lead_bookings
 from api.src.showing_bookings.lead_tours import lead_booking_for, tour_source_for_lead_agent
+from api.src.showing_bookings.settings import current_environment, read_test_recipients
 from api.src.utils import team_links
 from api.src.utils.background_tasks import create_logged_task
 from api.src.zillow_leads import listing_data, reply_links
@@ -113,6 +121,19 @@ class ReplyRoute:
     to: str
     subject: str
     reply_to_message_id: str  # the lead's latest message, in the shared mailbox
+
+
+@dataclass(frozen=True)
+class Delivery:
+    """What sending a reply did: the line saved in the conversation, and whether
+    it was captured here instead of sent (outside production)."""
+
+    text: str
+    captured: bool = False
+
+
+class NotProduction(RuntimeError):
+    """An email to a lead was refused before Gmail, because this is not production."""
 
 
 @dataclass(frozen=True)
@@ -459,16 +480,42 @@ def listed_units(record: dict[str, Any] | None) -> list[str]:
     ]
 
 
+def captures_lead_email(to: str) -> bool:
+    """True when an email to ``to`` is captured here instead of sent.
+
+    The booking guard's rule (``guard.may_reach``) on the booking module's
+    environment (``settings.current_environment``), so a lead reply and a
+    booking notice never disagree about where they are: in production every
+    email goes; anywhere else only one to an address on the booking test list.
+    """
+    return not guard.may_reach(
+        [to], environment=current_environment(), test_recipients=read_test_recipients()
+    )
+
+
+def captured_line(to: str) -> str:
+    """What a captured reply says in its conversation and the approval result."""
+    where = "preview" if current_environment() else "local"
+    return f"Captured, not sent ({where}): no email went to {to}."
+
+
 async def send_reply(
     route: dict[str, str], body: str, *, threading: dict[str, str] | None = None
-) -> str:
-    """Send an approved reply to the stored route, on the lead's thread."""
+) -> Delivery:
+    """Send an approved reply to the stored route, on the lead's thread.
+
+    Outside production (``captures_lead_email``) Gmail is not called at all and
+    the reply is captured; the caller saves it on the conversation.
+    """
+    if captures_lead_email(route["to"]):
+        logfire.info("zillow lead: reply captured, not sent", environment=current_environment())
+        return Delivery(captured_line(route["to"]), captured=True)
     if threading is None:
         threading = await _get_threading_headers(
             route["reply_to_message_id"], SHARED_EXTERNAL_EMAIL
         )
     result = await send_thread_email(route, body, threading=threading)
-    return f"Email sent to {route['to']} (message ID: {result.get('id', 'unknown')})."
+    return Delivery(f"Email sent to {route['to']} (message ID: {result.get('id', 'unknown')}).")
 
 
 async def send_thread_email(
@@ -479,8 +526,12 @@ async def send_thread_email(
 
     The one Gmail call behind ``send_reply`` and the showing reminder by email
     (``showing_bookings/gmail_thread.py``). ``route`` is always a route stored
-    on a lead conversation, never anything typed or written by a lead.
+    on a lead conversation, never anything typed or written by a lead. Raises
+    ``NotProduction``, with nothing sent, for an address ``captures_lead_email``
+    captures: both callers check first, so this is the backstop.
     """
+    if captures_lead_email(route["to"]):
+        raise NotProduction("A lead's email goes out only from production; nothing was sent.")
     return await _send_email(
         to=route["to"],
         subject=route["subject"],
@@ -505,7 +556,8 @@ async def apply_approval(
     """Carry out a person's decisions on a lead conversation. No model runs.
 
     An approved reply is sent to the stored route with the approved words (the
-    draft, or the approver's edit). A rejected one is not sent. Marking an
+    draft, or the approver's edit); outside production it is captured instead,
+    and its result says so. A rejected one is not sent. Marking an
     escalation handled sends nothing. Each decision is recorded in the
     conversation so it is no longer pending, and so approvals can later be read
     as labels: sent unchanged, edited, or rejected. A hand-off to the general
@@ -544,6 +596,7 @@ async def apply_approval(
             continue
         args = call["args"] or {}
         edited = False
+        captured = False
         body = None
         links_fixed = 0
         if call["tool_name"] == SEND_REPLY and decision.approved:
@@ -563,7 +616,9 @@ async def apply_approval(
                 # Edited words: the booking the draft would make may no longer be
                 # what the reply says, so no booking change is applied at all.
                 plan = await _plan_booking(conversation_id, metadata)
-                outcome = _with_links_note(await send_reply(route, body), links_fixed)
+                delivery = await send_reply(route, body)
+                outcome = _with_links_note(delivery.text, links_fixed)
+                captured = delivery.captured
                 skipped = await _not_applied(conversation_id, plan)
                 if skipped is not None:
                     line, booking = skipped
@@ -597,7 +652,7 @@ async def apply_approval(
                     booking = prepared.record()
                     continue
                 try:
-                    outcome = _with_links_note(await send_reply(route, body), links_fixed)
+                    delivery = await send_reply(route, body)
                 except Exception as error:
                     if prepared is not None:
                         # Gmail refused it: the booking goes. Unknown: it stays, marked.
@@ -605,7 +660,12 @@ async def apply_approval(
                             prepared, send_result(error), now=datetime.now(UTC)
                         )
                     raise
+                outcome = _with_links_note(delivery.text, links_fixed)
+                captured = delivery.captured
                 if prepared is not None:
+                    # A captured reply settles as sent, as capture mode treats a
+                    # captured notice: the booking stands, and its held notices
+                    # are captured in turn by the booking guard.
                     prepared = await lead_bookings.after_send(
                         prepared, "sent", now=datetime.now(UTC)
                     )
@@ -641,6 +701,8 @@ async def apply_approval(
                 **({"booking_links_fixed": links_fixed} if links_fixed else {}),
                 "by": approver,
                 "at": datetime.now(UTC).isoformat(),
+                # Approved outside production: kept here, never sent (``send_reply``).
+                **({"captured": True} if captured else {}),
             }
         )
 

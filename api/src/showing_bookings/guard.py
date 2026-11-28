@@ -60,6 +60,19 @@ def is_test_send(addresses: Iterable[str], test_recipients: frozenset[str]) -> b
     )
 
 
+def may_reach(
+    addresses: Iterable[str], *, environment: str, test_recipients: frozenset[str]
+) -> bool:
+    """Whether a message may reach ``addresses`` at all in ``environment``:
+    always in production, elsewhere only when every address is on the test list.
+
+    The first rule of ``decide``, and the whole rule for the lead agent's emails
+    (``zillow_leads.handle.captures_lead_email``), which have no send mode: a
+    preview's lead threads are copies of real people's.
+    """
+    return environment == PRODUCTION or is_test_send(addresses, test_recipients)
+
+
 def decide(
     *,
     settings: ShowingBookingSettings,
@@ -76,9 +89,10 @@ def decide(
     someone outside the test list is never a test send. ``approved``: a person
     sent this captured notice by hand.
     """
+    addresses = list(addresses)
     to_test_list = is_test_send(addresses, test_recipients)
     mode = settings.send_mode
-    if environment != PRODUCTION and not to_test_list:
+    if not may_reach(addresses, environment=environment, test_recipients=test_recipients):
         # Nobody but the test list, ever; the reason only says why.
         if mode == "live" or approved:
             return Decision("capture", "not_production")

@@ -129,7 +129,9 @@ async def lead_case(world, monkeypatch):
     """Handle a thread as production does and return the case the agent read."""
     conversations: list[str] = []
     monkeypatch.setattr(handle, "notify_pending_approval", AsyncMock())
-    monkeypatch.setattr(handle, "send_reply", AsyncMock(return_value="Email sent."))
+    monkeypatch.setattr(
+        handle, "send_reply", AsyncMock(return_value=handle.Delivery("Email sent."))
+    )
     no_reply = TypeAdapter(LeadOutcome).validate_python(
         {"lead": {}, "tour": {}, "action": "no_reply", "reason": "Test."}
     )

@@ -85,7 +85,9 @@ async def leads(monkeypatch):
         AsyncMock(return_value=listing_data.Loaded(data=ListingData(listings=[LISTING, OTHER]))),
     )
     monkeypatch.setattr(handle, "notify_pending_approval", AsyncMock())
-    monkeypatch.setattr(handle, "send_reply", AsyncMock(return_value="Email sent."))
+    monkeypatch.setattr(
+        handle, "send_reply", AsyncMock(return_value=handle.Delivery("Email sent."))
+    )
     await clear_showing_data()
     made: list[str] = []
     threads: list[str] = []
@@ -437,6 +439,53 @@ def test_how_each_run_ended():
     handed = run(approval=[{**draft, "approved": False}], hand_off={"to": "chat-1", "by": "Pat"})
     assert inbox.run_result(handed).result == "handed_off"
     assert inbox.run_result(run(outcome={"action": "no_reply"})).result == "no_reply"
+
+
+def test_a_reply_captured_outside_production_reads_captured_never_sent():
+    at = "2026-05-04T13:00:00+00:00"
+    when = datetime(2026, 5, 4, 13, tzinfo=UTC)
+    approved = {"tool_name": handle.SEND_REPLY, "approved": True, "by": "Pat", "at": at}
+    captured = run(approval=[{**approved, "sent_body": "Hello", "captured": True}])
+    assert inbox.run_result(captured) == inbox.Result("captured", "Pat", when)
+    assert inbox.sent_replies(captured) == [inbox.Sent("Hello", when, "captured")]
+    automatic = run(auto_delivery={"status": "captured", "body": "Hi", "at": at})
+    assert inbox.run_result(automatic) == inbox.Result("captured", None, when)
+    assert inbox.sent_replies(automatic) == [inbox.Sent("Hi", when, "captured")]
+    assert inbox.thread_status([captured]) == "handled"
+
+
+def test_a_captured_reply_never_claims_an_email_sent_from_gmail():
+    """Gmail has no copy of a captured reply: it is shown on its own, and a person's
+    Gmail reply a minute later keeps its own mark (none)."""
+    at = datetime(2026, 5, 4, 13, tzinfo=UTC)
+    approved = {"tool_name": handle.SEND_REPLY, "approved": True, "by": "Pat"}
+    captured = run(
+        approval=[{**approved, "sent_body": "Draft", "captured": True, "at": at.isoformat()}]
+    )
+    live = [
+        {
+            "sent_at": (at - timedelta(hours=1)).isoformat(),
+            "from_sernia": False,
+            "subject": "Tour",
+            "body": "Hi",
+        },
+        {
+            "sent_at": (at + timedelta(minutes=1)).isoformat(),
+            "from_sernia": True,
+            "subject": "Re: Tour",
+            "body": "Typed in Gmail",
+        },
+    ]
+
+    found = inbox.emails([captured], live)
+
+    assert [(email.text, email.sent_by) for email in found] == [
+        ("Hi", None),
+        ("Draft", "captured"),
+        ("Typed in Gmail", None),
+    ]
+    stored = inbox.emails([captured])
+    assert [(email.text, email.sent_by) for email in stored] == [("Draft", "captured")]
 
 
 def test_a_draft_anywhere_in_the_thread_comes_first():

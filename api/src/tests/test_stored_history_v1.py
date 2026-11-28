@@ -141,7 +141,9 @@ async def lead_conversation(monkeypatch):
         "subject": "Re: 12 Example St inquiry",
         "reply_to_message_id": "m0",
     }
-    monkeypatch.setattr(handle, "send_reply", AsyncMock(return_value="Email sent."))
+    monkeypatch.setattr(
+        handle, "send_reply", AsyncMock(return_value=handle.Delivery("Email sent."))
+    )
     async with AsyncSessionFactory() as session:
         session.add(
             AgentConversation(

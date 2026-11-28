@@ -354,6 +354,14 @@ Shared services have independent owners:
   for a person. NoReply sends nothing. A reply that would book, move or cancel a
   showing still waits unless its own box is ticked (see "Showings agreed by
   email").
+- **Email reaches a lead only from production.** Preview and local databases
+  are copies of production's and hold the same delegated Gmail credential, so
+  outside production `send_reply` never calls Gmail: an approved reply is
+  captured, reported as "Captured, not sent (preview)", recorded with
+  `captured: true` on its approval, and settles its booking as capture mode
+  settles a captured notice. The rule is the booking guard's
+  (`guard.may_reach`: production, or every address on the test list), and
+  `send_thread_email` refuses outside production as a backstop.
 - **Automatic sends are reserved before Gmail is called.** `auto_approved_sends`
   allows one automatic attempt per original RFC Message-ID. The send card is
   replaced with an inspect-only task before the external call. A timeout or
@@ -439,7 +447,8 @@ only what is stored, so threads from before it need nothing new:
 
 - **Emails**: the newest run's saved case (`metadata.case.thread.messages`),
   plus any reply a card or the automatic send sent after that case was built
-  (`approval[].sent_body`, `auto_delivery.body`). A reply written in Gmail (the
+  (`approval[].sent_body`, `auto_delivery.body`); one captured outside
+  production shows marked "captured, not sent". A reply written in Gmail (the
   usual answer to an escalation) or in a Sernia AI chat is not stored until the
   lead's next email, so the list reads its 30 newest rows' email counts and
   latest emails from Gmail in one batch of metadata reads

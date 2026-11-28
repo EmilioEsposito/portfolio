@@ -312,7 +312,7 @@ async def test_the_moved_text_and_invite_wait_for_the_send_then_go(lead, monkeyp
         new = (await places())[-1]
         kinds = await notices_of(new.id)
         seen.extend((kind, n.status) for kind, found in kinds.items() for n in found)
-        return "Email sent."
+        return handle.Delivery("Email sent.")
 
     monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=slow_send))
 
