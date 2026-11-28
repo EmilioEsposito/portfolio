@@ -482,10 +482,8 @@ async def showing_book(
             now=now,
             texts=text_sender(),
             zillow_thread_id=thread_id,
-            # Under the booking's locks: still the host and kind the person approved.
-            checks=effects.booking_still_as_approved(
-                request, preview.sentence, now=now, zillow_thread_id=thread_id
-            ),
+            # Checked again under the booking's locks: still what the person approved.
+            expected_effect=preview.sentence,
         )
     except Refused as refused:
         answer = _refusal("Not booked.", refused)
@@ -556,16 +554,15 @@ async def showing_cancel(
         )
     if not ctx.tool_call_approved:
         raise ApprovalRequired(metadata={"effect": sentence})
-    # Under the cancellation's own lock: still everyone, and only those, on the card.
-    checks = effects.cancellation_still_as_approved(showing_id, attendee_id, sentence, now=now)
     try:
+        # Checked again under the cancellation's lock: still everyone on the card, and only them.
         if attendee_id is None:
             done = await cancelling.cancel_showing(
-                showing_id, now=now, texts=text_sender(), checks=checks
+                showing_id, now=now, texts=text_sender(), expected_effect=sentence
             )
         else:
             done = await cancelling.remove_attendee(
-                showing_id, attendee_id, now=now, texts=text_sender(), checks=checks
+                showing_id, attendee_id, now=now, texts=text_sender(), expected_effect=sentence
             )
     except Refused as refused:
         return _cancel_refusal(refused)

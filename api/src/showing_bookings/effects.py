@@ -17,12 +17,13 @@ what ``cancelling.cancel_showing`` and ``remove_attendee`` check. Each raises
 ``bookings.Refused`` with a plain message for anything that would be refused.
 
 A preview is read before the action takes its locks, so a booking, a join or a
-calendar change can land in between. ``booking_still_as_approved`` and
-``cancellation_still_as_approved`` give the action a ``checks`` that works the
-preview out again inside its own transaction, under its locks, and refuses
-(``effect_changed``) unless it still reads as approved: nobody is booked with
-another host, and nobody who joined later is cancelled or texted, without a
-person agreeing to that.
+calendar change can land in between. So the actions take the approved paragraph
+as ``expected_effect`` (``team_actions.book_for_caller``,
+``cancelling.cancel_showing``, ``cancelling.remove_attendee``), work the preview
+out again inside their own transaction, under their locks, and raise
+``EffectChanged`` with the paragraph as it now reads unless it is the same:
+nobody is booked with another host, and nobody who joined later is cancelled or
+texted, without a person agreeing to that.
 """
 
 from collections.abc import Awaitable, Callable
@@ -36,7 +37,7 @@ from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service as listings_service
 from api.src.rental_listings.checks import RentalDataInvalid
 from api.src.rental_listings.schema import RentalListing, ShowingRules
-from api.src.showing_bookings import bookings, cancelling, host_texts, open_times, wording
+from api.src.showing_bookings import bookings, delivery_checks, host_texts, open_times, wording
 from api.src.showing_bookings.bookings import Refused
 from api.src.showing_bookings.models import Showing, ShowingAgentRecord, ShowingAttendee
 from api.src.showing_bookings.settings import (
@@ -53,6 +54,21 @@ NOT_OPEN = "not_open"
 # The action's own check under its locks: what it would do no longer reads as approved.
 EFFECT_CHANGED = "effect_changed"
 CHANGED = "Nothing was done: what it would do changed since it was approved."
+
+
+class EffectChanged(Refused):
+    """A booking or cancellation no longer reads as the person approved it, found under
+    the action's own locks before anything was written or sent (409 ``effect_changed``).
+
+    ``effect`` is the paragraph as it reads now, for the person to approve again, or
+    None when the action can no longer be done at all; the message then says why.
+    """
+
+    def __init__(self, effect: str | None, reason: str | None = None) -> None:
+        message = f"{CHANGED} It would now read: {effect}" if effect else f"{CHANGED} {reason}"
+        super().__init__(409, EFFECT_CHANGED, message)
+        self.effect = effect
+
 
 _NO_TIME = datetime(2000, 1, 1, tzinfo=UTC)
 
@@ -259,9 +275,9 @@ def booking_still_as_approved(
     now: datetime,
     zillow_thread_id: str | None = None,
 ) -> Callable[[AsyncSession], Awaitable[None]]:
-    """A ``checks`` for ``place_booking`` (through ``book_for_caller``): under the
-    booking's own locks, the preview again, refused (409 ``effect_changed``) unless it
-    still reads as ``approved``. So no booking, join or calendar change between the
+    """What ``book_for_caller(expected_effect=)`` runs as ``place_booking``'s ``checks``:
+    under the booking's own locks, the preview again, ``EffectChanged`` unless it still
+    reads as ``approved``. So no booking, join or calendar change between the
     approval and the booking can give it another host or another kind than the one
     the person agreed to."""
 
@@ -271,9 +287,9 @@ def booking_still_as_approved(
                 await _booking_preview(session, body, now=now, zillow_thread_id=zillow_thread_id)
             ).sentence
         except Refused as refused:
-            raise Refused(409, EFFECT_CHANGED, f"{CHANGED} {refused.message}") from None
+            raise EffectChanged(None, refused.message) from None
         if now_reads != approved:
-            raise Refused(409, EFFECT_CHANGED, f"{CHANGED} It would now read: {now_reads}")
+            raise EffectChanged(now_reads)
 
     return check
 
@@ -310,7 +326,7 @@ def cancellation_sentence(
                 f"Removes {target.name} from the showing of {where} on {when}, hosted by "
                 f"{host}. They are the last one booked, so the showing is cancelled too."
             ]
-        texted = [person.name for person in booked if cancelling.will_text(person)]
+        texted = [person.name for person in booked if delivery_checks.can_text(person)]
         lines.append(
             f"Texted that the team cancelled: {_names(texted)}."
             if texted
@@ -327,7 +343,7 @@ def cancellation_sentence(
         lines = [f"Removes {target.name} from the showing of {where} on {when}, hosted by {host}."]
         lines.append(
             f"{target.name} is texted that the team cancelled their place."
-            if cancelling.will_text(target)
+            if delivery_checks.can_text(target)
             else f"{target.name} is not texted: they take no texts, or their number is known to be wrong."
         )
         host_told = f"{host}'s calendar event is updated" + (
@@ -400,17 +416,17 @@ async def preview_cancellation(
 def cancellation_still_as_approved(
     showing_id: int, attendee_id: int | None, approved: str, *, now: datetime
 ) -> Callable[[AsyncSession], Awaitable[None]]:
-    """A ``checks`` for ``cancelling.cancel_showing`` and ``remove_attendee``: under
-    their shared booking lock, the preview again, refused (409 ``effect_changed``)
-    unless it still reads as ``approved``. So nobody who joined after the approval
+    """What ``cancelling.cancel_showing`` and ``remove_attendee`` run for
+    ``expected_effect``: under their shared booking lock, the preview again,
+    ``EffectChanged`` unless it still reads as ``approved``. So nobody who joined after the approval
     is cancelled or texted without having been on the card."""
 
     async def check(session: AsyncSession) -> None:
         try:
             now_reads = await _cancellation_preview(session, showing_id, attendee_id, now)
         except Refused as refused:
-            raise Refused(409, EFFECT_CHANGED, f"{CHANGED} {refused.message}") from None
+            raise EffectChanged(None, refused.message) from None
         if now_reads != approved:
-            raise Refused(409, EFFECT_CHANGED, f"{CHANGED} It would now read: {now_reads}")
+            raise EffectChanged(now_reads)
 
     return check

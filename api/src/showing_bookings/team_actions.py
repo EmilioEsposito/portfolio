@@ -36,7 +36,6 @@ booking lock first, then attendees, then notices, then the showing.
 """
 
 import secrets
-from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Literal
 
@@ -44,7 +43,6 @@ import logfire
 from pydantic import BaseModel, ConfigDict, StrictBool
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service as listings_service
@@ -170,7 +168,7 @@ async def book_for_caller(
     now: datetime,
     texts: TextSender | None = None,
     zillow_thread_id: str | None = None,
-    checks: Callable[[AsyncSession], Awaitable[None]] | None = None,
+    expected_effect: str | None = None,
 ) -> TeamBooking:
     """Book a caller into one of the unit's open times. Raises ``Refused``.
 
@@ -186,13 +184,21 @@ async def book_for_caller(
     booked (``delivery_checks.reply_unsettled``, the reminder by email, the
     link's "add your details") applies to it.
 
-    ``checks(session)`` is passed to ``place_booking``, which runs it under the
-    booking's locks before anything is saved. The general agent's tool checks there
-    that the booking still reads as the person approved it (``effects.py``).
+    ``expected_effect`` is the paragraph a person approved (``effects.preview_booking``).
+    With it, the preview is worked out again under the booking's locks, before
+    anything is saved or sent, and ``effects.EffectChanged`` is raised, carrying the
+    paragraph as it now reads, unless it is the same.
     """
     async with AsyncSessionFactory() as session:
         listing, rules = await bookings._listing(session, body.unit, now, only_open=False)
     start, name, mobile, email = _check_fields(body)
+    checks = None
+    if expected_effect is not None:
+        from api.src.showing_bookings import effects  # effects imports this module
+
+        checks = effects.booking_still_as_approved(
+            body, expected_effect, now=now, zillow_thread_id=zillow_thread_id
+        )
     placed = await bookings.place_booking(
         listing,
         rules,

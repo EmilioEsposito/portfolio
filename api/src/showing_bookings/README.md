@@ -1414,7 +1414,8 @@ documented in [its tool policies](../sernia_ai/tools/README.md#showings-showing_
   booking link or why it has none, and a Zillow thread's own link and
   showings (`lead_tours.lead_booking_for`).
 - `showing_book` calls `book_for_caller` with `taken_by` set to the signed-in
-  person's email and "(via Sernia AI)". It may pass `zillow_thread_id`, which
+  person's email and "(via Sernia AI)", and the approved paragraph as
+  `expected_effect`. It may pass `zillow_thread_id`, which
   `book_for_caller` takes as a keyword (the tab's form has no such field) and
   puts on the `Person`: the row is tied to the lead's thread as a page booking
   through the lead's link is, with source `team` and no lead conversation.
@@ -1440,13 +1441,15 @@ text, the prospect's confirmation text and invite, or cancellation texts. It
 ends with what the send mode does with those messages (`sending_sentence`).
 The booking preview reads calendars afresh (`open_times.recheck`), so the
 host it names is the host the booking would get. Because a preview is read
-before the action's locks, `booking_still_as_approved` and
-`cancellation_still_as_approved` give the action a `checks(session)` that works
-it out again under those locks and refuses (`effect_changed`) unless it still
-reads as approved. `book_for_caller` passes `checks` to `place_booking`;
-`cancel_showing` and `remove_attendee` run it right after the shared booking
-lock. A join or calendar change between the approval and the action therefore
-changes nothing until a person approves again.
+before the action's locks, the actions take the approved paragraph as
+`expected_effect`: `book_for_caller` works the preview out again as
+`place_booking`'s `checks`, under the booking's locks, and `cancel_showing` and
+`remove_attendee` right after the shared booking lock. Unless it reads the same,
+they raise `effects.EffectChanged` (a `Refused`, 409 `effect_changed`) before
+anything is written or sent. Its `effect` holds the paragraph as it now reads,
+for the person to approve again, or is None when the action can no longer be
+done (the message says why). A join or calendar change between the approval
+and the action therefore changes nothing until a person approves again.
 
 Changing the host refuses: 404 `unknown_showing` or `unknown_agent`; 409
 `not_scheduled`, `started`, `same_host`, `event_being_sent`, and the agent's

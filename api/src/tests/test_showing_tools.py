@@ -617,6 +617,33 @@ async def test_someone_who_joins_after_approval_stops_the_cancellation(world, mo
     assert not [n for n in notices if n.kind == "prospect_cancelled_by_team"]
 
 
+@pytest.mark.asyncio
+async def test_the_shared_actions_refuse_an_effect_that_no_longer_reads_as_approved(world):
+    """``expected_effect`` on the actions, for every caller that shows a person a preview."""
+    body = TeamBookingRequest(unit=UNIT, start=at(16).isoformat(), name="Casey Morgan")
+    current = (await effects.preview_booking(body, now=world.now)).sentence
+
+    with pytest.raises(effects.EffectChanged) as raised:
+        await team_actions.book_for_caller(
+            body, taken_by="pat@serniacapital.com", now=world.now, expected_effect="Old text."
+        )
+    assert (raised.value.status, raised.value.code) == (409, "effect_changed")
+    assert raised.value.effect == current
+    assert await rows() == ([], [], [])
+
+    await page_book(world)
+    (showing,) = (await read())["booked"]
+    with pytest.raises(effects.EffectChanged) as raised:
+        await cancelling.cancel_showing(
+            showing["showing_id"], now=world.now, texts=world.texts, expected_effect="Old text."
+        )
+    assert raised.value.effect == await effects.preview_cancellation(
+        showing["showing_id"], now=world.now
+    )
+    (row,), (alex,), _ = await rows()
+    assert (row.status, alex.status) == ("scheduled", "booked")
+
+
 # ---------------------------------------------------------------------------
 # On the general agent
 # ---------------------------------------------------------------------------
