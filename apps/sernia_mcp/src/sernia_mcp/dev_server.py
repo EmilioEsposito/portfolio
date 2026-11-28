@@ -8,14 +8,15 @@ What this does:
 
   * Spawns the MCP server on :8000 and the FastMCP dev UI on :8080.
   * Browser opens automatically. The picker lists the ``@app.ui()`` tools
-    (including ``quo_delete_task``, ``quo_send_sms``, and ``google_send_email``). Pick one, fill in the form,
+    (``quo_delete_task``, ``quo_send_sms``, ``google_send_email``, ``showing_book``
+    and ``showing_cancel``). Pick one, fill in the form,
     launch.
   * The approval card renders. Click Approve or Reject; the MCP Log panel
     shows the ``tools/call _confirm_send_*`` traffic and the card shows a
     toast with the outcome.
 
-Quo task lookups, deletions, and upstream sends are MOCKED. Nothing hits OpenPhone or Gmail — safe to
-exercise with any phone/email. Mocks print to stdout so you can confirm what
+Quo task lookups, deletions, upstream sends, and the showing API are MOCKED. Nothing
+hits OpenPhone, Gmail or the booking service — safe to exercise with any phone/email. Mocks print to stdout so you can confirm what
 *would* have happened.
 
 This file is a dev harness ONLY. Not wired into the production server.
@@ -28,8 +29,10 @@ from contextlib import asynccontextmanager
 import httpx
 from fastmcp import FastMCP
 
+from sernia_mcp.core import showing_bookings as showing_core
 from sernia_mcp.core.types import EmailSendResult, GroupSmsRouting, SmsResult, SmsRouting
 from sernia_mcp.tools import approvals
+from sernia_mcp.tools import showing_bookings as showing_tools
 
 # -----------------------------------------------------------------------------
 # Mocks — replace upstream core calls with harmless stubs.
@@ -102,6 +105,29 @@ async def _fake_send_email_core(
     )
 
 
+async def _fake_preview_booking(token: str, booking: dict) -> str:
+    return (
+        f"Books {booking['name']} into a new showing of 12 Example St (unit {booking['unit']}) "
+        "on Wed, Apr 14 at 4:00 PM, hosted by Dev Agent. Dev Agent gets a calendar event; the "
+        "unit's residents get a text about the showing, if anyone lives there. (dev mock)"
+    )
+
+
+async def _fake_book(token: str, booking: dict, effect: str) -> str:
+    print(f"[DEV MOCK showing book] would book {booking!r}")
+    return f"Booked {booking['name']} at {booking['unit']} (dev mock)."
+
+
+async def _fake_preview_cancellation(token: str, showing_id: int, attendee_id: int | None) -> str:
+    who = "everyone booked in it" if attendee_id is None else f"attendee {attendee_id}"
+    return f"Cancels showing {showing_id} for {who}. (dev mock)"
+
+
+async def _fake_cancel(token: str, showing_id: int, attendee_id: int | None, effect: str) -> str:
+    print(f"[DEV MOCK showing cancel] would cancel showing={showing_id} attendee={attendee_id}")
+    return f"Cancelled showing {showing_id} (dev mock)."
+
+
 @asynccontextmanager
 async def _fake_task_client():
     def respond(request: httpx.Request) -> httpx.Response:
@@ -126,12 +152,18 @@ approvals.send_sms_core = _fake_send_sms_core  # type: ignore[assignment]
 approvals.resolve_group_sms_routing_core = _fake_resolve_group_sms_routing_core  # type: ignore[assignment]
 approvals.send_group_sms_core = _fake_send_group_sms_core  # type: ignore[assignment]
 approvals.send_email_core = _fake_send_email_core  # type: ignore[assignment]
+# Showings: left real, an Approve here would book or cancel through the API.
+showing_tools._caller = lambda: "dev-token"  # type: ignore[assignment]
+showing_core.preview_booking = _fake_preview_booking  # type: ignore[assignment]
+showing_core.book = _fake_book  # type: ignore[assignment]
+showing_core.preview_cancellation = _fake_preview_cancellation  # type: ignore[assignment]
+showing_core.cancel = _fake_cancel  # type: ignore[assignment]
 
 
 mcp = FastMCP(
     "sernia-mcp-dev",
     instructions=(
-        "Local dev harness. Upstream Quo/Gmail calls are mocked. "
+        "Local dev harness. Upstream Quo/Gmail calls and the showing API are mocked. "
         "Use any phone/email — nothing is actually sent."
     ),
 )

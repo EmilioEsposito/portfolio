@@ -104,17 +104,47 @@ SERNIA_MCP_DISABLE_AUTH=true uv run uvicorn sernia_mcp.app:app --host 127.0.0.1 
 Quo access uses `QUO_API_KEY_PORTFOLIO` in this service's own `.env` or process
 environment. See the [credential migration and recovery steps](../../api/src/open_phone/README.md#quo-credential-configuration); the backend uses the same variable name.
 
+### Showings
+
+The same three tools and parameter names as the Sernia agent's, minus its
+`effect` argument. Tour times and booked showings live in the API's booking
+service: the tools call `/api/showing-bookings/mcp` with the signed-in user's
+Clerk OAuth token, and a booking is recorded as taken by that person "(via
+Sernia MCP)".
+
+| Tool | Kind | Notes |
+|------|------|-------|
+| `showings_read` | read | Each unit's booking link or why it has none, its open times, the showings booked in the next 14 days with who is in them, and how each agent's calendar was read. With `zillow_thread_id`, the thread's own links and showings (the first read saves the thread's link token). The same document as the agent's read |
+| `showing_book` | **card** | Books a person into one of a unit's open times, as the Booking settings tab's Add a booking does |
+| `showing_cancel` | **card** | Cancels a whole showing, or removes one person with `attendee_id` |
+
+- **A card for both writes.** A booking or cancellation texts and invites
+  people outside the team and changes the host's calendar, so it waits for
+  Approve. The card shows one paragraph, what the click does and who is told,
+  written by the API (`api/src/showing_bookings/effects.py`), the same text
+  the agent's approval card shows.
+- On Approve the paragraph goes back with the request. If it no longer holds
+  (someone took the time, a person left), the API does nothing and the card
+  shows the reason with what it would do now; ask for a new card.
+- No tool for another host or for who came, in either harness: a person does
+  those on the Booking settings tab. To move someone, book the new time, then
+  remove them from the old showing.
+- Configuration is the rental listing tools': `SERNIA_MCP_API_BASE_URL` here,
+  `SERNIA_MCP_CLERK_OAUTH_CLIENT_ID` on the API.
+
 ### Browser-based approval testing
 
 ```bash
 SERNIA_MCP_DISABLE_AUTH=true uv run fastmcp dev apps src/sernia_mcp/dev_server.py
 ```
 
-Spawns an MCP server on :8000 and the FastMCP browser inspector on :8080. Choose `quo_delete_task` and enter `TKdemo` to preview the deletion card, or choose `quo_send_sms` or `google_send_email` to preview a send. The harness mocks task lookups, deletions, and sends.
+Spawns an MCP server on :8000 and the FastMCP browser inspector on :8080. Choose `quo_delete_task` and enter `TKdemo` to preview the deletion card, choose `quo_send_sms` or `google_send_email` to preview a send, or choose `showing_book` or `showing_cancel` to preview a showing card. The harness mocks task lookups, deletions, sends and the showing API.
 
 ### Approval cards
 
-`tools/approvals.py` holds the three cards (SMS, email, Quo task deletion):
+`tools/approvals.py` holds the SMS, email and Quo task deletion cards, and
+`tools/showing_bookings.py` the booking and cancellation cards, on the same
+approval app:
 
 1. The model calls an entry tool (`quo_send_sms`). The request is kept in
    memory under a random single-use id, and the answer is a card.

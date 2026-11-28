@@ -42,12 +42,26 @@ from fastmcp.apps.config import UI_EXTENSION_ID
 from fastmcp.exceptions import ToolError
 from mcp.client import advertise
 
+from sernia_mcp.core import showing_bookings as showing_core
 from sernia_mcp.core.errors import ExternalServiceError
 from sernia_mcp.core.types import EmailSendResult, GroupSmsRouting, SmsResult, SmsRouting
 from sernia_mcp.tools import approvals, quo
+from sernia_mcp.tools import showing_bookings as showing_tools
 
-CONFIRM_TOOLS = {"_confirm_send_sms", "_confirm_send_email", "_confirm_delete_quo_task"}
-ENTRY_TOOLS = {"quo_send_sms", "google_send_email", "quo_delete_task"}
+CONFIRM_TOOLS = {
+    "_confirm_send_sms",
+    "_confirm_send_email",
+    "_confirm_delete_quo_task",
+    "_confirm_showing_book",
+    "_confirm_showing_cancel",
+}
+ENTRY_TOOLS = {
+    "quo_send_sms",
+    "google_send_email",
+    "quo_delete_task",
+    "showing_book",
+    "showing_cancel",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -179,6 +193,19 @@ def upstream(monkeypatch):
         ),
     )
     sends["task_methods"] = task_methods
+
+    # Showings: the API is mocked at the core functions; the tools need a signed-in token.
+    monkeypatch.setattr(showing_tools, "_caller", lambda: "oat_test")
+    monkeypatch.setattr(
+        showing_core, "preview_booking", AsyncMock(return_value="Books Casey Morgan.")
+    )
+    monkeypatch.setattr(
+        showing_core, "preview_cancellation", AsyncMock(return_value="Cancels the showing.")
+    )
+    sends["booking"] = AsyncMock(return_value="Booked Casey Morgan.")
+    sends["cancellation"] = AsyncMock(return_value="Cancelled.")
+    monkeypatch.setattr(showing_core, "book", sends["booking"])
+    monkeypatch.setattr(showing_core, "cancel", sends["cancellation"])
     return sends
 
 
@@ -193,6 +220,11 @@ CARDS = {
         {"to": ["ok@serniacapital.com"], "subject": "s", "body": "b"},
     ),
     "task": ("quo_delete_task", {"task_id": "TKtest"}),
+    "booking": (
+        "showing_book",
+        {"unit": "12-A", "start": "2027-04-14T16:00:00-04:00", "name": "Casey Morgan"},
+    ),
+    "cancellation": ("showing_cancel", {"showing_id": 7}),
 }
 
 
@@ -242,7 +274,12 @@ async def test_a_card_says_done_only_when_the_confirm_tool_returned(card_client,
         failed = call["onError"]
         assert failed["variant"] == "error"
         # Holds whether or not anything went out: a long text can fail after its first part.
-        assert failed["message"] in ("The send did not complete", "The deletion was not confirmed")
+        assert failed["message"] in (
+            "The send did not complete",
+            "The deletion was not confirmed",
+            "The booking did not complete",
+            "The cancellation did not complete",
+        )
         # The reason, from the confirm tool or from the client if the call never arrived.
         # Prefab fills $error only in a string that is nothing else, so it stands alone.
         assert failed["description"] == "{{ $error }}"
