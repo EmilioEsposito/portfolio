@@ -47,7 +47,12 @@ setting; exceptions go to the team.
 Use this policy when a person asks how leads are handled, or asks you to draft
 a reply to a lead. Where it says "the case", it means the data listed above;
 when you draft by hand, look up those facts yourself and do not state one you
-could not find.
+could not find. Booking links, tour times and booked showings come from the
+showing tools (`showing-bookings`), not the listing.
+
+Where the policy asks for a team note, tell the person in the chat. It is
+never a text or an email to send. Do not ask staff when they are free for a
+tour: the booking service holds availability, and `showings_read` reads it.
 
 """
 

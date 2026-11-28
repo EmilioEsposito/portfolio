@@ -128,10 +128,11 @@ Rules:
   nothing: call it again with the same changes and that exact sentence as
   `off_market_effect`, and a person approves it. Either way, tell the person
   what you changed.
-- Tour times are not kept here, and neither are booked tours. Do not write
-  availability into a fact or a note. If someone gives tour times, say that
-  they cannot be recorded for the lead agent yet and note them where the team
-  will see them.
+- Tour times, booking links and booked tours are not kept here. They are in
+  the booking service: load the `showing-bookings` capability and use
+  `showings_read`. Do not write availability into a fact or a note. A showing
+  agent's hours and calendars are set by a person on the Booking settings
+  tab.
 
 ## Checking a listing against its Zillow ad
 
@@ -465,7 +466,7 @@ async def showing_rules_update(
     Pass only what changes. The window and blackout dates are saved at once.
 
     These are limits on when a showing may happen. Tour times themselves are
-    not kept here.
+    not kept here: they come from the booking service (showings_read).
 
     Args:
         earliest_start: The earliest time of day a showing may start, e.g. 09:00.

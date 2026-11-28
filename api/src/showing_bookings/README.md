@@ -42,8 +42,9 @@ The database enforces three rules, so no code path can break them:
 - One notice per kind, showing and recipient key (a unique key), so a retry or
   a later attendee cannot text the same person twice.
 
-An attendee is booked on the page, by the team, or by the Zillow lead agent
-(`source` is `page`, `team` or `lead_agent`). A lead the lead agent books in an
+An attendee is booked on the page, by the team (on the tab, or through the
+general agent's showing tools), or by the Zillow lead agent (`source` is
+`page`, `team` or `lead_agent`). A lead the lead agent books in an
 email thread may not have given a mobile number or an email yet, so both can
 be empty; such a row is tied to its Zillow thread, and to the lead conversation
 whose reply booked it (`lead_conversation_id`). A booked mobile number, and
@@ -677,8 +678,9 @@ tokens; a cancel token travels in the body for the same reason.
      the invite are due now, and with no email there is no invite.
 
    Steps 3 and 4 are `bookings.place_booking`, which every booking goes
-   through: the page, the team (see The team's actions below) and later the
-   Zillow lead agent. It takes a `Person` (name, source, and optionally a
+   through: the page, the team (the tab's Add a booking and the general
+   agent's `showing_book`, both through `team_actions.book_for_caller`; see
+   The team's actions below) and the Zillow lead agent's replies. It takes a `Person` (name, source, and optionally a
    mobile, an email, consent to texts, the form's confirmations, a lead
    token or Zillow thread) and an optional `checks(session)` run under the
    locks, which is how the page applies its limits and a moved showing checks
@@ -1403,6 +1405,51 @@ A booking for a caller:
   when there is none. The answer's `notices` lists the residents' text with
   the others. Changing the host and marking attendance tell the residents
   nothing.
+
+The general agent (Sernia AI) is one more caller of the same code, through
+its deferred `showing-bookings` capability (`sernia_ai/tools/showing_tools.py`,
+documented in [its tool policies](../sernia_ai/tools/README.md#showings-showing_toolspy)):
+
+- `showings_read` reads what the Showings section shows, with each unit's
+  booking link or why it has none, and a Zillow thread's own link and
+  showings (`lead_tours.lead_booking_for`).
+- `showing_book` calls `book_for_caller` with `taken_by` set to the signed-in
+  person's email and "(via Sernia AI)", and the approved paragraph as
+  `expected_effect`. It may pass `zillow_thread_id`, which
+  `book_for_caller` takes as a keyword (the tab's form has no such field) and
+  puts on the `Person`: the row is tied to the lead's thread as a page booking
+  through the lead's link is, with source `team` and no lead conversation.
+- `showing_cancel` calls `cancelling.cancel_showing` or
+  `cancelling.remove_attendee`.
+
+Each booking and cancellation waits for a person's approval, on a card that
+states what it does and who is told. The agent has no move, host change or
+attendance tool.
+
+That statement comes from `effects.py`, so every place that asks a person to
+approve a team action from a chat says the same thing. `preview_booking(body,
+now=, zillow_thread_id=)` returns a `BookingPreview` (the paragraph, unit,
+start, name, time zone). `preview_cancellation(showing_id, attendee_id, now=)`
+returns the paragraph. Neither changes anything. Each runs the checks the real
+action makes before it saves, and raises `Refused` with a plain message:
+`invalid`, `unknown_unit`, `unknown_thread`, `not_open` (a time the unit cannot
+be booked for now, with the reason), `unknown_showing`, `unknown_attendee`,
+`already_cancelled` or `started`. The paragraph names who is booked or
+cancelled, the unit, the time in local words and the host. It says who is
+told: the host's calendar event (and a text inside 2 hours), the residents'
+text, the prospect's confirmation text and invite, or cancellation texts. It
+ends with what the send mode does with those messages (`sending_sentence`).
+The booking preview reads calendars afresh (`open_times.recheck`), so the
+host it names is the host the booking would get. Because a preview is read
+before the action's locks, the actions take the approved paragraph as
+`expected_effect`: `book_for_caller` works the preview out again as
+`place_booking`'s `checks`, under the booking's locks, and `cancel_showing` and
+`remove_attendee` right after the shared booking lock. Unless it reads the same,
+they raise `effects.EffectChanged` (a `Refused`, 409 `effect_changed`) before
+anything is written or sent. Its `effect` holds the paragraph as it now reads,
+for the person to approve again, or is None when the action can no longer be
+done (the message says why). A join or calendar change between the approval
+and the action therefore changes nothing until a person approves again.
 
 Changing the host refuses: 404 `unknown_showing` or `unknown_agent`; 409
 `not_scheduled`, `started`, `same_host`, `event_being_sent`, and the agent's

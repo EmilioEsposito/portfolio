@@ -43,6 +43,7 @@ from api.src.rental_listings.schema import ShowingRules
 from api.src.showing_bookings import (
     bookings,
     delivery_checks,
+    effects,
     host_event,
     host_texts,
     outbox,
@@ -531,13 +532,28 @@ class Started(Exception):
 
 
 async def cancel_showing(
-    showing_id: int, *, now: datetime, texts: TextSender | None = None
+    showing_id: int,
+    *,
+    now: datetime,
+    texts: TextSender | None = None,
+    expected_effect: str | None = None,
 ) -> TeamCancel:
-    """Cancel a showing and everyone in it. Raises ``NotFound`` or ``Started``."""
+    """Cancel a showing and everyone in it. Raises ``NotFound`` or ``Started``.
+
+    ``expected_effect`` is the paragraph a person approved
+    (``effects.preview_cancellation``). With it, the preview is worked out again
+    under the shared booking lock, before anything changes, and
+    ``effects.EffectChanged`` is raised, carrying the paragraph as it now reads,
+    unless it is the same.
+    """
     async with AsyncSessionFactory() as session:
         rules = await listings_service.read_showing_rules(session)
     async with AsyncSessionFactory() as session, session.begin():
         await bookings.lock(session, bookings.BOOKING_LOCK)
+        if expected_effect is not None:
+            await effects.cancellation_still_as_approved(
+                showing_id, None, expected_effect, now=now
+            )(session)
         showing = await session.get(Showing, showing_id)
         if showing is None:
             raise NotFound
@@ -562,16 +578,25 @@ async def cancel_showing(
 
 
 async def remove_attendee(
-    showing_id: int, attendee_id: int, *, now: datetime, texts: TextSender | None = None
+    showing_id: int,
+    attendee_id: int,
+    *,
+    now: datetime,
+    texts: TextSender | None = None,
+    expected_effect: str | None = None,
 ) -> TeamCancel:
     """Remove one attendee, as a prospect cancelling but with the team's wording.
 
-    Raises ``NotFound`` or ``Started``.
+    Raises ``NotFound`` or ``Started``. ``expected_effect`` as for ``cancel_showing``.
     """
     async with AsyncSessionFactory() as session:
         rules = await listings_service.read_showing_rules(session)
     async with AsyncSessionFactory() as session, session.begin():
         await bookings.lock(session, bookings.BOOKING_LOCK)
+        if expected_effect is not None:
+            await effects.cancellation_still_as_approved(
+                showing_id, attendee_id, expected_effect, now=now
+            )(session)
         attendee = await session.scalar(
             select(ShowingAttendee)
             .where(ShowingAttendee.id == attendee_id, ShowingAttendee.showing_id == showing_id)
