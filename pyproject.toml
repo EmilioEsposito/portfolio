@@ -95,6 +95,10 @@ dev = [
     "ipykernel",
     "ruff>=0.15.20",
     "pytest-xdist==3.8.0",
+    # Only for api/src/tests/test_authlib_security.py. fastmcp 4 no longer
+    # installs Authlib, and no application code imports it; kept so the
+    # November 2026 regression test still runs in CI, out of the image.
+    "authlib>=1.9.1",
 ]
 
 [tool.uv]
