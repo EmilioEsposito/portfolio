@@ -501,6 +501,19 @@ body {
   }
 }
 
+/* The full-screen message editor rising into place on a phone. */
+@keyframes sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@media (max-width: 47.99rem) and (prefers-reduced-motion: no-preference) {
+  .sheet-rise {
+    animation: sheet-rise 250ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+}
+
 @keyframes sernia-thinking-orbit {
   to {
     transform: rotate(360deg);
