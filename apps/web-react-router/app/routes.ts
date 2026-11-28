@@ -37,6 +37,7 @@ export default [
       index("sites/sernia-public/routes/showings.tsx"),
       route(":unit", "sites/sernia-public/routes/showings/unit.tsx"),
       route("cancel/:token", "sites/sernia-public/routes/showings/cancel.tsx"),
+      route("calendar/:file", "sites/sernia-public/routes/showings/calendar.ts"),
     ]),
   ]),
 

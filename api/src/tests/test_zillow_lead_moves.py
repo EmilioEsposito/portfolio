@@ -263,7 +263,7 @@ async def test_a_move_into_a_showing_others_booked_keeps_the_details_too(lead):
     # A join: the host's event is updated, and the residents, told already, hear nothing new.
     assert "host_event" not in kinds and len(kinds["host_event_update"]) == 1
     assert kinds["host_event_update"][0].status == "pending"  # not held behind the text
-    assert [n.status for n in kinds["prospect_invite"]] == ["held"]
+    assert [n.status for n in kinds["prospect_email"]] == ["held"]
     _, _, notices = await rows()
     assert len(by_kind(notices)["resident_new_showing"]) == 2  # one for each showing
 
@@ -297,7 +297,7 @@ def test_the_moved_wording():
 
 
 @pytest.mark.asyncio
-async def test_the_moved_text_and_invite_wait_for_the_send_then_go(lead, monkeypatch):
+async def test_the_moved_text_and_email_wait_for_the_send_then_go(lead, monkeypatch):
     await go_live(monkeypatch)
     await with_details(lead)
     first = texts_to_the_lead(lead)
@@ -318,7 +318,7 @@ async def test_the_moved_text_and_invite_wait_for_the_send_then_go(lead, monkeyp
 
     await move(lead)
 
-    assert ("prospect_confirmation", "pending") in seen and ("prospect_invite", "held") in seen
+    assert ("prospect_confirmation", "pending") in seen and ("prospect_email", "held") in seen
     old, new = await places()
     assert texts_to_the_lead(lead) == first
     confirmation = (await notices_of(new.id))["prospect_confirmation"][0]
@@ -327,7 +327,7 @@ async def test_the_moved_text_and_invite_wait_for_the_send_then_go(lead, monkeyp
     await lead.world.send_pending(lead.world.now + MINUTE)
     kinds = await notices_of(new.id)
     assert [n.status for n in kinds["prospect_confirmation"]] == ["sent"]
-    assert [n.status for n in kinds["prospect_invite"]] == ["held"]  # behind the delivery
+    assert [n.status for n in kinds["prospect_email"]] == ["held"]  # behind the delivery
     (text,) = texts_to_the_lead(lead)[1:]
     assert text == (
         "Sernia Capital: your in-person showing has moved to Wed, Apr 14 at 5:00 PM at "
@@ -338,13 +338,15 @@ async def test_the_moved_text_and_invite_wait_for_the_send_then_go(lead, monkeyp
 
     await lead.world.send_pending(lead.world.now + 2 * MINUTE)
     kinds = await notices_of(new.id)
-    assert [n.status for n in kinds["prospect_invite"]] == ["sent"]
-    assert kinds["prospect_invite"][0].payload["attendees"] == [ALEX_EMAIL]
-    assert kinds["prospect_invite"][0].payload["starts_at"] == "2027-04-14T17:00:00-04:00"
-    # The old invite is withdrawn, and the new one stands.
+    assert [n.status for n in kinds["prospect_email"]] == ["sent"]
+    # The email says it moved and what it replaces; the old place gets no cancellation.
+    moved = lead.world.emails.to(ALEX_EMAIL)[-1]
+    assert moved.subject == "Your showing has moved: 320 Example St, Wed, Apr 14 at 5:00 PM"
+    assert "It replaces your showing on Wed, Apr 14 at 4:00 PM." in moved.text
     old, new = await places()
-    events = {e.event_id: e.cancelled for e in lead.world.calendar.events.values()}
-    assert events[old.calendar_event_id] is True and events[new.calendar_event_id] is False
+    assert "prospect_email_cancel" not in await notices_of(old.id)
+    # Only the host's events are on a calendar.
+    assert all(e.draft.attendees == [JANE] for e in lead.world.calendar.events.values())
     assert len(texts_to_the_lead(lead)) == 2
 
 
@@ -359,7 +361,7 @@ async def test_in_capture_mode_the_moved_text_is_kept_not_sent(lead):
     _, new = await places()
     kinds = await notices_of(new.id)
     assert [n.status for n in kinds["prospect_confirmation"]] == ["captured"]
-    assert [n.status for n in kinds["prospect_invite"]] == ["captured"]
+    assert [n.status for n in kinds["prospect_email"]] == ["captured"]
     assert lead.world.texts.sent == []
 
 
@@ -399,7 +401,7 @@ async def test_a_refused_send_cancels_the_moved_place_and_texts_nothing(lead, mo
     assert (new.status, new.cancel_reason) == ("cancelled", "reply_not_sent")
     kinds = await notices_of(new.id)
     assert {n.status for found in kinds.values() for n in found} == {"cancelled"}
-    assert "prospect_cancelled" not in kinds and "prospect_invite_cancel" not in kinds
+    assert "prospect_cancelled" not in kinds and "prospect_email_cancel" not in kinds
     for minutes in (1, 6, 60):
         await lead.world.send_pending(lead.world.now + minutes * MINUTE)
     assert texts_to_the_lead(lead) == first
@@ -427,7 +429,7 @@ async def test_an_uncertain_send_keeps_the_moved_place_and_its_notices(lead, mon
     await lead.world.send_pending(lead.world.now + 6 * MINUTE)
     assert "has moved to Wed, Apr 14 at 5:00 PM" in texts_to_the_lead(lead)[1]
     kinds = await notices_of(new.id)
-    assert [n.status for n in kinds["prospect_invite"]] == ["sent"]
+    assert [n.status for n in kinds["prospect_email"]] == ["sent"]
     assert len(texts_to_the_lead(lead)) == 2  # nothing said the old one was cancelled
 
 
@@ -445,7 +447,7 @@ async def test_a_refused_number_marks_the_moved_place_and_it_stands(lead, monkey
     assert new.status == "booked" and new.attention_reason == "confirmation_refused"
     kinds = await notices_of(new.id)
     assert [n.status for n in kinds["prospect_confirmation"]] == ["failed"]
-    assert [n.status for n in kinds["prospect_invite"]] == ["cancelled"]
+    assert [n.status for n in kinds["prospect_email"]] == ["cancelled"]
     # The reply told the lead, so the host and the residents are told as for any move.
     assert [n.status for n in kinds["host_event"]] == ["captured"]
     showings, _, notices = await rows()
@@ -469,7 +471,7 @@ async def test_an_undelivered_text_marks_the_moved_place_and_it_stands(lead, mon
 
     _, new = await places()
     assert new.status == "booked" and new.attention_reason == "confirmation_undelivered"
-    assert [n.status for n in (await notices_of(new.id))["prospect_invite"]] == ["cancelled"]
+    assert [n.status for n in (await notices_of(new.id))["prospect_email"]] == ["cancelled"]
 
 
 @pytest.mark.asyncio
@@ -525,7 +527,7 @@ async def test_a_stopped_process_never_texts_the_lead(lead, monkeypatch):
     assert report.prospect_reminders == 1 and report.lead_email_reminders == 0
     kinds = await notices_of(new.id)
     assert [n.status for n in kinds["prospect_confirmation"]] == ["pending"]
-    assert [n.status for n in kinds["prospect_invite"]] == ["held"]
+    assert [n.status for n in kinds["prospect_email"]] == ["held"]
     # The team is told once that the text is waiting; the reply's card is still theirs to decide.
     assert [alert.title for alert in alerter.alerts] == ["Showing message stuck"]
     assert "Prospect's confirmation for unit 320-03" in alerter.alerts[0].body
@@ -565,13 +567,13 @@ async def test_an_invite_waiting_for_its_reply_takes_no_room_in_a_run(lead, monk
         answer = await client.post(f"{PUBLIC}/units/{UNIT}/bookings", json=robin)
     assert answer.status_code == 201, answer.text
     (theirs,) = [place for place in await places() if place.name == "Robin Lee"]
-    assert "held" in {n.status for n in (await notices_of(theirs.id))["prospect_invite"]}
+    assert "held" in {n.status for n in (await notices_of(theirs.id))["prospect_email"]}
     monkeypatch.setattr(holds, "HOLDERS_PER_RUN", 1)
 
     report = await holds.release_held(now=lead.world.now + MINUTE, texts=lead.world.texts)
 
     assert report.released > 0
-    assert "held" not in {n.status for n in (await notices_of(theirs.id))["prospect_invite"]}
+    assert "held" not in {n.status for n in (await notices_of(theirs.id))["prospect_email"]}
 
 
 @pytest.mark.asyncio
@@ -591,7 +593,7 @@ async def test_a_text_still_waiting_when_the_showing_starts_is_stopped(lead, mon
     kinds = await notices_of(new.id)
     (text,) = kinds["prospect_confirmation"]
     assert (text.status, text.last_error) == ("cancelled", delivery_checks.REPLY_NOT_SENT)
-    assert [n.status for n in kinds["prospect_invite"]] == ["cancelled"]
+    assert [n.status for n in kinds["prospect_email"]] == ["cancelled"]
     assert not any("has moved to" in body for body in texts_to_the_lead(lead)[len(first) :])
 
 
@@ -714,7 +716,7 @@ async def test_a_sent_reply_then_the_leftover_card_rejected_keeps_the_moved_plac
 
 @pytest.mark.asyncio
 async def test_the_old_place_is_cancelled_with_no_text_to_the_lead(lead):
-    old = await with_details(lead)
+    await with_details(lead)
 
     await move(lead)
     for minutes in (1, 2):
@@ -723,10 +725,9 @@ async def test_the_old_place_is_cancelled_with_no_text_to_the_lead(lead):
     showings, _, notices = await rows()
     kinds = by_kind(notices)
     assert "prospect_cancelled" not in kinds and "prospect_cancelled_by_team" not in kinds
+    # Nor an email: the new place's email says it replaces this one.
+    assert "prospect_email_cancel" not in kinds
     # Everything else about the cancellation is as for any other.
-    (withdrawn,) = kinds["prospect_invite_cancel"]
-    assert (withdrawn.attendee_id, withdrawn.recipient) == (old.id, ALEX_EMAIL)
-    assert withdrawn.status == "captured"
     (resident,) = kinds["resident_cancelled"]
     assert (resident.showing_id, resident.recipient) == (showings[0].id, RESIDENT)
     (host,) = kinds["host_event_cancel"]

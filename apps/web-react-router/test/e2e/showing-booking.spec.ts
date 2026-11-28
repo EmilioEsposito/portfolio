@@ -112,7 +112,7 @@ test("book a showing through to the confirmation screen", async ({ page }) => {
   expect(rows.notices.map((n) => [n.kind, n.status])).toEqual([
     ["prospect_confirmation", "captured"],
     ["host_event", "held"],
-    ["prospect_invite", "held"],
+    ["prospect_email", "held"],
     ["resident_new_showing", "held"],
   ]);
   const text = rows.notices[0];
@@ -236,12 +236,12 @@ test("cancel from the confirmation screen's link", async ({ page }) => {
   expect(rows.attendees.map((a) => [a.name, a.status, a.cancel_reason])).toEqual([
     ["Sam Rivera", "cancelled", "prospect"],
   ]);
-  // The event, invite and resident text were still held, so they are stopped, and the
+  // The event, email and resident text were still held, so they are stopped, and the
   // resident, never told, gets no cancellation text.
   expect(rows.notices.map((n) => [n.kind, n.status])).toEqual([
     ["prospect_confirmation", "captured"],
     ["host_event", "cancelled"],
-    ["prospect_invite", "cancelled"],
+    ["prospect_email", "cancelled"],
     ["resident_new_showing", "cancelled"],
     ["prospect_cancelled", "captured"],
   ]);

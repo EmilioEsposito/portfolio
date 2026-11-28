@@ -101,11 +101,11 @@ async def test_a_new_showing_in_capture_mode(world):
         ("pets", "No pet dogs will live in the apartment."),
     ]
     assert alex.cancel_token == result["cancel_token"]
-    # The confirmation is captured; the event and the invite wait for it.
+    # The confirmation is captured; the event and the email wait for it.
     assert statuses(notices) == [
         ("prospect_confirmation", "captured"),
         ("host_event", "held"),
-        ("prospect_invite", "held"),
+        ("prospect_email", "held"),
     ]
     confirmation = notices[0]
     assert confirmation.recipient == ALEX_MOBILE
@@ -121,13 +121,15 @@ async def test_a_new_showing_in_capture_mode(world):
     assert statuses(notices) == [
         ("prospect_confirmation", "captured"),
         ("host_event", "captured"),
-        ("prospect_invite", "captured"),
+        ("prospect_email", "captured"),
     ]
-    host, invite = notices[1], notices[2]
+    host, email = notices[1], notices[2]
     assert host.payload["attendees"] == [JANE] and host.payload["operation"] == "create"
     assert host.payload["calendar_id"] == SHOWINGS_CALENDAR
-    assert invite.payload["attendees"] == [ALEX_EMAIL]
-    assert world.calendar.events == {}
+    assert (email.channel, email.recipient) == ("email", ALEX_EMAIL)
+    assert email.payload["subject"] == f"Your showing: {ADDRESS}, Wed, Apr 14 at 4:00 PM"
+    assert f"https://serniacapital.com/showings/cancel/{alex.cancel_token}" in email.payload["body"]
+    assert world.calendar.events == {} and world.emails.new == []
 
 
 @pytest.mark.asyncio
@@ -143,10 +145,10 @@ async def test_a_new_showing_in_live_mode_with_a_test_recipient(world):
     assert statuses(notices) == [
         ("prospect_confirmation", "sent"),
         ("host_event", "held"),
-        ("prospect_invite", "held"),
+        ("prospect_email", "held"),
     ]
     # Nothing but the text until it is reported delivered.
-    assert world.calendar.events == {}
+    assert world.calendar.events == {} and world.emails.new == []
 
     await world.send_pending(NOW + timedelta(minutes=1))
 
@@ -155,18 +157,22 @@ async def test_a_new_showing_in_live_mode_with_a_test_recipient(world):
     assert statuses(notices) == [
         ("prospect_confirmation", "sent"),
         ("host_event", "sent"),
-        ("prospect_invite", "sent"),
+        ("prospect_email", "sent"),
     ]
-    events = world.calendar.events_in(SHOWINGS_CALENDAR)
-    assert sorted(event.draft.attendees for event in events) == [[ALEX_EMAIL], [JANE]]
+    (event,) = world.calendar.events_in(SHOWINGS_CALENDAR)
+    assert event.draft.attendees == [JANE]
+    (email,) = world.emails.new
+    assert email.to == ALEX_EMAIL and email.subject.startswith("Your showing:")
     async with AsyncSessionFactory() as session:
         showing = await session.get(Showing, notices[0].showing_id)
     assert showing.host_event_id == notices[1].provider_id
-    assert attendees[0].calendar_event_id == notices[2].provider_id
+    # The email is no calendar event, so the booking holds no event of its own.
+    assert notices[2].provider_id == "gmail-new-1"
+    assert attendees[0].calendar_event_id is None
 
 
 @pytest.mark.asyncio
-async def test_undelivered_stops_the_event_and_invite_and_marks_the_booking(world):
+async def test_undelivered_stops_the_event_and_email_and_marks_the_booking(world):
     await live()
     world.texts.report(ALEX_MOBILE, "undelivered")
     await book(world)
@@ -178,14 +184,14 @@ async def test_undelivered_stops_the_event_and_invite_and_marks_the_booking(worl
     assert statuses(notices) == [
         ("prospect_confirmation", "sent"),
         ("host_event", "cancelled"),
-        ("prospect_invite", "cancelled"),
+        ("prospect_email", "cancelled"),
     ]
     assert attendees[0].status == "booked"
     assert attendees[0].attention_reason == "confirmation_undelivered"
-    assert world.calendar.events == {}
+    assert world.calendar.events == {} and world.emails.new == []
     # Later runs leave them stopped.
     await world.send_pending(NOW + timedelta(minutes=10))
-    assert world.calendar.events == {}
+    assert world.calendar.events == {} and world.emails.new == []
 
 
 @pytest.mark.asyncio
@@ -197,14 +203,14 @@ async def test_five_minutes_with_no_report_lets_them_go(world):
     await world.send_pending(NOW + timedelta(minutes=4, seconds=59))
     _, _, notices = await rows()
     assert [n.status for n in notices[1:]] == ["held", "held"]
-    assert world.calendar.events == {}
+    assert world.calendar.events == {} and world.emails.new == []
 
     report = await world.send_pending(NOW + timedelta(minutes=5))
     assert report.released == 2
     _, attendees, notices = await rows()
     assert [n.status for n in notices[1:]] == ["sent", "sent"]
     assert attendees[0].attention_reason is None
-    assert len(world.calendar.events) == 2
+    assert len(world.calendar.events) == 1 and len(world.emails.to(ALEX_EMAIL)) == 1
 
 
 @pytest.mark.asyncio
@@ -224,10 +230,10 @@ async def test_quo_refusing_the_number_withdraws_the_booking(world):
     assert statuses(notices) == [
         ("prospect_confirmation", "failed"),
         ("host_event", "cancelled"),
-        ("prospect_invite", "cancelled"),
+        ("prospect_email", "cancelled"),
     ]
     await world.send_pending(NOW + timedelta(minutes=10))
-    assert world.calendar.events == {} and world.texts.sent == []
+    assert world.calendar.events == {} and world.texts.sent == [] and world.emails.new == []
     # The time is open again.
     world.texts = type(world.texts)()
     again = await book(world, booking(mobile=ROBIN_MOBILE, email=ROBIN_EMAIL))
@@ -266,7 +272,7 @@ async def test_a_join_adds_no_second_event_and_updates_the_first(world):
     kinds = by_kind(notices)
     assert len(kinds["host_event"]) == 1
     assert len(kinds["host_event_update"]) == 1
-    assert [n.recipient for n in kinds["prospect_invite"]] == [ALEX_EMAIL, ROBIN_EMAIL]
+    assert [n.recipient for n in kinds["prospect_email"]] == [ALEX_EMAIL, ROBIN_EMAIL]
 
     await world.send_pending(NOW + timedelta(minutes=1))
 
@@ -282,9 +288,9 @@ async def test_a_join_adds_no_second_event_and_updates_the_first(world):
     assert len(host_events) == 1
     assert ("update", SHOWINGS_CALENDAR, host_events[0].event_id) in world.calendar.log
     assert "Robin Lee" in host_events[0].draft.description
-    # Each prospect has an event of their own, with no other guest.
-    invites = sorted(e.draft.attendees for e in world.calendar.events.values())
-    assert invites == [[ALEX_EMAIL], [JANE], [ROBIN_EMAIL]]
+    # Each prospect gets an email of their own; the host's event is the only one.
+    assert len(world.calendar.events) == 1
+    assert sorted(email.to for email in world.emails.new) == [ALEX_EMAIL, ROBIN_EMAIL]
 
 
 @pytest.mark.asyncio

@@ -32,6 +32,7 @@ from api.src.showing_bookings.models import (
 )
 from api.src.tests.showing_helpers import clear_showing_data, store_settings
 from api.src.tests.showing_public import (
+    ALEX_EMAIL,
     ALEX_MOBILE,
     JANE,
     ROBIN_EMAIL,
@@ -51,7 +52,7 @@ TEAM = "/api/showing-bookings"
 RESIDENT = "+14125550142"
 JANE_MOBILE = "+14125550101"
 SAM_MOBILE = "+14125550102"
-INVITE_CANCEL = host_event.INVITE_CANCEL_KIND
+EMAIL_CANCEL = host_event.EMAIL_CANCEL_KIND
 HOST_CANCEL = host_event.CANCEL_KIND
 RESIDENT_CANCEL = residents.CANCELLED_KIND
 
@@ -200,42 +201,41 @@ async def test_capture_mode_still_keeps_every_cancellation(world):
 
     await cancel(world, booked)
 
-    for kind in (RESIDENT_CANCEL, HOST_CANCEL, INVITE_CANCEL, "prospect_cancelled"):
+    for kind in (RESIDENT_CANCEL, HOST_CANCEL, EMAIL_CANCEL, "prospect_cancelled"):
         assert await found(kind) == [("captured", None)], kind
-    assert world.texts.sent == [] and world.calendar.log == []
+    assert world.texts.sent == [] and world.calendar.log == [] and world.emails.new == []
 
 
-# The invite and the host's event
+# The confirmation email and the host's event
 
 
 @pytest.mark.asyncio
-async def test_an_event_and_an_invite_never_sent_are_not_cancelled(world):
+async def test_an_event_and_an_email_never_sent_are_not_cancelled(world):
     booked = await book(world)
     await live_mode()
 
     await cancel(world, booked)
 
-    for kind in (HOST_CANCEL, INVITE_CANCEL):
-        assert await found(kind) == [("cancelled", host_event.NEVER_CREATED)], kind
-    assert world.calendar.log == []
+    assert await found(HOST_CANCEL) == [("cancelled", host_event.NEVER_CREATED)]
+    assert await found(EMAIL_CANCEL) == [("cancelled", told.EMAIL_NEVER_SENT)]
+    assert world.calendar.log == [] and world.emails.new == []
     # The prospect booked it, so they are told it is cancelled.
     assert await found("prospect_cancelled") == [("sent", None)]
     assert len(world.texts.to(ALEX_MOBILE)) == 1
 
 
 @pytest.mark.asyncio
-async def test_an_event_and_an_invite_that_went_out_are_cancelled(world):
+async def test_an_event_and_an_email_that_went_out_are_cancelled(world):
     await live_mode()
     booked = await book(world)
 
     await cancel(world, booked)
 
-    assert await found(HOST_CANCEL) == await found(INVITE_CANCEL) == [("sent", None)]
-    assert sorted(entry[0] for entry in world.calendar.log) == [
-        "cancel",
-        "cancel",
-        "create",
-        "create",
+    assert await found(HOST_CANCEL) == await found(EMAIL_CANCEL) == [("sent", None)]
+    assert sorted(entry[0] for entry in world.calendar.log) == ["cancel", "create"]
+    assert [email.subject.split(":")[0] for email in world.emails.to(ALEX_EMAIL)] == [
+        "Your showing",
+        "Showing cancelled",
     ]
 
 

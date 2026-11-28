@@ -3,20 +3,21 @@ settings tab, and a unit going off the market.
 
 | Case | Attendee | Showing | Prospect | Host's event |
 | --- | --- | --- | --- | --- |
-| A prospect cancels, others still booked | cancelled (``prospect``) | stays | text confirming it, invite withdrawn | updated |
+| A prospect cancels, others still booked | cancelled (``prospect``) | stays | text and email confirming it | updated |
 | The last prospect cancels | cancelled (``prospect``) | cancelled (``prospect``) | the same | cancelled |
-| A lead moved their showing by email (the old place) | cancelled (``prospect``) | stays, or cancelled (``prospect``) when they were the last | no text; invite withdrawn | updated, or cancelled when they were the last |
-| The team removes one attendee | cancelled (``team``) | cancelled when they were the last | the team's cancellation text, invite withdrawn | updated, or cancelled when they were the last |
-| The team cancels a showing | every one cancelled (``team``) | cancelled (``team``) | the team's cancellation text, invite withdrawn | cancelled |
+| A lead moved their showing by email (the old place) | cancelled (``prospect``) | stays, or cancelled (``prospect``) when they were the last | nothing: the new place's text and email say it replaces this one | updated, or cancelled when they were the last |
+| The team removes one attendee | cancelled (``team``) | cancelled when they were the last | the team's cancellation text and email | updated, or cancelled when they were the last |
+| The team cancels a showing | every one cancelled (``team``) | cancelled (``team``) | the team's cancellation text and email | cancelled |
 | The unit goes off the market | every one cancelled (``off_market``) | cancelled (``off_market``) | the same | cancelled |
 
-Every text and calendar change is a notice queued here and delivered by the
-outbox. Notices of a cancelled attendee or showing that have not gone out are
-stopped. An invite or a host's event that went out (sent, captured, or may
-have: unknown, or being sent now) gets a cancellation notice; one that never
-went out gets nothing, so a cancellation never creates an event. Whether there
-is an event to cancel is decided again when the notice is delivered
-(``host_event.cancel_check``).
+Every text, email and calendar change is a notice queued here and delivered by
+the outbox. Notices of a cancelled attendee or showing that have not gone out
+are stopped. A confirmation email that went out (sent, captured, or may have:
+unknown, or being sent now) gets a cancellation email; one that never went out
+gets nothing. The same rule withdraws an invite sent before 2026-11-28, when
+prospects got invites, and cancels a host's event, so a cancellation never
+creates an event. Whether there is an event to cancel is decided again when the
+notice is delivered (``host_event.cancel_check``).
 
 Each case is one transaction, in the module's lock order: the shared booking
 lock first (so no booking, withdrawal or other cancellation runs in between),
@@ -47,6 +48,7 @@ from api.src.showing_bookings import (
     host_event,
     host_texts,
     outbox,
+    prospect_email,
     resident_notices,
     residents,
     wording,
@@ -69,6 +71,7 @@ BY_TEAM = frozenset({"team", "off_market"})
 PROSPECT_TEXT_KIND = "prospect_cancelled"
 TEAM_TEXT_KIND = "prospect_cancelled_by_team"
 INVITE_CANCEL_KIND = host_event.INVITE_CANCEL_KIND
+EMAIL_CANCEL_KIND = host_event.EMAIL_CANCEL_KIND
 HOST_CANCEL_KIND = host_event.CANCEL_KIND
 # Notices a cancellation queues. Stopping the notices of a cancelled booking
 # never stops these, so a later cancellation in the same showing keeps the
@@ -79,6 +82,7 @@ CANCELLATION_KINDS = frozenset(
         PROSPECT_TEXT_KIND,
         TEAM_TEXT_KIND,
         INVITE_CANCEL_KIND,
+        EMAIL_CANCEL_KIND,
         HOST_CANCEL_KIND,
         host_event.MOVED_KIND,
         residents.CANCELLED_KIND,
@@ -95,7 +99,7 @@ NOT_STOPPED_KINDS = CANCELLATION_KINDS | {
 }
 STOPPED_NOTE = host_event.BOOKING_CANCELLED
 # A booking whose confirmation text could not reach the number: a cancellation
-# texts it nothing more (the invite is still withdrawn).
+# texts it nothing more (the email still goes).
 WRONG_NUMBER = delivery_checks.WRONG_NUMBER
 STARTED_MESSAGE = "This showing has already started."
 
@@ -163,10 +167,12 @@ async def _tell_attendee(
     now: datetime,
     moved: bool = False,
 ) -> list[int]:
-    """The attendee's cancellation text and their invite withdrawn. Returns the text's id.
+    """The attendee's cancellation text and email, and an old invite withdrawn.
+    Returns the text's id.
 
-    ``moved``: the place is the old one of a showing that moved, so no text says
-    it is cancelled; what tells them of the new time says it replaces this one.
+    ``moved``: the place is the old one of a showing that moved, so no text or
+    email says it is cancelled; the new place's text and email say it replaces
+    this one. An invite sent before 2026-11-28 is still withdrawn.
     """
     visit = bookings.visit_of(showing, rules)
     queued: list[int] = []
@@ -188,6 +194,33 @@ async def _tell_attendee(
             now=now,
         )
         queued.append(text.id)
+    emailed = await session.scalar(
+        select(ShowingNotice.id)
+        .where(
+            ShowingNotice.attendee_id == attendee.id,
+            ShowingNotice.kind == host_event.EMAIL_KIND,
+            _went_out(),
+        )
+        .limit(1)
+    )
+    if attendee.email and emailed is not None and not moved:
+        await outbox.enqueue(
+            session,
+            kind=EMAIL_CANCEL_KIND,
+            channel="email",
+            showing_id=showing.id,
+            attendee_id=attendee.id,
+            recipient=attendee.email,
+            recipient_key=f"attendee:{attendee.id}",
+            payload=prospect_email.payload(
+                wording.cancellation_email(
+                    visit,
+                    by_team=by_team,
+                    next_url=bookings.units_url() if by_team else bookings.unit_url(showing.unit),
+                )
+            ),
+            now=now,
+        )
     invite = await session.scalar(
         select(ShowingNotice)
         .where(

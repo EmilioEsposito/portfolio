@@ -24,6 +24,7 @@ from api.src.showing_bookings.providers import (
     BusyBlock,
     CalendarUnreadable,
     EventDraft,
+    NewEmail,
     NotSent,
     SentEmail,
     SentText,
@@ -147,16 +148,30 @@ class RecordedEmail:
 
 
 class RecordingEmailSender:
-    """An ``EmailSender`` that records each email in a lead's thread instead of sending it.
+    """An ``EmailSender`` that records each email instead of sending it: replies in a
+    lead's thread in ``sent``, new emails to prospects in ``new``.
 
     ``failing`` is "rejected" (Gmail refused it), "thread_unreadable" (the
-    thread's headers could not be read; tried again later) or "lost" (no
-    answer, so it may have gone out). None sends.
+    thread's headers could not be read; tried again later; replies only) or
+    "lost" (no answer, so it may have gone out). None sends.
     """
 
     def __init__(self) -> None:
         self.sent: list[RecordedEmail] = []
+        self.new: list[NewEmail] = []
         self.failing: str | None = None
+
+    def to(self, address: str) -> list[NewEmail]:
+        """The new emails sent to ``address``, in order."""
+        return [email for email in self.new if email.to == address]
+
+    async def send_new(self, email: NewEmail) -> SentEmail:
+        if self.failing == "rejected":
+            raise NotSent("rejected", "Gmail refused the email.")
+        if self.failing == "lost":
+            raise TimeoutError("Gmail did not answer.")
+        self.new.append(email)
+        return SentEmail(provider_id=f"gmail-new-{len(self.new)}")
 
     async def send_in_thread(self, route: ThreadRoute, body: str) -> SentEmail:
         if self.failing == "rejected":

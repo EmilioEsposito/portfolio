@@ -23,7 +23,11 @@ from api.src.rental_listings import routes as listing_routes
 from api.src.rental_listings import service as listings_service
 from api.src.rental_listings.schema import RentalListing
 from api.src.showing_bookings import cancelling, open_times, routes
-from api.src.showing_bookings.fakes import InMemoryCalendar, RecordingTextSender
+from api.src.showing_bookings.fakes import (
+    InMemoryCalendar,
+    RecordingEmailSender,
+    RecordingTextSender,
+)
 from api.src.showing_bookings.providers import NotSent
 from api.src.tests.showing_helpers import clear_showing_data, store_settings
 from api.src.tests.showing_public import (
@@ -157,9 +161,10 @@ async def test_a_prospect_cancels_with_others_still_booked(world):
     body = text.payload["body"]
     assert body.startswith("Sernia Capital:")
     assert "Wed, Apr 14 at 4:00 PM" in body and ADDRESS in body and UNIT_LINK in body
-    (invite,) = kinds["prospect_invite_cancel"]
-    assert invite.status == "pending"
-    assert (invite.payload["operation"], invite.payload["attendees"]) == ("cancel", [ALEX_EMAIL])
+    (email,) = kinds["prospect_email_cancel"]
+    assert (email.status, email.channel, email.recipient) == ("pending", "email", ALEX_EMAIL)
+    assert email.payload["subject"] == f"Showing cancelled: {ADDRESS}, Wed, Apr 14 at 4:00 PM"
+    assert "is cancelled" in email.payload["body"] and UNIT_LINK in email.payload["body"]
     (update,) = [n for n in notices if n.recipient_key.endswith(":cancelled")]
     assert (update.kind, update.status) == ("host_event_update", "pending")
     assert "host_event_cancel" not in kinds
@@ -167,20 +172,21 @@ async def test_a_prospect_cancels_with_others_still_booked(world):
     await world.send_pending()
 
     _, _, notices = await rows()
-    assert (invite.id, "captured") in [(n.id, n.status) for n in notices]
+    assert (email.id, "captured") in [(n.id, n.status) for n in notices]
     update = next(n for n in notices if n.id == update.id)
     assert update.status == "captured"
     assert "Robin Lee" in update.payload["description"]
     assert "Alex Parker" not in update.payload["description"]
-    assert world.texts.sent == [] and world.calendar.events == {}
+    assert world.texts.sent == [] and world.calendar.events == {} and world.emails.new == []
 
 
 @pytest.mark.asyncio
-async def test_the_last_prospect_cancels_after_the_event_and_invite_went_out(world):
+async def test_the_last_prospect_cancels_after_the_event_and_email_went_out(world):
     await live()
     alex = await book(world)
     await world.send_pending(NOW + timedelta(minutes=1))
-    assert len(world.calendar.events) == 2  # the host's event and Alex's invite
+    # The host's event, and Alex's confirmation by email, not on any calendar.
+    assert len(world.calendar.events) == 1 and len(world.emails.to(ALEX_EMAIL)) == 1
 
     answer = await cancel(world, alex["cancel_token"])
 
@@ -193,17 +199,21 @@ async def test_the_last_prospect_cancels_after_the_event_and_invite_went_out(wor
     assert len(texts) == 2 and "is cancelled" in texts[-1] and UNIT_LINK in texts[-1]
     kinds = by_kind(notices)
     assert [n.status for n in kinds["host_event_cancel"]] == ["pending"]
-    assert [n.status for n in kinds["prospect_invite_cancel"]] == ["pending"]
+    assert [n.status for n in kinds["prospect_email_cancel"]] == ["pending"]
 
     await world.send_pending(NOW + timedelta(minutes=2))
 
     _, _, notices = await rows()
     kinds = by_kind(notices)
     assert [n.status for n in kinds["host_event_cancel"]] == ["sent"]
-    assert [n.status for n in kinds["prospect_invite_cancel"]] == ["sent"]
+    assert [n.status for n in kinds["prospect_email_cancel"]] == ["sent"]
     assert all(event.cancelled for event in world.calendar.events.values())
-    assert [entry[0] for entry in world.calendar.log] == ["create", "create", "cancel", "cancel"]
+    assert [entry[0] for entry in world.calendar.log] == ["create", "cancel"]
     assert {entry[1] for entry in world.calendar.log} == {SHOWINGS_CALENDAR}
+    confirmation, cancellation = world.emails.to(ALEX_EMAIL)
+    assert confirmation.subject.startswith("Your showing:")
+    assert cancellation.subject.startswith("Showing cancelled:")
+    assert "is cancelled" in cancellation.text and UNIT_LINK in cancellation.text
 
 
 @pytest.mark.asyncio
@@ -265,13 +275,13 @@ async def test_a_cancellation_while_the_notices_are_still_held(world):
     assert statuses(notices) == [
         ("prospect_confirmation", "sent"),
         ("host_event", "cancelled"),
-        ("prospect_invite", "cancelled"),
+        ("prospect_email", "cancelled"),
         ("prospect_cancelled", "sent"),
     ]
     assert notices[1].last_error == cancelling.STOPPED_NOTE
-    # Nothing was created, so nothing is cancelled on a calendar.
+    # Nothing was created or emailed, so nothing is cancelled.
     await world.send_pending(NOW + timedelta(minutes=10))
-    assert world.calendar.events == {} and world.calendar.log == []
+    assert world.calendar.events == {} and world.calendar.log == [] and world.emails.new == []
 
 
 @pytest.mark.asyncio
@@ -283,15 +293,15 @@ async def test_a_cancellation_while_the_event_is_being_created_waits_for_it(worl
         await cancel(world, alex["cancel_token"])
 
     world.calendar = CalendarWithAHook(cancel_alex)
-    # The host's event is being created when Alex cancels; the invite, not
+    # The host's event is being created when Alex cancels; the email, not
     # started yet, is stopped.
     await world.send_pending(NOW + timedelta(minutes=1))
 
     _, _, notices = await rows()
     kinds = by_kind(notices)
     assert [n.status for n in kinds["host_event"]] == ["sent"]
-    assert [n.status for n in kinds["prospect_invite"]] == ["cancelled"]
-    assert "prospect_invite_cancel" not in kinds
+    assert [n.status for n in kinds["prospect_email"]] == ["cancelled"]
+    assert "prospect_email_cancel" not in kinds
     assert [n.status for n in kinds["host_event_cancel"]] == ["pending"]
 
     await world.send_pending(NOW + timedelta(minutes=2))
@@ -386,7 +396,9 @@ async def test_the_team_cancels_a_showing_after_everything_went_out(world):
     await book(world, robin_body())
     await world.send_pending(NOW + timedelta(minutes=1))
     showings, _, _ = await rows()
-    assert len(world.calendar.events) == 3
+    # One host's event for both, and a confirmation email each.
+    assert len(world.calendar.events) == 1
+    assert [len(world.emails.to(email)) for email in (ALEX_EMAIL, ROBIN_EMAIL)] == [1, 1]
 
     answer = await team(world, f"/showings/{showings[0].id}/cancel")
 
@@ -408,7 +420,11 @@ async def test_the_team_cancels_a_showing_after_everything_went_out(world):
     await world.send_pending(NOW + timedelta(minutes=2))
 
     assert all(event.cancelled for event in world.calendar.events.values())
-    assert [entry[0] for entry in world.calendar.log].count("cancel") == 3
+    assert [entry[0] for entry in world.calendar.log].count("cancel") == 1
+    for email in (ALEX_EMAIL, ROBIN_EMAIL):
+        cancellation = world.emails.to(email)[-1]
+        assert "we had to cancel your showing on Wed, Apr 14 at 4:00 PM" in cancellation.text
+        assert f"See the units open for showings: {UNITS_LINK}\n" in cancellation.text
     seen = (await lookup(world, alex["cancel_token"])).json()
     assert (seen["status"], seen["cancelled_by_team"]) == ("cancelled", True)
     # A second press changes and sends nothing.
@@ -438,7 +454,7 @@ async def test_the_team_removes_one_attendee_then_the_last(world):
     (text,) = kinds["prospect_cancelled_by_team"]
     assert text.recipient == ROBIN_MOBILE and text.status == "captured"
     assert UNITS_LINK in text.payload["body"]
-    (robin_invite_cancel,) = kinds["prospect_invite_cancel"]
+    (robin_email_cancel,) = kinds["prospect_email_cancel"]
     assert [n.status for n in notices if n.recipient_key.endswith(":cancelled")] == ["pending"]
 
     answer = await team(world, f"/showings/{showing_id}/attendees/{alex_id}/remove")
@@ -449,13 +465,13 @@ async def test_the_team_removes_one_attendee_then_the_last(world):
     kinds = by_kind(notices)
     assert [n.recipient for n in kinds["prospect_cancelled_by_team"]] == [ROBIN_MOBILE, ALEX_MOBILE]
     assert [n.status for n in kinds["host_event_cancel"]] == ["pending"]
-    # Robin's withdrawn invite, queued earlier, is not stopped by the second cancellation.
-    assert next(n for n in notices if n.id == robin_invite_cancel.id).status == "pending"
+    # Robin's cancellation email, queued earlier, is not stopped by the second cancellation.
+    assert next(n for n in notices if n.id == robin_email_cancel.id).status == "pending"
 
     await world.send_pending()
     _, _, notices = await rows()
     assert [n.status for n in by_kind(notices)["host_event_cancel"]] == ["captured"]
-    assert [n.status for n in by_kind(notices)["prospect_invite_cancel"]] == [
+    assert [n.status for n in by_kind(notices)["prospect_email_cancel"]] == [
         "captured",
         "captured",
     ]
@@ -644,27 +660,27 @@ async def test_a_booked_person_can_read_and_cancel_after_booking_is_switched_off
     assert refusal(unknown) == (404, "unknown_booking")
 
 
-# An invite being sent when the booking is cancelled
+# A confirmation email being sent when the booking is cancelled
 
 
-class FailingOnceCalendar(InMemoryCalendar):
-    """Runs ``hook`` in the middle of the first invite it is asked to create, then
-    answers that create with a refusal worth retrying, as Google out of reach would."""
+class FailingOnceEmails(RecordingEmailSender):
+    """Runs ``hook`` in the middle of the first email to ``address``, then answers that
+    email with a refusal worth retrying."""
 
-    def __init__(self, hook) -> None:
+    def __init__(self, address: str, hook) -> None:
         super().__init__()
-        self.hook = hook
+        self.address, self.hook = address, hook
 
-    async def create_event(self, calendar_id, event):
-        if self.hook is not None and event.attendees == [ALEX_EMAIL]:
+    async def send_new(self, email):
+        if self.hook is not None and email.to == self.address:
             hook, self.hook = self.hook, None
             await hook()
-            raise NotSent("google_unavailable", "Google could not be reached.", retryable=True)
-        return await super().create_event(calendar_id, event)
+            raise NotSent("gmail_unavailable", "Gmail could not be reached.", retryable=True)
+        return await super().send_new(email)
 
 
 @pytest.mark.asyncio
-async def test_an_invite_retried_after_its_booking_was_cancelled_is_never_created(world):
+async def test_an_email_retried_after_its_booking_was_cancelled_is_never_sent(world):
     await live()
     await book(world, robin_body())
     alex = await book(world)
@@ -672,22 +688,22 @@ async def test_an_invite_retried_after_its_booking_was_cancelled_is_never_create
     async def cancel_alex():
         await cancel(world, alex["cancel_token"])
 
-    world.calendar = FailingOnceCalendar(cancel_alex)
+    world.emails = FailingOnceEmails(ALEX_EMAIL, cancel_alex)
     await world.send_pending(NOW + timedelta(minutes=1))
 
-    # Alex cancelled while the invite was being sent, and the send failed.
+    # Alex cancelled while the confirmation email was being sent, and the send failed.
     for minutes in (2, 5, 30, 90):
         await world.send_pending(NOW + timedelta(minutes=minutes))
 
     _, _, notices = await rows()
-    alex_invite = next(
-        n for n in notices if n.kind == "prospect_invite" and n.recipient == ALEX_EMAIL
-    )
-    assert alex_invite.status == "cancelled"
-    assert alex_invite.last_error == cancelling.STOPPED_NOTE
+    kinds = by_kind(notices)
+    (alex_email,) = [n for n in kinds["prospect_email"] if n.recipient == ALEX_EMAIL]
+    assert (alex_email.status, alex_email.last_error) == ("cancelled", cancelling.STOPPED_NOTE)
+    # It never went, so no cancellation email follows it.
+    assert [n.status for n in kinds["prospect_email_cancel"]] == ["cancelled"]
     assert not [n for n in notices if n.status in ("pending", "held")]
-    invites = [e for e in world.calendar.events.values() if e.draft.attendees == [ALEX_EMAIL]]
-    assert invites == []
+    assert world.emails.to(ALEX_EMAIL) == []
+    assert len(world.emails.to(ROBIN_EMAIL)) == 1
 
 
 class FailingOnceTexts(RecordingTextSender):

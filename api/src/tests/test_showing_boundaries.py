@@ -22,9 +22,9 @@
   to the push package. The reminders, the host's texts and the alerts reach a
   provider only through the outbox.
 - Email is the same: only ``outbox.py`` imports the Gmail sender
-  (``gmail_thread.py``) or calls ``send_in_thread``, and only the Gmail sender
-  imports the lead agent's module (``zillow_leads.handle``) or names one of
-  its sends.
+  (``gmail_thread.py``) or calls ``send_in_thread`` or ``send_new``, and only
+  the Gmail sender imports the lead agent's module (``zillow_leads.handle``)
+  or names one of its sends.
 
 A second way out of the module fails here.
 """
@@ -48,7 +48,7 @@ SENDERS = {
 SENDER_FILES = {"quo.py", "google_calendar.py", "push.py", "gmail_thread.py"}
 # The lead agent's module and its Gmail sends: reached only by the Gmail sender.
 LEAD_AGENT_MODULE = "api.src.zillow_leads.handle"
-LEAD_AGENT_SENDS = {"send_thread_email", "send_reply", "send_email"}
+LEAD_AGENT_SENDS = {"send_thread_email", "send_new_email", "send_reply", "send_email"}
 GMAIL_SENDER = "gmail_thread.py"
 # Reads Quo's contacts and sends nothing.
 READER_FILES = {"quo_contacts.py"}
@@ -65,6 +65,7 @@ SENDING_METHODS = {
     "text_status",
     "send_alert",
     "send_in_thread",
+    "send_new",
     *EVENT_WRITES,
 }
 
@@ -217,7 +218,9 @@ def test_only_the_gmail_sender_reaches_the_lead_agents_sends():
     gmail = trees[GMAIL_SENDER]
     assert imports_of(gmail, LEAD_AGENT_MODULE)
     assert uses_a_method(gmail, {"send_thread_email"})
+    assert uses_a_method(gmail, {"send_new_email"})
     assert uses_a_method(trees[OUTBOX], {"send_in_thread"})
+    assert uses_a_method(trees[OUTBOX], {"send_new"})
 
 
 # Reminders, the host's texts and the team's alerts
@@ -299,6 +302,7 @@ def test_the_checks_catch_what_they_are_for():
     assert uses_a_method(
         ast.parse("async def f(e, r):\n    await e.send_in_thread(r, 'hi')"), SENDING_METHODS
     )
+    assert uses_a_method(ast.parse("async def f(e, m):\n    await e.send_new(m)"), SENDING_METHODS)
     assert imports_a_sender(
         ast.parse("from api.src.showing_bookings.gmail_thread import GmailThreadSender")
     )

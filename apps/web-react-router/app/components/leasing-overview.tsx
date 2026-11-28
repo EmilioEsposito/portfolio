@@ -9,7 +9,7 @@ import LeasingArchitecture from "~/components/leasing-architecture";
 const told: { when: string; lead: string; host: string; residents: string }[] = [
   {
     when: "A showing is booked",
-    lead: "A confirmation text with a link to cancel, then a calendar invite. Booked by email: the confirming email only, until they add their details.",
+    lead: "A confirmation text with a link to cancel, then a confirmation email with calendar links. Booked by email: the confirming email only, until they add their details.",
     host: "An event on their calendar, listing who is coming.",
     residents: "One group text, in the daytime. Nothing more when another lead joins.",
   },
@@ -33,7 +33,7 @@ const told: { when: string; lead: string; host: string; residents: string }[] = 
   },
   {
     when: "A showing is cancelled or moved",
-    lead: "A text confirming the cancellation, and the invite is withdrawn. A move by email is confirmed in the reply.",
+    lead: "A text and an email confirming the cancellation. A move by email is confirmed in the reply.",
     host: "The event is updated, or removed when no one is left.",
     residents: "A text saying the showing is off, if they had been told about it.",
   },
@@ -74,7 +74,7 @@ export function LeasingOverview() {
       <section aria-labelledby="told-title" className="mt-9">
         <h2 id="told-title" className="font-semibold">Who hears what, and when</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-          Every text, invite and calendar event below is sent by the system. Texts go only to a lead who agreed to them, and to residents only in the daytime.
+          Every text, email and calendar event below is sent by the system. Texts go only to a lead who agreed to them, and to residents only in the daytime.
         </p>
         <div className="mt-4 overflow-x-auto rounded-xl border">
           <table className="w-full min-w-[44rem] border-collapse text-left text-sm">

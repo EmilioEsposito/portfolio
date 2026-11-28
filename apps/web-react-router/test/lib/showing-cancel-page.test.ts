@@ -5,6 +5,7 @@ import { NETWORK_MESSAGE, SERVER_MESSAGE, type BookingView } from "../../app/sit
 import {
   UNITS_PATH,
   UNKNOWN_MESSAGE,
+  calendarFileToken,
   cancelCopy,
   cancelPath,
   cancelState,
@@ -70,4 +71,11 @@ test("the cancel route's answers become what the page shows", () => {
   assert.deepEqual(readCancelAnswer(null, null), { kind: "error", message: NETWORK_MESSAGE });
   assert.deepEqual(readCancelAnswer(500, null), { kind: "error", message: SERVER_MESSAGE });
   assert.deepEqual(readCancelAnswer(200, null), { kind: "error", message: SERVER_MESSAGE });
+});
+
+test("the calendar link names the booking by its cancel token", () => {
+  assert.equal(calendarFileToken("WwmrkG16iYYgfFat-_QT4lFG.ics"), "WwmrkG16iYYgfFat-_QT4lFG");
+  for (const file of [undefined, "", ".ics", "token", "token.ICS", "a/b.ics", "a b.ics", "token.ics.ics", `${"x".repeat(101)}.ics`]) {
+    assert.equal(calendarFileToken(file), null, String(file));
+  }
 });

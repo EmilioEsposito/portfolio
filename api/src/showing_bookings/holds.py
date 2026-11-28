@@ -1,7 +1,7 @@
-"""Held notices: calendar notices that wait for a prospect's confirmation text.
+"""Held notices: what waits for a prospect's confirmation text.
 
 A booking's host event (or its update, when someone joins) and the
-prospect's own invite are saved ``held``, each naming the confirmation text
+prospect's confirmation email are saved ``held``, each naming the confirmation text
 it waits for (``waits_for_notice_id``). ``release_held`` decides, for each
 confirmation that holds something:
 
@@ -346,21 +346,21 @@ async def scheduled_run() -> None:
 
 # Shown on the team's Scheduler page (api/src/schedulers/job_info.py).
 JOB_INFO = JobInfo(
-    name="Showings: send due texts, invites and alerts",
+    name="Showings: send due texts, emails and alerts",
     summary=(
-        "Sends the showing texts, calendar invites and reminders that are due, and alerts "
+        "Sends the showing texts, emails, calendar events and reminders that are due, and alerts "
         "the team about any that failed."
     ),
     description=(
         "Runs the showing booking service's delivery steps in order. It releases a "
-        "booking's held host event and prospect invite once the prospect's confirmation "
+        "booking's held host event and prospect's confirmation email once the prospect's confirmation "
         "text is reported delivered (or five minutes after it went, without a report), and "
         "stops them and marks the booking for the team when the text was not delivered. It "
         "queues the reminders due the evening before a showing, the host's morning text, "
         "and the text with the link to apply that goes two hours after a showing starts. "
         "It delivers every notice that is due: texts through Quo from the team line, "
-        "calendar events and invites through Google Calendar, and a Zillow lead's reminder "
-        "by email through Gmail. Last, in production, it sends the team one web push for "
+        "the host's calendar events through Google Calendar, and the prospect's emails and "
+        "a Zillow lead's reminder by email through Gmail. Last, in production, it sends the team one web push for "
         "each notice that failed or is stuck."
         "\n\n"
         "Who can receive anything follows the send mode on the Booking settings tab: in "
@@ -369,7 +369,7 @@ JOB_INFO = JobInfo(
         "failed, coming up in the next two days or owed an apply text, a run ends after "
         "one database query."
         "\n\n"
-        "Paused or removed, held invites stay held, reminders, morning texts and apply "
+        "Paused or removed, held events and emails stay held, reminders, morning texts and apply "
         "texts are not sent, what a request left unfinished stays unfinished, and the team "
         "is not alerted about failures."
     ),

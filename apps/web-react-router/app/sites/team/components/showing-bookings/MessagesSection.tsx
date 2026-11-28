@@ -159,7 +159,7 @@ export function MessagesSection({
             Messages
           </h3>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Every text, email, calendar event and invite a booking owes, with its wording and what happened to it. Newest
+            Every text, email and calendar event a booking owes, with its wording and what happened to it. Newest
             first.
           </p>
         </div>

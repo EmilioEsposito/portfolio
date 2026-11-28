@@ -222,12 +222,12 @@ export function liveStartQuestion(saved: BookingSettings, next: BookingSettings,
   const before = saved.send_mode === "live" ? saved : { ...saved, live_units: [], live_all_units: false };
   if (next.live_all_units) {
     if (before.live_all_units) return null;
-    return "This starts real texts and calendar invites for every unit, including ones added later. Save?";
+    return "This starts real texts and emails for every unit, including ones added later. Save?";
   }
   if (before.live_all_units) return null;
   const started = next.live_units.filter((unit) => !unitIsLive(before, unit));
   if (started.length === 0) return null;
-  return `This starts real texts and calendar invites for ${joinWords(started)}. Save?`;
+  return `This starts real texts and emails for ${joinWords(started)}. Save?`;
 }
 
 /**
@@ -833,7 +833,7 @@ export function describeShowingCancel(
       : `${texts} of them get a cancellation text`;
   return (
     `Cancel the showing of ${showing.unit} on ${formatWhen(showing.starts_at)} for ${people}? ` +
-    `${told} with a link to the units open for showings, their calendar invites are withdrawn, ` +
+    `${told} with a link to the units open for showings, anyone who got the confirmation email gets a cancellation email, ` +
     `and ${showing.host_name}'s event is cancelled.${note}`
   );
 }
@@ -851,7 +851,7 @@ export function describeRemoval(
     : `and ${showing.host_name}'s event is updated.`;
   return (
     `Remove ${person.name} from the showing of ${showing.unit} on ${formatWhen(showing.starts_at)}? ` +
-    `${text}their calendar invite is withdrawn, ${host}${note}`
+    `${text}a cancellation email if they got the confirmation email, ${host}${note}`
   );
 }
 

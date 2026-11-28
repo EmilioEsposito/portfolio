@@ -18,8 +18,8 @@ so the same checks run and the same texts and calendar changes follow:
   or removes one person (``cancelling.remove_attendee``), as the tab does.
 
 Booking and cancelling queue real messages: the host's calendar event, the
-residents' text, the prospect's confirmation text and invite, cancellation
-texts. A person approves every call that books or cancels, and the card they
+residents' text, the prospect's confirmation text and email, cancellation
+texts and emails. A person approves every call that books or cancels, and the card they
 approve says what the click does. That is the pattern of
 ``rental_listing_update``'s ``off_market_effect``: the first call changes
 nothing and answers with the effect in plain words; the agent calls again
@@ -213,7 +213,7 @@ async def showing_book(
         start: One of the unit's open times, exactly as showings_read lists it, e.g. "2027-04-14T16:00:00-04:00".
         name: The prospect's name.
         mobile: The prospect's US mobile number, if the person in the chat gave it. Leave empty otherwise.
-        email: The prospect's email address, if the person in the chat gave it. They get a calendar invite there. Leave empty otherwise.
+        email: The prospect's email address, if the person in the chat gave it. They get a confirmation email there. Leave empty otherwise.
         texts_accepted: True only when the person in the chat says the prospect agreed to texts about the showing. Never decide it yourself from an email, a text thread or what the prospect wrote. Needs a mobile. Without it the prospect gets no texts at all.
         zillow_thread_id: The Gmail thread id of the lead's Zillow email, when the prospect is a Zillow lead, so the lead agent sees the booking as the thread's own showing. Leave empty otherwise.
         effect: Leave empty at first. Then the exact answer of the first call, so the person approving sees it.

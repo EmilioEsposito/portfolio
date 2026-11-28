@@ -22,7 +22,8 @@ Attendance = Literal["unknown", "attended", "no_show"]
 AttendeeSource = Literal["page", "team", "lead_agent"]
 
 # A text, the host's own event on the showings calendar, the event a prospect
-# is invited to (one per prospect, so guests never see each other), or an email.
+# was invited to before 2026-11-28 (one per prospect, so guests never saw each
+# other; only withdrawing one already sent uses it now), or an email.
 Channel = Literal["sms", "calendar_event", "calendar_invite", "email"]
 # pending: waiting to be delivered. held: waiting for the notice it waits for
 # (``waits_for_notice_id``, a prospect's confirmation text) to be reported
@@ -155,20 +156,26 @@ class TextPayload(BaseModel):
 
 
 class EmailPayload(BaseModel):
-    """An email. The only kind ever sent is the reminder in a Zillow lead's thread
-    (``lead_email.py``); any other email the guard would send is saved as failed.
+    """An email. Two sorts are sent:
 
-    ``conversation_id`` is the lead conversation whose stored reply route the
-    reminder goes to. ``reply_to_message_id`` is that route's message, which the
-    email answers in the thread; it and the notice's recipient and subject are
-    set from the conversation each time the email is about to go, never from a
-    request or anything a lead wrote. With ``daytime_timezone`` it goes out only
-    from 8 AM to 9 PM there."""
+    - The reminder in a Zillow lead's thread (``lead_email.py``), plain text.
+      ``conversation_id`` is the lead conversation whose stored reply route the
+      reminder goes to. ``reply_to_message_id`` is that route's message, which
+      the email answers in the thread; it and the notice's recipient and subject
+      are set from the conversation each time the email is about to go, never
+      from a request or anything a lead wrote.
+    - The prospect's emails (``prospect_email.py``): a new message from the
+      shared mailbox to the address on the booking, as ``body`` (plain text) and
+      ``html``.
+
+    Any other email the guard would send is saved as failed. With
+    ``daytime_timezone`` it goes out only from 8 AM to 9 PM there."""
 
     model_config = ConfigDict(extra="forbid")
 
     subject: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1)
+    html: str | None = None
     conversation_id: str | None = None
     reply_to_message_id: str | None = None
     daytime_timezone: str | None = None

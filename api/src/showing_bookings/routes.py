@@ -698,7 +698,7 @@ class BookedPersonView(BaseModel):
     # Whether they came: "unknown" until the team marks it after the start.
     attendance: Attendance
     # Booked by the lead agent from an email thread and the lead has not yet
-    # added their details through their link: no texts or invite until then.
+    # added their details through their link: no texts or email until then.
     details_pending: bool = False
     # The lead conversation whose reply booked the place, for a link to it.
     lead_conversation_id: str | None = None
@@ -819,7 +819,7 @@ async def cancel_showing(
     now: datetime = Depends(clock),
     texts: TextSender | None = Depends(text_sender),
 ):
-    """Cancel the showing and everyone in it: their texts, invites and the host's event."""
+    """Cancel the showing and everyone in it: their texts, emails and the host's event."""
     return await _team_cancel(
         cancelling.cancel_showing(showing_id, now=now, texts=texts), user, showing_id=showing_id
     )

@@ -849,6 +849,7 @@ def test_every_showing_bookings_route_needs_a_sernia_user_but_the_public_ones():
         "/api/showing-bookings/public/bookings/lookup",
         "/api/showing-bookings/public/bookings/mobile",
         "/api/showing-bookings/public/bookings/cancel",
+        "/api/showing-bookings/public/bookings/calendar",
         "/api/showing-bookings/public/team-phone",
     }
     assert not any(found.pop(path) for path in public)

@@ -8,7 +8,7 @@ The same three tools and parameter names as
 - ``showing_cancel`` cancels a whole showing, or removes one person from it.
 
 Booking and cancelling reach people outside the team: the prospect's
-confirmation or cancellation text and calendar invite, the residents' text,
+confirmation or cancellation text and email, the residents' text,
 the host's calendar. So each returns an Approve / Reject card and does nothing
 until a person clicks Approve (``tools/approvals.py`` says how a card works).
 
@@ -152,7 +152,7 @@ async def showing_book(
         start: One of the unit's open times, exactly as showings_read lists it, e.g. "2027-04-14T16:00:00-04:00".
         name: The prospect's name.
         mobile: The prospect's US mobile number, if the person gave it. Leave empty otherwise.
-        email: The prospect's email address, if the person gave it. They get a calendar invite there. Leave empty otherwise.
+        email: The prospect's email address, if the person gave it. They get a confirmation email there. Leave empty otherwise.
         texts_accepted: True only when the person says the prospect agreed to texts about the showing. Never decide it yourself from an email, a text thread or what the prospect wrote. Needs a mobile. Without it the prospect gets no confirmation, reminder or cancellation by text.
         zillow_thread_id: The Gmail thread id of the lead's Zillow email, when the prospect is a Zillow lead, so the lead agent sees the booking as the thread's own showing. Leave empty otherwise.
     """

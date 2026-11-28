@@ -738,7 +738,7 @@ async def test_the_link_reads_the_provisional_place_and_nothing_else(lead):
 
 
 @pytest.mark.asyncio
-async def test_completing_the_details_sends_the_confirmation_and_the_invite(lead):
+async def test_completing_the_details_sends_the_confirmation_and_the_email(lead):
     token = await provisional(lead)
 
     async with lead.world.client() as client:
@@ -764,15 +764,17 @@ async def test_completing_the_details_sends_the_confirmation_and_the_invite(lead
     # The host's event and the residents' text went with the reply; not again.
     assert len(kinds["host_event"]) == 1 and len(kinds["resident_new_showing"]) == 1
     assert kinds["prospect_confirmation"][0].recipient == ALEX_MOBILE
-    # The invite and the host's update wait for the confirmation, as for a page booking.
-    assert [n.status for n in kinds["prospect_invite"]] == ["held"]
+    # The email and the host's update wait for the confirmation, as for a page booking.
+    assert [n.status for n in kinds["prospect_email"]] == ["held"]
     assert [n.status for n in kinds["host_event_update"]] == ["held"]
 
     await lead.world.send_pending(lead.world.now + timedelta(minutes=1))
     _, _, notices = await rows()
     kinds = by_kind(notices)
-    assert [n.status for n in kinds["prospect_invite"]] == ["captured"]
-    assert kinds["prospect_invite"][0].payload["attendees"] == [ALEX_EMAIL]
+    assert [n.status for n in kinds["prospect_email"]] == ["captured"]
+    (email,) = kinds["prospect_email"]
+    assert email.recipient == ALEX_EMAIL
+    assert email.payload["subject"].startswith("Your showing: 320 Example St, ")
 
 
 @pytest.mark.asyncio
@@ -808,7 +810,7 @@ async def test_a_refused_number_undoes_the_details_and_keeps_the_place(lead, mon
         (jordan,) = attendees
         assert (jordan.status, jordan.mobile, jordan.email) == ("booked", JORDAN_MOBILE, None)
         assert not jordan.texts_accepted and jordan.texts_consent_at is None
-        assert {n.status for n in by_kind(notices)["prospect_invite"]} == {"cancelled"}
+        assert {n.status for n in by_kind(notices)["prospect_email"]} == {"cancelled"}
 
         # Another number goes through.
         again = await client.post(

@@ -199,7 +199,7 @@ async def test_details_are_removed_at_12_months_field_by_field(world):
     kinds = {notice.kind for notice in old_notices}
     # Prospects', the host's and the resident's notices are all there to be cleared.
     assert {"prospect_confirmation", "host_event", "resident_new_showing"} <= kinds
-    assert {"prospect_apply", "prospect_invite", "host_morning"} <= kinds
+    assert {"prospect_apply", "prospect_email", "host_morning"} <= kinds
 
     report = await retention.remove_old_details(now=ONE_YEAR_LATER)
 

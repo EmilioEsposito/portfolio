@@ -3,8 +3,8 @@
 This is the only part of the module the web server's ``/api`` proxy forwards
 for a Sernia host. Every route answers 404 and saves nothing while the
 setting ``public_booking_enabled`` is off (unset: off in production, on
-elsewhere), except the read and the cancel by token, so a cancel link in a
-text keeps working after booking is closed.
+elsewhere), except the read, the calendar file and the cancel by token, so the
+links in a text or an email keep working after booking is closed.
 
 - ``GET /units``: the units on offer for the list at ``/showings``: address,
   rent, lease start, and whether each has an open time now (``public_units.py``).
@@ -25,6 +25,10 @@ text keeps working after booking is closed.
   time, plus ``lead_token``: completes that place with the lead's details.
 - ``POST /bookings/lookup``: a booking by its cancel token, for the
   confirmation screen.
+- ``POST /bookings/calendar``: the same booking as an iCalendar file, for the
+  confirmation email's "Apple or Outlook calendar" link, which the web app
+  serves at ``/showings/calendar/<cancel token>.ics``. Only while it is booked
+  and ahead; 409 ``not_booked`` or ``started`` otherwise.
 - ``POST /bookings/mobile``: correct the mobile on a booking by its cancel
   token, which texts the confirmation again, at most twice per booking.
 - ``POST /bookings/cancel``: cancel a booking by its cancel token, up to the
@@ -45,7 +49,7 @@ from datetime import UTC, datetime
 
 import logfire
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.showing_bookings import bookings, cancelling, lead_details, public_units
@@ -209,6 +213,16 @@ async def lookup(request: Request, now: datetime = Depends(clock)):
     return JSONResponse(view.model_dump(mode="json"), headers=_NO_STORE)
 
 
+@public_router.post("/bookings/calendar", response_class=Response)
+async def calendar_file(request: Request, now: datetime = Depends(clock)):
+    try:
+        body = bookings.parse_body(bookings.TokenRequest, await _body(request))
+        ics = await bookings.calendar_file(body.cancel_token, now=now)
+    except bookings.Refused as refused:
+        return _refused(refused)
+    return Response(ics, media_type="text/calendar; charset=utf-8", headers=_NO_STORE)
+
+
 @public_router.post("/bookings/mobile", response_model=bookings.BookingView)
 async def correct_mobile(
     request: Request,
@@ -239,7 +253,7 @@ async def cancel(
 
 
 # Answer while public booking is off (``public_booking_switch``).
-_ANSWER_WHEN_OFF = frozenset({lookup, cancel})
+_ANSWER_WHEN_OFF = frozenset({lookup, calendar_file, cancel})
 
 
 @public_router.post("/team-phone", response_model=bookings.TeamPhone)

@@ -99,7 +99,7 @@ test("the tab asks first only when something reaches the caller", () => {
   assert.equal(
     describeTeamBooking(form({ mobile: "412-555-0119", email: "casey@example.com", texts: true }), ""),
     "Book Casey Morgan for 320-03 on Wed, Apr 14, 4:00 PM? Casey Morgan gets a confirmation text at " +
-      "412-555-0119 now, then a calendar invite at casey@example.com once it is delivered.",
+      "412-555-0119 now, then a confirmation email at casey@example.com once it is delivered.",
   );
   assert.equal(
     describeTeamBooking(form({ mobile: "412-555-0119", texts: true }), capture),
@@ -108,7 +108,7 @@ test("the tab asks first only when something reaches the caller", () => {
   );
   assert.equal(
     describeTeamBooking(form({ email: "casey@example.com" }), live),
-    "Book Casey Morgan for 320-03 on Wed, Apr 14, 4:00 PM? Casey Morgan gets a calendar invite at " +
+    "Book Casey Morgan for 320-03 on Wed, Apr 14, 4:00 PM? Casey Morgan gets a confirmation email at " +
       "casey@example.com and no texts. 320-03 is not ticked for Live mode: these are captured, not sent.",
   );
 });

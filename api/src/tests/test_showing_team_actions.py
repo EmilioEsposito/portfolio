@@ -210,7 +210,7 @@ async def test_a_caller_who_takes_texts_is_booked_like_a_page_booking(world):
     assert [(n["kind"], n["status"], n["held"]) for n in result["notices"]] == [
         ("prospect_confirmation", "sent", False),
         ("host_event", "held", True),
-        ("prospect_invite", "held", True),
+        ("prospect_email", "held", True),
     ]
     showings, attendees, notices = await rows()
     (casey,) = attendees
@@ -226,12 +226,12 @@ async def test_a_caller_who_takes_texts_is_booked_like_a_page_booking(world):
     assert casey.requirement_confirmations == []
     assert (casey.user_agent, casey.client_ip_hash) == (None, None)
     assert len(world.texts.to(CASEY_MOBILE)) == 1
-    assert world.calendar.events == {}
+    assert world.calendar.events == {} and world.emails.new == []
     confirmation = by_kind(notices)["prospect_confirmation"][0]
     assert all(
         n.waits_for_notice_id == confirmation.id
         for n in notices
-        if n.kind in ("host_event", "prospect_invite")
+        if n.kind in ("host_event", "prospect_email")
     )
 
     await world.send_pending(NOW + timedelta(minutes=1))
@@ -240,10 +240,11 @@ async def test_a_caller_who_takes_texts_is_booked_like_a_page_booking(world):
     assert statuses(notices) == [
         ("prospect_confirmation", "sent"),
         ("host_event", "sent"),
-        ("prospect_invite", "sent"),
+        ("prospect_email", "sent"),
     ]
-    guests = sorted(event.draft.attendees[0] for event in world.calendar.events.values())
-    assert guests == [CASEY_EMAIL, JANE]
+    (event,) = world.calendar.events.values()
+    assert event.draft.attendees == [JANE]
+    assert [email.to for email in world.emails.new] == [CASEY_EMAIL]
 
 
 @pytest.mark.asyncio
@@ -257,7 +258,7 @@ async def test_a_caller_who_declines_texts_gets_none_and_nothing_is_held(world):
     assert (result["texts_accepted"], result["confirmation"]) == (False, None)
     assert [(n["kind"], n["status"]) for n in result["notices"]] == [
         ("host_event", "pending"),
-        ("prospect_invite", "pending"),
+        ("prospect_email", "pending"),
     ]
     _, (casey,), notices = await rows()
     assert (casey.texts_accepted, casey.texts_consent_at, casey.texts_consent_page) == (
@@ -271,15 +272,19 @@ async def test_a_caller_who_declines_texts_gets_none_and_nothing_is_held(world):
     await world.send_pending(NOW + timedelta(minutes=1))
 
     _, _, notices = await rows()
-    assert statuses(notices) == [("host_event", "sent"), ("prospect_invite", "sent")]
+    assert statuses(notices) == [("host_event", "sent"), ("prospect_email", "sent")]
     assert world.texts.sent == []
-    # A cancellation later texts them nothing either, and still withdraws the invite.
+    # A cancellation later texts them nothing either, and still emails them.
     async with world.client(team_app(world)) as client:
         answer = await client.post(f"{TEAM}/showings/{result['showing_id']}/cancel")
     assert answer.json()["texts_queued"] == 0
     await world.send_pending(NOW + timedelta(minutes=2))
     assert world.texts.sent == []
-    assert sorted(op for op, *_ in world.calendar.log) == ["cancel", "cancel", "create", "create"]
+    assert [op for op, *_ in world.calendar.log] == ["create", "cancel"]
+    assert [email.subject.split(":")[0] for email in world.emails.to(CASEY_EMAIL)] == [
+        "Your showing",
+        "Showing cancelled",
+    ]
 
 
 @pytest.mark.asyncio
@@ -290,7 +295,7 @@ async def test_texts_without_a_mobile_are_saved_as_no_texts(world):
     assert (answer.json()["texts_accepted"], answer.json()["confirmation"]) == (False, None)
     _, (casey,), notices = await rows()
     assert (casey.mobile, casey.texts_accepted, casey.texts_consent_at) == (None, False, None)
-    assert [n.kind for n in notices] == ["host_event", "prospect_invite"]
+    assert [n.kind for n in notices] == ["host_event", "prospect_email"]
 
 
 @pytest.mark.asyncio
@@ -319,7 +324,7 @@ async def test_the_team_adds_a_caller_to_a_showing_booked_on_the_page(world):
     await live()
     alex = await page_book(world)
     await world.send_pending(NOW + timedelta(minutes=1))
-    assert len(world.calendar.events) == 2
+    assert len(world.calendar.events) == 1 and len(world.emails.to(ALEX_EMAIL)) == 1
 
     answer = await team_book(world, caller(email=CASEY_EMAIL))
 
@@ -328,7 +333,7 @@ async def test_the_team_adds_a_caller_to_a_showing_booked_on_the_page(world):
     assert result["kind"] == "join"
     assert [(n["kind"], n["status"]) for n in result["notices"]] == [
         ("host_event_update", "pending"),
-        ("prospect_invite", "pending"),
+        ("prospect_email", "pending"),
     ]
     showings, attendees, _ = await rows()
     assert len(showings) == 1
@@ -341,8 +346,9 @@ async def test_the_team_adds_a_caller_to_a_showing_booked_on_the_page(world):
     assert host_event_id is not None
     description = world.calendar.events[host_event_id].draft.description
     assert "Alex Parker" in description and "Casey Morgan" in description
-    # One event for the host, updated; Alex was texted once, Casey never.
-    assert [op for op, *_ in world.calendar.log].count("create") == 3
+    # One event for the host, updated; an email each; Alex was texted once, Casey never.
+    assert [op for op, *_ in world.calendar.log] == ["create", "update"]
+    assert [email.to for email in world.emails.new] == [ALEX_EMAIL, CASEY_EMAIL]
     assert len(world.texts.to(ALEX_MOBILE)) == 1 and world.texts.to(CASEY_MOBILE) == []
 
 
@@ -364,10 +370,10 @@ async def test_a_number_quo_refuses_withdraws_the_team_booking(world):
     assert statuses(notices) == [
         ("prospect_confirmation", "failed"),
         ("host_event", "cancelled"),
-        ("prospect_invite", "cancelled"),
+        ("prospect_email", "cancelled"),
     ]
     await world.send_pending(NOW + timedelta(minutes=10))
-    assert world.calendar.events == {}
+    assert world.calendar.events == {} and world.emails.new == []
 
 
 @pytest.mark.asyncio
@@ -489,18 +495,17 @@ async def test_a_showing_moves_to_a_free_agent_after_the_event_went_out(world):
     assert sam_event not in (None, jane_event)
     assert world.calendar.events[sam_event].draft.attendees == [SAM]
     assert world.calendar.events[sam_event].calendar_id == SHOWINGS_CALENDAR
-    # Prospects are told nothing: one text, one invite, both from the booking.
-    assert len(world.texts.to(ALEX_MOBILE)) == 1
-    assert [e.draft.attendees for e in world.calendar.events.values()].count([ALEX_EMAIL]) == 1
+    # Prospects are told nothing: one text, one email, both from the booking.
+    assert len(world.texts.to(ALEX_MOBILE)) == 1 and len(world.emails.to(ALEX_EMAIL)) == 1
 
     # Cancelling later cancels Sam's event, not Jane's old one again.
     async with world.client() as client:
         await client.post(f"{PUBLIC}/bookings/cancel", json={"cancel_token": alex["cancel_token"]})
     await world.send_pending(NOW + timedelta(minutes=3))
     assert world.calendar.events[sam_event].cancelled
-    invite_event = world.calendar.log[1][2]
     cancelled = [event_id for op, _, event_id in world.calendar.log if op == "cancel"]
-    assert sorted(cancelled) == sorted([jane_event, sam_event, invite_event])
+    assert sorted(cancelled) == sorted([jane_event, sam_event])
+    assert world.emails.to(ALEX_EMAIL)[-1].subject.startswith("Showing cancelled:")
 
 
 @pytest.mark.asyncio
@@ -532,10 +537,11 @@ async def test_a_showing_moves_while_its_event_is_held(world):
 
     await world.send_pending(NOW + timedelta(minutes=1))
 
-    (event,) = [e for e in world.calendar.events.values() if e.draft.attendees != [ALEX_EMAIL]]
+    (event,) = world.calendar.events.values()
     assert event.draft.attendees == [SAM]
     assert not event.cancelled
-    assert [op for op, *_ in world.calendar.log] == ["create", "create"]
+    assert [op for op, *_ in world.calendar.log] == ["create"]
+    assert [email.to for email in world.emails.new] == [ALEX_EMAIL]
 
 
 @pytest.mark.asyncio

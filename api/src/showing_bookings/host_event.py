@@ -10,7 +10,7 @@ released in, and a corrected mobile or a withdrawn attendee shows in the
 next delivery.
 
 A cancelled showing's event is cancelled by its own notice (``CANCEL_KIND``),
-and a prospect's withdrawn invite by ``INVITE_CANCEL_KIND``. ``cancel_check``
+and a prospect's invite sent before 2026-11-28 by ``INVITE_CANCEL_KIND``. ``cancel_check``
 decides when such a notice is delivered whether there is an event to cancel,
 so a cancellation never creates one.
 
@@ -66,11 +66,19 @@ MOVED_KIND = "host_event_moved"
 SHOWING_LOCKED_KINDS = KINDS | {CANCEL_KIND, MOVED_KIND}
 HOST_CHANGED = "Not sent: the showing moved to another host."
 ALREADY_SAYS = "Not sent: the host's event already says this."
+# The prospect's own calendar invite, as sent before 2026-11-28. None is queued
+# now; one already queued is still delivered, and one already sent is withdrawn
+# when the booking is cancelled (``INVITE_CANCEL_KIND``).
 INVITE_KIND = "prospect_invite"
 CONFIRMATION_KIND = "prospect_confirmation"
+# The prospect's confirmation email, which took the invite's place, and the email
+# when their showing is cancelled, which follows it.
+EMAIL_KIND = "prospect_email"
+EMAIL_CANCEL_KIND = "prospect_email_cancel"
+EMAIL_KINDS = frozenset({EMAIL_KIND, EMAIL_CANCEL_KIND})
 # Notices that are for one booking only: checked when delivered, first try or
 # retry, and never sent once the booking or its showing is cancelled.
-FOR_A_BOOKING_KINDS = frozenset({CONFIRMATION_KIND, INVITE_KIND})
+FOR_A_BOOKING_KINDS = frozenset({CONFIRMATION_KIND, INVITE_KIND, EMAIL_KIND})
 BOOKING_CANCELLED = "Not sent: the booking was cancelled."
 INVITE_CANCEL_KIND = "prospect_invite_cancel"
 CANCEL_KINDS = frozenset({CANCEL_KIND, INVITE_CANCEL_KIND})

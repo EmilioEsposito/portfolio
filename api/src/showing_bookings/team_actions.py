@@ -10,11 +10,11 @@ calendar changes follow, and each answers what it did and what it queued.
   notices. It skips what only protects the public form: Turnstile, the limits
   per mobile, email, IP address and site, and the form's ticks (a person on
   the team spoke to the caller). With texts accepted and a mobile, the
-  confirmation text is delivered at once and the host's event and the invite
-  wait behind it, as for a page booking; a number Quo refuses withdraws the
+  confirmation text is delivered at once and the host's event and the
+  confirmation email wait behind it, as for a page booking; a number Quo refuses withdraws the
   booking as on the page. Without texts, or with no mobile, nothing is
-  texted or held: the host's event goes with the next run, and the invite
-  too when there is an email. ``place_booking`` takes a ``Person`` with no
+  texted or held: the host's event goes with the next run, and the
+  confirmation email too when there is an address. ``place_booking`` takes a ``Person`` with no
   mobile or email as well, which the lead agent's bookings reuse.
 - **Another host** (``change_host``): the agent must be free for that time by
   the rules open times use (``open_times.host_problem``). The old host's

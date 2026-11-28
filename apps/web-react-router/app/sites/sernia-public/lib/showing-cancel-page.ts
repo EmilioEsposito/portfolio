@@ -32,6 +32,15 @@ export function cancelPath(token: string): string {
   return `/showings/cancel/${encodeURIComponent(token)}`;
 }
 
+/**
+ * The cancel token in a calendar file's name, `<token>.ics`, or null for any other
+ * name. The confirmation email links /showings/calendar/<token>.ics.
+ */
+export function calendarFileToken(file: string | undefined): string | null {
+  const match = /^([A-Za-z0-9_-]{1,100})\.ics$/.exec(file ?? "");
+  return match ? match[1] : null;
+}
+
 /** The unit's booking page, where another time is a new booking. */
 export function unitPath(unit: string): string {
   return `/showings/${encodeURIComponent(unit)}`;

@@ -177,7 +177,7 @@ class LeadShowing(BaseModel):
     source: str
     booked_at: datetime | None
     # False for the provisional place a reply booked, until the lead adds their
-    # details through their link; the text reminder and invite wait for them.
+    # details through their link; the text reminder and confirmation email wait for them.
     details_added: bool
     cancelled_by: str | None = None
     cancelled_at: datetime | None = None

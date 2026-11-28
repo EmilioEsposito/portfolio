@@ -83,7 +83,7 @@ test("a lead adds their details to the showing booked by email", async ({ page }
   });
   const kinds = rows.notices.map((n) => [n.kind, n.status]);
   expect(kinds).toContainEqual(["prospect_confirmation", "captured"]);
-  expect(kinds).toContainEqual(["prospect_invite", "held"]);
+  expect(kinds).toContainEqual(["prospect_email", "held"]);
   expect(rows.notices.filter((n) => n.kind === "host_event")).toHaveLength(1);
 
   // The link now says they are booked: the details are in.

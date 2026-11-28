@@ -545,6 +545,29 @@ async def send_thread_email(
     )
 
 
+# How a new email from the shared mailbox names its sender.
+SHARED_SENDER = f"Sernia Capital <{SHARED_EXTERNAL_EMAIL}>"
+
+
+async def send_new_email(to: str, subject: str, text: str, html: str | None) -> dict[str, Any]:
+    """Send a new email (no thread) to ``to`` from the shared mailbox, with the same
+    Gmail call and credentials as ``send_thread_email``, and answer Gmail's result.
+
+    Used only by the showing booking's emails to a prospect
+    (``showing_bookings/gmail_thread.py``), after the outbox's guard.
+    """
+    return await _send_email(
+        to=to,
+        subject=subject,
+        message_text=text,
+        message_html=html,
+        sender=SHARED_SENDER,
+        credentials=get_delegated_credentials(
+            user_email=SHARED_EXTERNAL_EMAIL, scopes=GMAIL_SCOPES
+        ),
+    )
+
+
 async def apply_approval(
     session: AsyncSession,
     *,

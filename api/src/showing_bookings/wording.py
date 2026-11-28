@@ -7,12 +7,16 @@
   attendee row with the wording, so a later change of wording or of a
   listing's dates does not change what a person agreed to.
 - What a booking sends (``NOTICES_VERSION``): the prospect's confirmation
-  text, the host's calendar event and the prospect's own invite.
+  text and the host's calendar event.
+- The prospect's emails (``PROSPECT_EMAIL_VERSION``): the confirmation, worded
+  as a move when a lead's showing moved, and the cancellation, as words
+  (``ProspectEmail``) that ``prospect_email.py`` lays out as text and HTML.
 - The confirmation text when a lead moved their showing by email and the new
   place keeps their details (``MOVED_VERSION``).
 - What a cancellation sends (``CANCELLATION_VERSION``): the prospect's text
   confirming their own cancellation, the text when the team cancels (or the
-  unit goes off the market), and the cancelled event and invite.
+  unit goes off the market), the cancelled event, and the withdrawal of an
+  invite sent before 2026-11-28, when prospects got invites.
 - What a unit's residents are texted (``RESIDENT_VERSION``): a new showing at
   their home, and its cancellation. Both are written again when they go out
   (``residents.text_for``), so a change here reaches texts already queued.
@@ -52,6 +56,7 @@ HOST_TEXT_VERSION = "v1"
 HOST_MORNING_VERSION = "v1"
 APPLY_VERSION = "v1"
 ALERT_VERSION = "v1"
+PROSPECT_EMAIL_VERSION = "v1"
 
 PETS_WORDING = "No pet dogs will live in the apartment."
 TEXTS_WORDING = "Text me about this showing and my rental inquiry."
@@ -246,14 +251,125 @@ def host_event_description(guests: Sequence[Guest], showing_url: str | None = No
 
 
 def invite_summary(visit: Visit) -> str:
+    """The prospect's own calendar invite, as invites were sent before 2026-11-28. Only
+    withdrawing one already sent uses it now."""
     return f"Showing of {place(visit)} with Sernia Capital"
 
 
-def invite_description(cancel_url: str) -> str:
-    return (
-        "Your in-person showing with Sernia Capital.\n"
-        f"To cancel, use this link: {cancel_url}\n"
-        "Declining this invite does not cancel the showing; please use the link."
+# ---------------------------------------------------------------------------
+# The prospect's emails (PROSPECT_EMAIL_VERSION): the confirmation, the move and
+# the cancellation, laid out as plain text and HTML by ``prospect_email.py``
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EmailLink:
+    label: str
+    url: str
+
+
+@dataclass(frozen=True)
+class ProspectEmail:
+    """One email to a prospect about their showing, in words, top to bottom."""
+
+    subject: str
+    heading: str
+    # Paragraphs under the heading.
+    lines: Sequence[str] = ()
+    # When and where, with a map link; none for a cancellation.
+    when: str | None = None
+    where: str | None = None
+    map_url: str | None = None
+    # A line under when and where.
+    note: str | None = None
+    # Links to add the showing to a calendar.
+    calendar: Sequence[EmailLink] = ()
+    # The last line before the sign-off, and its link.
+    closing: EmailLink | None = None
+
+
+EMAIL_SIGN_OFF = "Sernia Capital"
+MEET_YOU = "A Sernia Capital agent will meet you there."
+GOOGLE_CALENDAR_LABEL = "Add to Google Calendar"
+OTHER_CALENDAR_LABEL = "Add to Apple or Outlook calendar"
+CANCEL_LABEL = "Can't make it? Cancel here"
+
+
+def street(visit: Visit) -> str:
+    """ "324 S Main St Apt 11": the address up to the city, or the unit when there is none."""
+    return visit.address.split(",")[0].strip() if visit.address else f"unit {visit.unit}"
+
+
+def time_span(visit: Visit) -> str:
+    """ "Sun, Nov 29, 1:30 to 2:00 PM", or "11:30 AM to 12:00 PM" across noon."""
+    start = _local(visit.starts_at, visit.timezone)
+    end = _local(visit.ends_at, visit.timezone)
+    day = f"{start:%a}, {start:%b} {start.day}"
+    if f"{start:%p}" == f"{end:%p}":
+        return f"{day}, {_clock(start).rsplit(' ', 1)[0]} to {_clock(end)}"
+    return f"{day}, {_clock(start)} to {_clock(end)}"
+
+
+def showing_event_title(visit: Visit) -> str:
+    """The event a prospect adds to their own calendar from the email."""
+    return f"Showing: {street(visit)} (Sernia Capital)"
+
+
+def showing_event_details(cancel_url: str) -> str:
+    return f"{MEET_YOU}\n\n{CANCEL_LABEL}: {cancel_url}"
+
+
+def confirmation_email(
+    visit: Visit,
+    *,
+    cancel_url: str,
+    map_url: str | None,
+    calendar: Sequence[EmailLink],
+    replaces: Sequence[datetime] = (),
+) -> ProspectEmail:
+    """To a prospect with an email, once their confirmation text is delivered (or at
+    once with no text): when, where with a map, that an agent meets them, links to
+    add it to a calendar, and the cancel link. With ``replaces`` it says the showing
+    moved, from which time."""
+    lines: list[str] = []
+    if replaces:
+        old = [_day_and_time(start, visit.timezone) for start in sorted(replaces)]
+        earlier = (
+            f"your showing on {old[0]}"
+            if len(old) == 1
+            else f"your showings on {' and '.join(old)}"
+        )
+        lines.append(f"It replaces {earlier}. If that is on your calendar, remove it.")
+    moved = bool(replaces)
+    return ProspectEmail(
+        subject=f"Your showing{' has moved' if moved else ''}: {street(visit)}, {when(visit)}",
+        heading="Your showing has moved" if moved else "Your showing is booked",
+        lines=lines,
+        when=time_span(visit),
+        where=visit.address or f"unit {visit.unit}",
+        map_url=map_url,
+        note=MEET_YOU,
+        calendar=calendar,
+        closing=EmailLink(CANCEL_LABEL, cancel_url),
+    )
+
+
+def cancellation_email(visit: Visit, *, by_team: bool, next_url: str) -> ProspectEmail:
+    """To a prospect who had the confirmation email, when their showing is cancelled:
+    by them (with their unit's booking page) or by the team (with the units open
+    for showings)."""
+    showing = f"showing on {when(visit)} at {visit.address or f'unit {visit.unit}'}"
+    if by_team:
+        line = f"We're sorry, we had to cancel your {showing}."
+        closing = EmailLink("See the units open for showings", next_url)
+    else:
+        line = f"Your {showing} is cancelled."
+        closing = EmailLink("Book another time", next_url)
+    return ProspectEmail(
+        subject=f"Showing cancelled: {street(visit)}, {when(visit)}",
+        heading="Your showing is cancelled",
+        lines=[line, "If it is on your calendar, remove it."],
+        closing=closing,
     )
 
 
@@ -541,6 +657,8 @@ def apply_text(visit: Visit, apply_url: str) -> str:
 NOTICE_LABELS = {
     "prospect_confirmation": "Prospect's confirmation",
     "prospect_invite": "Prospect's invite",
+    "prospect_email": "Prospect's confirmation email",
+    "prospect_email_cancel": "Prospect's cancellation email",
     "prospect_reminder": "Prospect's reminder",
     "lead_email_reminder": "Lead's reminder by email, in their Zillow thread",
     "prospect_cancelled": "Prospect's cancellation",

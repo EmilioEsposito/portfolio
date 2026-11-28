@@ -159,7 +159,7 @@ async def test_queued_before_noon_and_delivered_after_it_is_not_sent(world):
     await book(world)
     world.now = at(11, 59)
     await daily_texts.queue_due(now=at(11, 59))
-    await outbox.drain(now=at(12), texts=world.texts, calendar=world.calendar)
+    await outbox.drain(now=at(12), texts=world.texts, calendar=world.calendar, emails=world.emails)
     (notice,) = await of_kind(MORNING)
     assert (notice.status, notice.last_error) == ("cancelled", delivery_checks.MORNING_MISSED)
     assert morning_texts(world) == []

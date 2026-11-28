@@ -16,7 +16,7 @@ A booking, in order:
    ``zillow_leads.lead_links``; one place per thread in a showing), the user
    agent and the ``Signature-Agent`` header, and the notices: the confirmation text, due now; the host's event
    (created with the first attendee, an update for each one who joins) and
-   the prospect's own invite, both held until the text is reported delivered
+   the prospect's confirmation email, both held until the text is reported delivered
    (``holds.py``).
 4. After the commit, the confirmation text is delivered at once. If Quo
    refuses the number (invalid, unreachable or opted out), the booking is
@@ -59,6 +59,7 @@ from api.src.showing_bookings import (
     host_texts,
     open_times,
     outbox,
+    prospect_email,
     resident_notices,
     residents,
     turnstile,
@@ -73,7 +74,6 @@ from api.src.showing_bookings.models import (
 from api.src.showing_bookings.providers import TextSender
 from api.src.showing_bookings.schema import (
     SHOWING_MINUTES,
-    CalendarPayload,
     RequirementConfirmation,
     TextPayload,
     normalize_email,
@@ -97,7 +97,7 @@ HOST_UPDATE_KIND = host_event.UPDATE_KIND
 # checked in code, which the database's no-overlap rule cannot see).
 BOOKING_LOCK = "showing-bookings:public-booking"
 SITE_LIMIT_MESSAGE = "Online booking is paused right now. Call us to book."
-INVITE_KIND = host_event.INVITE_KIND
+EMAIL_KIND = host_event.EMAIL_KIND
 WITHDRAWN_NOTE = "Not sent: the booking was withdrawn because the number could not be texted."
 _LEAD_TOKEN = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
@@ -137,6 +137,12 @@ def public_base_url() -> str:
 
 def cancel_url(cancel_token: str) -> str:
     return f"{public_base_url()}/showings/cancel/{cancel_token}"
+
+
+def calendar_file_url(cancel_token: str) -> str:
+    """The showing as a calendar file for Apple and Outlook calendars, served by the web
+    app from ``POST /public/bookings/calendar``."""
+    return f"{public_base_url()}/showings/calendar/{cancel_token}.ics"
 
 
 def unit_url(unit: str) -> str:
@@ -524,7 +530,7 @@ def _place_waits_for(confirmation: ShowingNotice | None, source: str) -> int | N
 
     None with no confirmation text (no texts, or no mobile), and for a place
     booked from the lead agent's reply (``lead_agent``), where the email told
-    the lead: it stands whatever happens to the text, so only the invite waits.
+    the lead: it stands whatever happens to the text, so only the email waits.
     """
     if confirmation is None or source == "lead_agent":
         return None
@@ -542,13 +548,14 @@ async def _enqueue_booking_notices(
     now: datetime,
     replaces: Sequence[datetime] = (),
 ) -> ShowingNotice | None:
-    """The confirmation text, and the host's event and the invite held behind it.
+    """The confirmation text, and the host's event and the confirmation email held
+    behind it.
 
     Someone booked without texts (or with no mobile) gets no text, and nothing
-    is held: the host's event, and the invite when there is an email, are due
-    now. No email, no invite. A place booked from the lead agent's reply holds
-    only the invite (``_place_waits_for``). With ``replaces`` (the starts of the
-    showings this one replaces) the text says it is a move.
+    is held: the host's event, and the email when there is an address, are due
+    now. No address, no email. A place booked from the lead agent's reply holds
+    only the email (``_place_waits_for``). With ``replaces`` (the starts of the
+    showings this one replaces) the text and the email say it is a move.
     """
     visit = visit_of(showing, rules)
     link = cancel_url(attendee.cancel_token)
@@ -590,21 +597,17 @@ async def _enqueue_booking_notices(
         return confirmation
     await outbox.enqueue(
         session,
-        kind=INVITE_KIND,
-        channel="calendar_invite",
+        kind=EMAIL_KIND,
+        channel="email",
         showing_id=showing.id,
         attendee_id=attendee.id,
         recipient=attendee.email,
         recipient_key=f"attendee:{attendee.id}",
-        payload=CalendarPayload(
-            operation="create",
-            calendar_id=calendar_id,
-            summary=wording.invite_summary(visit),
-            description=wording.invite_description(link),
-            location=showing.address,
-            starts_at=showing.starts_at,
-            ends_at=showing.ends_at,
-            attendees=[attendee.email],
+        payload=prospect_email.confirmation(
+            visit,
+            cancel_url=link,
+            file_url=calendar_file_url(attendee.cancel_token),
+            replaces=tuple(replaces),
         ),
         now=now,
         waits_for_notice_id=confirmation.id if confirmation is not None else None,
@@ -1244,6 +1247,24 @@ async def booking_by_token(token: str, *, now: datetime) -> BookingView:
         attendee, showing = await by_token(session, token)
         rules = await listings_service.read_showing_rules(session)
         return await view_of(session, showing, attendee, rules.timezone, now)
+
+
+async def calendar_file(token: str, *, now: datetime) -> str:
+    """The booking as an iCalendar file (``prospect_email.ics``), for the email's
+    "Apple or Outlook calendar" link. Only for a booking still booked and ahead:
+    404 ``unknown_booking``, 409 ``not_booked`` or ``started`` otherwise, so the
+    web app sends the person to the cancel page, which says why. It holds what
+    the cancel page shows and nothing more."""
+    async with AsyncSessionFactory() as session:
+        attendee, showing = await by_token(session, token)
+        if attendee.status != "booked" or showing.status != "scheduled":
+            raise Refused(409, "not_booked", "This booking is cancelled.")
+        if showing.starts_at <= now:
+            raise Refused(409, "started", "This showing has already started.")
+        rules = await listings_service.read_showing_rules(session)
+    return prospect_email.ics(
+        visit_of(showing, rules), cancel_token=token, cancel_url=cancel_url(token), now=now
+    )
 
 
 class _Superseded(Exception):

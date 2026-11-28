@@ -98,8 +98,8 @@ const nodes: Node[] = [
     detail: "This lead has only the confirming email. A phone number that appeared in a Zillow email is never texted, because the lead has not agreed to texts. The evening before, they get a reminder by email in the same thread, with a link to cancel. Once they add a mobile number and email through their own link, they are treated like any other lead.",
   },
   {
-    id: "leadDetails", title: "Lead with details", subtitle: "Confirmation text + calendar invite", icon: Smartphone, tone: "told", box: [346, 838, 222, 112],
-    detail: "Gets a confirmation text with a link to cancel, then a calendar invite by email. The evening before, a reminder text. Two hours after the showing starts, a text with the link to apply. If they cancel, by the link or by email to the agent, everyone else is updated.",
+    id: "leadDetails", title: "Lead with details", subtitle: "Confirmation text + email", icon: Smartphone, tone: "told", box: [346, 838, 222, 112],
+    detail: "Gets a confirmation text with a link to cancel, then a confirmation email with calendar links. The evening before, a reminder text. Two hours after the showing starts, a text with the link to apply. If they cancel, by the link or by email to the agent, everyone else is updated.",
   },
   {
     id: "host", title: "The showing agent", subtitle: "Calendar event + texts on the day", icon: UserRoundCheck, tone: "told", box: [600, 838, 235, 112],

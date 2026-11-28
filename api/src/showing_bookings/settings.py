@@ -1,6 +1,6 @@
 """The booking settings, kept in ``app_settings`` under ``showing_bookings_config``.
 
-- ``send_mode``: what a booking's texts and calendar invites do (``guard.py``).
+- ``send_mode``: what a booking's texts, emails and calendar events do (``guard.py``).
   "test" sends only to the test list (``SHOWING_TEST_PHONES`` and
   ``SHOWING_TEST_EMAILS``) and captures the rest. "capture" sends nothing: each
   message is rendered and kept until a person sends it (``captured.py``). "live"

@@ -770,7 +770,7 @@ async def test_the_cancellation_never_overtakes_an_announcement_being_sent(world
     await holds.release_held(now=world.now, texts=gated)  # the announcement is due
 
     first_run = asyncio.create_task(
-        outbox.drain(now=world.now, texts=gated, calendar=world.calendar)
+        outbox.drain(now=world.now, texts=gated, calendar=world.calendar, emails=world.emails)
     )
     await asyncio.wait_for(gated.inside.wait(), timeout=10)
     await cancel(world, alex["cancel_token"])
@@ -778,7 +778,8 @@ async def test_the_cancellation_never_overtakes_an_announcement_being_sent(world
 
     # The second run, while run 1 waits on Quo.
     await asyncio.wait_for(
-        outbox.drain(now=world.now, texts=gated, calendar=world.calendar), timeout=10
+        outbox.drain(now=world.now, texts=gated, calendar=world.calendar, emails=world.emails),
+        timeout=10,
     )
 
     waiting = await one(CANCELLED)

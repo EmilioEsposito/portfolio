@@ -128,7 +128,7 @@ async def cancel(world: PublicWorld, token: str) -> None:
 async def run(world: PublicWorld, now, alerter: RecordingAlerter | None = None):
     world.now = now
     return await holds.send_pending(
-        now=now, texts=world.texts, calendar=world.calendar, alerter=alerter
+        now=now, texts=world.texts, calendar=world.calendar, emails=world.emails, alerter=alerter
     )
 
 

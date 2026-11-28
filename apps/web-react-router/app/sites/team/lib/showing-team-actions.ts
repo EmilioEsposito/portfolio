@@ -107,15 +107,16 @@ export function describeTeamBooking(form: TeamBookingForm, note: string): string
   const when = `${body.unit} on ${formatWhen(body.start)}`;
   const sends = body.texts
     ? body.email
-      ? `${who} gets a confirmation text at ${body.mobile} now, then a calendar invite at ${body.email} once it is delivered.`
+      ? `${who} gets a confirmation text at ${body.mobile} now, then a confirmation email at ${body.email} once it is delivered.`
       : `${who} gets a confirmation text at ${body.mobile} now.`
-    : `${who} gets a calendar invite at ${body.email} and no texts.`;
+    : `${who} gets a confirmation email at ${body.email} and no texts.`;
   return `Book ${who} for ${when}? ${sends}${note}`;
 }
 
 const NOTICE_LABELS: Record<string, string> = {
   prospect_confirmation: "confirmation text",
   prospect_invite: "calendar invite",
+  prospect_email: "confirmation email",
   host_event: "host's event",
   host_event_update: "host's event update",
   host_event_moved: "old host's event cancelled",

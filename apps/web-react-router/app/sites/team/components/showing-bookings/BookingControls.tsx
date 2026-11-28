@@ -343,7 +343,7 @@ function WhatABookingSends({
         What a booking sends
       </h3>
       <p id="what-sends-help" className="mt-1 text-sm leading-6 text-muted-foreground">
-        Texts and calendar invites for the prospect, residents and host. The booking itself is always real.
+        Texts, emails and calendar events for the prospect, residents and host. The booking itself is always real.
       </p>
       {!view.is_production && (
         <p className="mt-4 rounded-lg bg-muted p-3 text-sm leading-6">

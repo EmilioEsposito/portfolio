@@ -391,7 +391,7 @@ function BookedTime({ place }: { place: LeadBooking }) {
       </div>
       <p className="text-sm leading-6 text-muted-foreground">
         Your in-person showing is booked. Add your details to get a text confirmation, a reminder the evening
-        before and a calendar invite.
+        before and a confirmation email with calendar links.
       </p>
     </section>
   );

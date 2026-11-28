@@ -68,7 +68,7 @@ JANE_MOBILE = "+14125550101"
 CONFIRMATION = host_event.CONFIRMATION_KIND
 EVENT = host_event.CREATE_KIND
 EVENT_UPDATE = host_event.UPDATE_KIND
-INVITE = host_event.INVITE_KIND
+EMAIL = host_event.EMAIL_KIND
 NEW = residents.NEW_SHOWING_KIND
 PERSON = SimpleNamespace(
     id="user_pat",
@@ -240,13 +240,13 @@ async def test_the_list_says_what_each_is_to_whom_and_what_it_says(world, produc
 
     found = {notice["kind"]: notice for notice in await listed(world)}
 
-    assert set(found) == {CONFIRMATION, EVENT, INVITE, NEW}
+    assert set(found) == {CONFIRMATION, EVENT, EMAIL, NEW}
     assert all(n["state"] == "ready" and n["reason"] is None for n in found.values())
     assert all(n["goes_out"] for n in found.values())
     assert {kind: n["to"] for kind, n in found.items()} == {
         CONFIRMATION: "Alex Parker, 412-555-0117",
         EVENT: f"Jane Doe, {JANE}",
-        INVITE: f"Alex Parker, {ALEX_EMAIL}",
+        EMAIL: f"Alex Parker, {ALEX_EMAIL}",
         NEW: "Residents, 412-555-0142",
     }
     assert found[CONFIRMATION]["kind_label"] == "Prospect's confirmation"
@@ -259,7 +259,7 @@ async def test_the_list_says_what_each_is_to_whom_and_what_it_says(world, produc
     # They wait for the confirmation when it is sent with them, and only then.
     confirmation = found[CONFIRMATION]["id"]
     assert found[CONFIRMATION]["waits_for_notice_id"] is None
-    assert {found[kind]["waits_for_notice_id"] for kind in (EVENT, INVITE, NEW)} == {confirmation}
+    assert {found[kind]["waits_for_notice_id"] for kind in (EVENT, EMAIL, NEW)} == {confirmation}
     assert not any(n["confirmation_on_its_way"] for n in found.values())
     # Listing them changes nothing.
     assert set((await statuses_by_kind()).values()) == {"captured"}
@@ -303,7 +303,7 @@ async def test_outside_production_only_what_is_to_the_test_list_would_leave(worl
     assert {kind: n["goes_out"] for kind, n in found.items()} == {
         CONFIRMATION: True,
         EVENT: False,
-        INVITE: False,
+        EMAIL: False,
     }
     assert {n["state"] for n in found.values()} == {"ready"}
 
@@ -318,7 +318,7 @@ async def test_only_captured_messages_are_listed(world, monkeypatch):
 
     # The confirmation was sent and delivered; the others were captured.
     assert (await one(CONFIRMATION)).status == "sent"
-    assert CONFIRMATION not in found and set(found) == {EVENT, INVITE}
+    assert CONFIRMATION not in found and set(found) == {EVENT, EMAIL}
 
 
 # Too late
@@ -459,14 +459,15 @@ async def test_a_cancelled_bookings_messages_no_longer_apply(world, production):
 
     assert {kind: (n["state"], n["reason"]) for kind, n in found.items()} == {
         CONFIRMATION: ("no_longer_applies", "The booking was cancelled."),
-        INVITE: ("no_longer_applies", "The booking was cancelled."),
+        EMAIL: ("no_longer_applies", "The booking was cancelled."),
         EVENT: ("no_longer_applies", "The showing has no one booked, or is cancelled."),
         NEW: ("no_longer_applies", "The showing was cancelled."),
         # The prospect booked it themselves, so this says something alone.
         "prospect_cancelled": ("ready", None),
-        "prospect_invite_cancel": (
+        "prospect_email_cancel": (
             "no_longer_applies",
-            "The event was never created, so there is nothing to cancel.",
+            "The confirmation email was captured and never sent, "
+            "so there is nothing to cancel by email.",
         ),
         "host_event_cancel": (
             "no_longer_applies",
@@ -481,7 +482,7 @@ async def test_a_cancelled_bookings_messages_no_longer_apply(world, production):
     assert sent.pop("prospect_cancelled") == "sent"
     assert set(sent.values()) == {"not_sent"}
     assert [text.to for text in world.texts.sent] == [ALEX_MOBILE]
-    assert world.calendar.log == []
+    assert world.calendar.log == [] and world.emails.new == []
 
 
 @pytest.mark.asyncio
@@ -505,13 +506,13 @@ async def test_a_text_to_a_number_corrected_since_no_longer_applies(world, produ
     )
     new = found[(CONFIRMATION, "Alex Parker, 412-555-0118")]
     assert new["state"] == "ready"
-    # The invite was captured behind the old text; it waits for the new one now.
-    (invite,) = [n for n in found.values() if n["kind"] == INVITE]
-    assert invite["waits_for_notice_id"] == new["id"]
-    sent = await send(world, picked=[new["id"], invite["id"], old["id"]])
+    # The email was captured behind the old text; it waits for the new one now.
+    (email,) = [n for n in found.values() if n["kind"] == EMAIL]
+    assert email["waits_for_notice_id"] == new["id"]
+    sent = await send(world, picked=[new["id"], email["id"], old["id"]])
     assert sent[new["id"]]["outcome"] == "sent" and sent[old["id"]]["outcome"] == "not_sent"
     assert world.texts.to(ALEX_MOBILE) == [] and len(world.texts.to(ROBIN_MOBILE)) == 1
-    assert (await one(INVITE)).waits_for_notice_id == new["id"]
+    assert (await one(EMAIL)).waits_for_notice_id == new["id"]
 
 
 @pytest.mark.asyncio
@@ -546,7 +547,7 @@ async def test_sending_them_all_sends_the_text_and_then_what_waits_for_it(world,
 
     sent = await outcomes(world)
 
-    assert sent == {CONFIRMATION: "sent", EVENT: "waiting", INVITE: "waiting", NEW: "waiting"}
+    assert sent == {CONFIRMATION: "sent", EVENT: "waiting", EMAIL: "waiting", NEW: "waiting"}
     assert [text.to for text in world.texts.sent] == [ALEX_MOBILE]
     _, _, notices = await rows()
     assert {(n.send_approved_by, n.send_approved_at) for n in notices} == {(APPROVER, NOW)}
@@ -563,8 +564,9 @@ async def test_sending_them_all_sends_the_text_and_then_what_waits_for_it(world,
     assert (report.released, report.sent) == (3, 3)
     assert set((await statuses_by_kind()).values()) == {"sent"}
     assert len(world.texts.to(RESIDENT)) == 1
-    (event, invite) = world.calendar.events_in(SHOWINGS_CALENDAR)
-    assert event.draft.attendees == [JANE] and invite.draft.attendees == [ALEX_EMAIL]
+    (event,) = world.calendar.events_in(SHOWINGS_CALENDAR)
+    assert event.draft.attendees == [JANE]
+    assert [email.to for email in world.emails.new] == [ALEX_EMAIL]
 
 
 @pytest.mark.asyncio
@@ -588,8 +590,8 @@ async def test_what_waits_goes_at_once_when_the_report_is_already_in(world, prod
     await book(world)
     production()
 
-    assert await outcomes(world) == {CONFIRMATION: "sent", EVENT: "sent", INVITE: "sent"}
-    assert len(world.calendar.events) == 2
+    assert await outcomes(world) == {CONFIRMATION: "sent", EVENT: "sent", EMAIL: "sent"}
+    assert len(world.calendar.events) == 1 and len(world.emails.to(ALEX_EMAIL)) == 1
 
 
 @pytest.mark.asyncio
@@ -643,7 +645,7 @@ async def test_only_the_ones_picked_are_sent(world, production):
     for later in (1, 10, 60 * 24):
         await job(world, NOW + timedelta(minutes=later))
     assert [text.to for text in world.texts.sent] == [RESIDENT]
-    assert world.calendar.log == []
+    assert world.calendar.log == [] and world.emails.new == []
 
 
 @pytest.mark.asyncio
@@ -665,10 +667,10 @@ async def test_outside_production_only_the_test_list_is_reached(world, monkeypat
         sent = await outcomes(world)
         await job(world, NOW + timedelta(minutes=10))
 
-        assert sent == {CONFIRMATION: "sent", EVENT: "kept", INVITE: "kept", NEW: "kept"}, mode
+        assert sent == {CONFIRMATION: "sent", EVENT: "kept", EMAIL: "kept", NEW: "kept"}, mode
         assert {text.to for text in world.texts.sent} == {ALEX_MOBILE}
-        assert world.calendar.log == []
-        for kind in (EVENT, INVITE, NEW):
+        assert world.calendar.log == [] and world.emails.new == []
+        for kind in (EVENT, EMAIL, NEW):
             kept = await one(kind)
             assert (kept.status, kept.guard_reason) == ("captured", "not_production")
 
@@ -689,7 +691,7 @@ async def test_a_preview_with_rows_production_had_approved_sends_nobody_else_any
     report = await job(world, NOW + timedelta(minutes=1))
 
     assert (report.sent, report.captured) == (0, 4)
-    assert world.texts.sent == [] and world.calendar.log == []
+    assert world.texts.sent == [] and world.calendar.log == [] and world.emails.new == []
 
 
 # Once only
@@ -706,7 +708,7 @@ async def test_a_message_already_handled_is_reported_and_not_sent_again(world, p
     second = await send(world, picked=picked)
 
     assert {result["outcome"] for result in second.values()} == {"handled"}
-    assert len(world.texts.sent) == 1 and len(world.calendar.log) == 2
+    assert len(world.texts.sent) == len(world.calendar.log) == len(world.emails.new) == 1
 
 
 @pytest.mark.asyncio
@@ -720,7 +722,8 @@ async def test_two_people_pressing_at_once_send_each_once(world, production):
     await job(world, NOW + timedelta(minutes=6))
 
     assert [text.to for text in world.texts.sent] == [ALEX_MOBILE, RESIDENT]
-    assert [entry[0] for entry in world.calendar.log] == ["create", "create"]
+    assert [entry[0] for entry in world.calendar.log] == ["create"]
+    assert [email.to for email in world.emails.new] == [ALEX_EMAIL]
     assert set((await statuses_by_kind()).values()) == {"sent"}
     for notice_id in picked:
         assert sorted(result[notice_id]["outcome"] != "handled" for result in results) == [
@@ -741,7 +744,8 @@ async def test_a_person_and_the_job_at_once_send_each_once(world, production):
     await job(world, NOW + timedelta(minutes=6))
 
     assert sorted(text.to for text in world.texts.sent) == sorted([ALEX_MOBILE, RESIDENT])
-    assert [entry[0] for entry in world.calendar.log] == ["create", "create"]
+    assert [entry[0] for entry in world.calendar.log] == ["create"]
+    assert [email.to for email in world.emails.new] == [ALEX_EMAIL]
 
 
 class ProcessDied(BaseException):
@@ -806,16 +810,16 @@ async def test_a_message_that_is_not_there_or_not_captured_is_answered(world, pr
     async with AsyncSessionFactory() as session, session.begin():
         await session.execute(
             update(ShowingNotice)
-            .where(ShowingNotice.kind == INVITE)
+            .where(ShowingNotice.kind == EMAIL)
             .values(status="cancelled", last_error="Not sent: a test.")
         )
-    invite = await one(INVITE)
+    email = await one(EMAIL)
 
-    sent = await send(world, picked=[invite.id, 123456789])
+    sent = await send(world, picked=[email.id, 123456789])
 
-    assert sent[invite.id]["outcome"] == "handled"
+    assert sent[email.id]["outcome"] == "handled"
     assert sent[123456789]["outcome"] == "not_sent"
-    assert (await one(INVITE)).status == "cancelled"
+    assert (await one(EMAIL)).status == "cancelled"
     async with world.client(team_app(world)) as client:
         for body in (
             {"ids": []},
@@ -847,13 +851,13 @@ async def test_a_text_that_does_not_reach_the_number_stops_what_waits(world, pro
     assert found == {
         CONFIRMATION: "sent",
         EVENT: "cancelled",
-        INVITE: "cancelled",
+        EMAIL: "cancelled",
         NEW: "cancelled",
     }
     _, (alex,), _ = await rows()
     assert alex.attention_reason == "confirmation_undelivered"
     assert [text.to for text in world.texts.sent] == [ALEX_MOBILE]
-    assert world.calendar.log == []
+    assert world.calendar.log == [] and world.emails.new == []
 
 
 @pytest.mark.asyncio
@@ -867,7 +871,7 @@ async def test_with_no_report_they_go_after_five_minutes(world, production):
 
     await job(world, NOW + holds.REPORT_WAIT)
 
-    assert (await one(EVENT)).status == (await one(INVITE)).status == "sent"
+    assert (await one(EVENT)).status == (await one(EMAIL)).status == "sent"
 
 
 @pytest.mark.asyncio
@@ -885,7 +889,7 @@ async def test_one_picked_while_its_text_is_on_its_way_waits_for_it(world, produ
     world.texts.report(ALEX_MOBILE, "delivered")
     await job(world, NOW + timedelta(minutes=1))
     assert (await one(EVENT)).status == "sent"
-    assert (await one(INVITE)).status == "captured"
+    assert (await one(EMAIL)).status == "captured"
 
 
 @pytest.mark.asyncio
@@ -897,12 +901,12 @@ async def test_one_whose_text_did_not_arrive_no_longer_applies(world, production
 
     found = {n["kind"]: n for n in await listed(world)}
 
-    assert (found[INVITE]["state"], found[INVITE]["reason"]) == (
+    assert (found[EMAIL]["state"], found[EMAIL]["reason"]) == (
         "no_longer_applies",
         "Its confirmation text did not reach the person.",
     )
-    assert await outcomes(world, INVITE) == {INVITE: "not_sent"}
-    assert world.calendar.log == []
+    assert await outcomes(world, EMAIL) == {EMAIL: "not_sent"}
+    assert world.emails.new == []
 
 
 @pytest.mark.asyncio
@@ -918,7 +922,7 @@ async def test_a_refused_number_marks_the_booking_and_alerts_the_team(world, pro
     assert by_kind["Prospect's confirmation"]["outcome"] == "not_sent"
     _, (alex,), _ = await rows()
     assert (alex.status, alex.attention_reason) == ("booked", "confirmation_refused")
-    assert (await one(EVENT)).status == (await one(INVITE)).status == "cancelled"
+    assert (await one(EVENT)).status == (await one(EMAIL)).status == "cancelled"
     alerter = RecordingAlerter()
     assert await alerts.check(now=NOW + timedelta(minutes=1), alerter=alerter) == 1
     assert alerter.alerts[0].body.startswith("Prospect's confirmation for unit 320-03")
@@ -960,13 +964,13 @@ async def test_a_corrected_mobile_does_not_send_what_was_stopped(world, producti
         await job(world, NOW + timedelta(minutes=minutes))
 
     assert [text.to for text in world.texts.sent] == [ALEX_MOBILE]
-    assert world.calendar.log == []
-    for kind in (EVENT, INVITE, NEW):
+    assert world.calendar.log == [] and world.emails.new == []
+    for kind in (EVENT, EMAIL, NEW):
         stopped = await one(kind)
         assert (stopped.status, stopped.send_approved_at) == ("captured", None), kind
     assert {n["kind"]: n["state"] for n in await listed(world) if n["kind"] != CONFIRMATION} == {
         EVENT: "ready",
-        INVITE: "ready",
+        EMAIL: "ready",
         NEW: "ready",
     }
 
@@ -987,8 +991,8 @@ async def test_a_correction_while_they_wait_leaves_them_to_the_mode(world, produ
     await job(world, NOW + timedelta(minutes=6))
 
     assert [text.to for text in world.texts.sent] == [ALEX_MOBILE]
-    assert world.calendar.log == []
-    assert (await one(EVENT)).status == (await one(INVITE)).status == "captured"
+    assert world.calendar.log == [] and world.emails.new == []
+    assert (await one(EVENT)).status == (await one(EMAIL)).status == "captured"
 
 
 @pytest.mark.asyncio
@@ -1157,7 +1161,9 @@ async def test_a_leads_reminder_by_email_is_not_sent_without_its_route(world, pr
     await store_settings(lead_agent_uses_open_times=True)
     production()
 
-    (found,) = [n for n in await listed(world) if n["channel"] == "email"]
+    (found,) = [
+        n for n in await listed(world) if n["kind"] == delivery_checks.LEAD_EMAIL_REMINDER_KIND
+    ]
 
     assert found["state"] == "no_longer_applies"
     assert found["reason"] == "This booking has no lead conversation to answer in."
@@ -1247,18 +1253,15 @@ async def test_a_cancellation_by_hand_cancels_the_event_that_was_sent_by_hand(
     await cancel(world, booked)
     await job(world, NOW + timedelta(minutes=1))
     found = await states(world)
-    assert found["host_event_cancel"] == found["prospect_invite_cancel"] == "ready"
+    assert found["host_event_cancel"] == found["prospect_email_cancel"] == "ready"
 
     sent = await outcomes(world)
 
     assert set(sent.values()) == {"sent"}
-    assert sorted(entry[0] for entry in world.calendar.log) == [
-        "cancel",
-        "cancel",
-        "create",
-        "create",
-    ]
+    assert [entry[0] for entry in world.calendar.log] == ["create", "cancel"]
     assert all(event.cancelled for event in world.calendar.events.values())
+    confirmation, cancellation = world.emails.to(ALEX_EMAIL)
+    assert cancellation.subject.startswith("Showing cancelled:")
 
 
 @pytest.mark.asyncio
@@ -1369,7 +1372,8 @@ async def test_an_event_captured_before_a_calendar_was_connected_goes_to_the_cal
     production()
 
     assert set((await outcomes(world)).values()) == {"sent"}
-    assert len(world.calendar.events_in(SHOWINGS_CALENDAR)) == 2
+    assert len(world.calendar.events_in(SHOWINGS_CALENDAR)) == 1
+    assert len(world.emails.to(ALEX_EMAIL)) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1401,7 +1405,7 @@ async def test_switching_modes_never_sends_what_is_already_captured(world, produ
         await job(world, at(19, minute, TUESDAY))
 
     assert await statuses_by_kind() == before
-    assert world.texts.sent == [] and world.calendar.log == []
+    assert world.texts.sent == [] and world.calendar.log == [] and world.emails.new == []
 
 
 @pytest.mark.asyncio
@@ -1424,7 +1428,8 @@ async def test_productions_row_today_sends_nothing_by_itself(world, production, 
     await cancel(world, booked)
     await job(world, at(18))
 
-    assert world.texts.sent == [] and world.calendar.log == [] and world.emails.sent == []
+    assert world.texts.sent == [] and world.calendar.log == []
+    assert world.emails.sent == [] and world.emails.new == []
     assert set((await statuses_by_kind()).values()) <= {"captured", "cancelled"}
 
 
@@ -1439,13 +1444,14 @@ async def test_one_that_fails_or_sticks_alerts_the_team_once(world, production):
     await book(world)
     production()
     world.calendar.lose(SHOWINGS_CALENDAR)
+    world.emails.failing = "rejected"
     world.texts.refuse(RESIDENT, "unavailable", retryable=True)
     await send(world)
     alerter = RecordingAlerter()
 
     assert await alerts.check(now=NOW + timedelta(minutes=1), alerter=alerter) == 2
     failed = sorted(alert.body.split(" for ")[0] for alert in alerter.alerts)
-    assert failed == ["Host's event", "Prospect's invite"]
+    assert failed == ["Host's event", "Prospect's confirmation email"]
 
     later = NOW + timedelta(hours=1)
     assert await alerts.check(now=later, alerter=alerter) == 1
@@ -1465,7 +1471,7 @@ async def test_the_messages_list_says_who_sent_it(world, production):
     by_kind = {notice["kind"]: notice for notice in messages}
     assert by_kind[CONFIRMATION]["send_approved_by"] == APPROVER
     assert datetime.fromisoformat(by_kind[CONFIRMATION]["send_approved_at"]) == NOW
-    assert by_kind[INVITE]["send_approved_by"] is None
+    assert by_kind[EMAIL]["send_approved_by"] is None
 
 
 @pytest.mark.asyncio
@@ -1524,7 +1530,7 @@ async def test_details_are_removed_after_12_months_whoever_sent_it(world, produc
         )
         await session.execute(
             update(ShowingNotice)
-            .where(ShowingNotice.kind == INVITE)
+            .where(ShowingNotice.kind == EMAIL)
             .values(status="captured", send_approved_by=None, send_approved_at=None)
         )
 
@@ -1540,7 +1546,7 @@ async def test_details_are_removed_after_12_months_whoever_sent_it(world, produc
     assert await retention.remove_old_details() == retention.RemovalReport()
     # A cleared row that was captured is far too late, and reads without a problem.
     assert {(n["kind"], n["state"], n["to"]) for n in await listed(world)} == {
-        (INVITE, "too_late", "Removed, removed"),
+        (EMAIL, "too_late", "Removed, removed"),
         (delivery_checks.HOST_MORNING_KIND, "too_late", "Jane Doe, removed"),
         (delivery_checks.RESIDENT_REMINDER_KIND, "too_late", "Residents, removed"),
     }
@@ -1629,13 +1635,13 @@ async def test_every_kind_is_too_late_by_the_one_rule(world, production):
                 notice.kind: notice.id
                 for notice in await session.scalars(
                     select(ShowingNotice).where(
-                        ShowingNotice.kind.in_([CONFIRMATION, EVENT, INVITE])
+                        ShowingNotice.kind.in_([CONFIRMATION, EVENT, EMAIL])
                     )
                 )
             }
         )
     boundaries = {kind: until for kind, (_, until) in kinds.items()}
-    boundaries |= {CONFIRMATION: start, EVENT: start, INVITE: start}
+    boundaries |= {CONFIRMATION: start, EVENT: start, EMAIL: start}
     production()
 
     for kind, until in boundaries.items():
@@ -1650,7 +1656,7 @@ async def test_every_kind_is_too_late_by_the_one_rule(world, production):
     world.now = max(boundaries.values())
     sent = await send(world, picked=sorted(made.values()))
     assert {result["outcome"] for result in sent.values()} == {"not_sent"}
-    assert world.texts.sent == [] and world.calendar.log == []
+    assert world.texts.sent == [] and world.calendar.log == [] and world.emails.new == []
 
 
 @pytest.mark.asyncio

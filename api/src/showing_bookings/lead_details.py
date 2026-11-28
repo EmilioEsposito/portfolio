@@ -25,7 +25,7 @@ the time picker.
   booking, then Turnstile, then, under the booking locks, the page's limits
   (not counting this place) and the place again. The same attendee gets the
   details and the consent record, and the confirmation text is queued with
-  the prospect's invite held behind it; when the host's event already went
+  the prospect's confirmation email held behind it; when the host's event already went
   out, an update held behind it too, so the host sees the new details. The
   host's event and the residents' text went when the reply was sent, so
   nothing else is queued. The confirmation text is delivered at once; if Quo
@@ -54,16 +54,16 @@ from api.src.showing_bookings import (
     host_event,
     lead_bookings,
     outbox,
+    prospect_email,
     wording,
 )
 from api.src.showing_bookings.models import (
     Showing,
-    ShowingAgentRecord,
     ShowingAttendee,
     ShowingNotice,
 )
 from api.src.showing_bookings.providers import TextSender
-from api.src.showing_bookings.schema import CalendarPayload, TextPayload
+from api.src.showing_bookings.schema import TextPayload
 from api.src.showing_bookings.settings import settings_for_delivery
 from api.src.zillow_leads import lead_links
 
@@ -342,7 +342,7 @@ async def _queue_notices(
     attempt: int,
     now: datetime,
 ) -> int:
-    """The confirmation text, due now, and what waits behind it: the invite and,
+    """The confirmation text, due now, and what waits behind it: the confirmation email and,
     when the host's event already went out, an update with the new details."""
     key = f"attendee:{attendee.id}:details:{attempt}"
     visit = bookings.visit_of(showing, rules)
@@ -358,25 +358,16 @@ async def _queue_notices(
         payload=TextPayload(body=wording.confirmation_text(visit, link)),
         now=now,
     )
-    host = await session.get_one(ShowingAgentRecord, showing.agent_id)
-    calendar_id = await host_event.showings_calendar(session, host)
     await outbox.enqueue(
         session,
-        kind=bookings.INVITE_KIND,
-        channel="calendar_invite",
+        kind=bookings.EMAIL_KIND,
+        channel="email",
         showing_id=showing.id,
         attendee_id=attendee.id,
         recipient=attendee.email,
         recipient_key=key,
-        payload=CalendarPayload(
-            operation="create",
-            calendar_id=calendar_id,
-            summary=wording.invite_summary(visit),
-            description=wording.invite_description(link),
-            location=showing.address,
-            starts_at=showing.starts_at,
-            ends_at=showing.ends_at,
-            attendees=[attendee.email],
+        payload=prospect_email.confirmation(
+            visit, cancel_url=link, file_url=bookings.calendar_file_url(attendee.cancel_token)
         ),
         now=now,
         waits_for_notice_id=confirmation.id,

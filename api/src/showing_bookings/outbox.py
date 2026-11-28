@@ -1,6 +1,6 @@
 """The notice outbox: the only code in ``showing_bookings`` that hands a notice to a provider.
 
-Every text, calendar event and invite a booking owes is first a row in
+Every text, email and calendar event a booking owes is first a row in
 ``showing_notices``, written by ``enqueue`` in the same transaction as the
 booking. ``deliver`` (one row, right after the booking commits) and ``drain``
 (every due row, from the job every minute) then take each
@@ -45,8 +45,8 @@ never gets two events. A showing with no one booked, or cancelled, cancels
 the notice, and so does an earlier create whose outcome is unknown. What was
 rendered is saved on the row.
 
-A cancellation of the host's event or of a prospect's invite
-(``host_event.CANCEL_KINDS``) is checked the same way when it is settled or
+A cancellation of the host's event or of a prospect's invite sent before
+2026-11-28 (``host_event.CANCEL_KINDS``) is checked the same way when it is settled or
 claimed: it waits while the event is being created, goes ahead when the event
 exists (or its create was captured, so capture mode keeps it too), and is
 cancelled when there is no event to cancel. A cancellation never creates one.
@@ -67,13 +67,21 @@ A reminder or a host's text (``delivery_checks.KINDS``) is checked by
 ``delivery_checks.check``: still booked, still scheduled, not started, the
 number as it is now, and a reminder only in the daytime.
 
-Email: only a lead's reminder in their Zillow thread
-(``delivery_checks.LEAD_EMAIL_REMINDER_KIND``) is ever sent, through an
-``EmailSender`` (Gmail, ``gmail_thread.py``). Its check reads the recipient,
-subject and the message it answers from the lead conversation's stored route,
-under the same lock, just before the guard is asked; when there is no usable
-route it is saved as failed without a send. Any other email the guard would
-send fails with ``no_email_sender``.
+Email goes through an ``EmailSender`` (Gmail, ``gmail_thread.py``), and only
+two sorts are ever sent:
+
+- a lead's reminder in their Zillow thread
+  (``delivery_checks.LEAD_EMAIL_REMINDER_KIND``). Its check reads the
+  recipient, subject and the message it answers from the lead conversation's
+  stored route, under the same lock, just before the guard is asked; when there
+  is no usable route it is saved as failed without a send.
+- a prospect's confirmation email and cancellation email
+  (``host_event.EMAIL_KINDS``), new messages to the address on the booking.
+  The confirmation is checked like the confirmation text (``FOR_A_BOOKING_KINDS``).
+  The cancellation never overtakes it: it waits a minute while the
+  confirmation is being sent, and goes only if it went out (``told.py``).
+
+Any other email the guard would send fails with ``no_email_sender``.
 
 A notice about to be really sent whose message follows another (a cancellation, a
 change) is cancelled instead when the other was captured and never sent
@@ -113,6 +121,7 @@ from api.src.showing_bookings.providers import (
     CalendarSource,
     EmailSender,
     EventDraft,
+    NewEmail,
     NotSent,
     TeamAlerter,
     TextSender,
@@ -562,7 +571,7 @@ async def _prepare(
     (``host_event.calendar_now``). ``lock`` False reads without locking the
     showing, for ``preview``.
 
-    A notice for one booking (its confirmation text or its invite,
+    A notice for one booking (its confirmation text or email, or an old invite,
     ``host_event.FOR_A_BOOKING_KINDS``) is cancelled when the attendee is no
     longer booked or the showing no longer scheduled. That covers a retry: a
     send that was under way when the booking was cancelled, then failed and
@@ -572,8 +581,10 @@ async def _prepare(
     once the showing has started (``_due_rows`` leaves it out until then).
 
     A host event notice is rendered from its showing under the showing's
-    lock; a cancellation (the host's event or a prospect's invite) is checked
-    for an event to cancel (``host_event.cancel_check``).
+    lock; a cancellation (the host's event or a prospect's old invite) is
+    checked for an event to cancel (``host_event.cancel_check``). A prospect's
+    cancellation email waits a minute while their confirmation email is being
+    sent.
 
     Returns ``_NOT_NOW`` when the row is not delivered in this run: cancelled
     (no one booked, an earlier create may have gone out, or there is no event
@@ -605,6 +616,21 @@ async def _prepare(
             return _NOT_NOW
         if verdict.later is not None:
             notice.not_before = verdict.later
+            return _NOT_NOW
+        return None
+    if notice.kind == host_event.EMAIL_CANCEL_KIND:
+        # Never ahead of the confirmation email: wait while it is being sent.
+        if await session.scalar(
+            select(ShowingNotice.id)
+            .where(
+                ShowingNotice.attendee_id == notice.attendee_id,
+                ShowingNotice.kind == host_event.EMAIL_KIND,
+                ShowingNotice.status == "pending",
+                ShowingNotice.sending_started_at.is_not(None),
+            )
+            .limit(1)
+        ):
+            notice.not_before = now + HOST_EVENT_BUSY_DELAY
             return _NOT_NOW
         return None
     if notice.kind in host_event.FOR_A_BOOKING_KINDS:
@@ -902,14 +928,28 @@ def _live_email_sender() -> EmailSender:
     return GmailThreadSender()
 
 
+# The kinds of email the outbox sends; any other fails with ``no_email_sender``.
+SENT_EMAIL_KINDS = frozenset({delivery_checks.LEAD_EMAIL_REMINDER_KIND}) | host_event.EMAIL_KINDS
+
+
 async def _send_email(item: _Claimed, sender: EmailSender | None) -> _Outcome:
-    """A lead's reminder in their Zillow thread, to the route its check read from
-    the lead conversation in this claim. Any other email cannot go."""
+    """A lead's reminder in their Zillow thread, to the route its check read from the
+    lead conversation in this claim, or a prospect's email to the address on the
+    booking. Any other email cannot go."""
     if sender is None:
         raise NotSent(
-            "no_email_sender", "Only the reminder in a lead's Zillow thread is sent by email."
+            "no_email_sender",
+            "Only a lead's reminder in their Zillow thread and a prospect's showing "
+            "emails are sent by email.",
         )
     payload = EmailPayload.model_validate(item.payload)
+    if item.kind in host_event.EMAIL_KINDS:
+        sent = await sender.send_new(
+            NewEmail(
+                to=item.recipient, subject=payload.subject, text=payload.body, html=payload.html
+            )
+        )
+        return _Outcome("sent", provider_id=sent.provider_id)
     if not payload.reply_to_message_id:
         raise NotSent("no_route", "The lead's reply route was not read, so nothing was sent.")
     sent = await sender.send_in_thread(
@@ -941,7 +981,7 @@ async def _send(item: _Claimed, senders: _Senders) -> _Outcome:
     email_sender = None
     if item.channel == "sms":
         sender = texts if texts is not None else _live_text_sender()
-    elif item.channel == "email" and item.kind == delivery_checks.LEAD_EMAIL_REMINDER_KIND:
+    elif item.channel == "email" and item.kind in SENT_EMAIL_KINDS:
         email_sender = senders.emails if senders.emails is not None else _live_email_sender()
     try:
         if sender is not None:

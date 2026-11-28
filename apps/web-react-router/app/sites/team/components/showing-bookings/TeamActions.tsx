@@ -207,7 +207,7 @@ export function AddBooking({
           </Label>
           <p id="team-booking-texts-help" className="text-xs text-muted-foreground">
             {hasMobile
-              ? "Ticked: a confirmation text now, and the calendar invite once it is delivered. Not ticked: no texts at all."
+              ? "Ticked: a confirmation text now, and the confirmation email once it is delivered. Not ticked: no texts at all."
               : "Add a mobile to text them. Without one they get no texts."}
           </p>
         </div>

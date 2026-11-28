@@ -3,8 +3,8 @@
 A person approving a booking or a cancellation from a chat, rather than from
 the Booking settings tab, must see what the click does: who is booked or
 cancelled, where and when, and who is told (the host's calendar event, the
-residents' text, the prospect's confirmation text, invite or cancellation
-text) and what the send mode does with those messages. The general agent's
+residents' text, the prospect's confirmation text and email, or cancellation
+text and email) and what the send mode does with those messages. The general agent's
 showing tools (``sernia_ai/tools/showing_tools.py``) put this text on their
 approval card; any other caller that asks a person to approve a team action
 should take its text from here too, so there is one wording.
@@ -193,7 +193,7 @@ def booking_sentence(
     if texts and mobile:
         prospect.append(f"a confirmation text at {wording.display_phone(mobile)}")
     if email:
-        prospect.append(f"a calendar invite at {email}")
+        prospect.append(f"a confirmation email at {email}")
     told.append(f"{name} gets {' and '.join(prospect)}" if prospect else f"{name} is sent nothing")
     lines.append(f"{'; '.join(told)}.")
     if not (texts and mobile):
@@ -336,7 +336,7 @@ def cancellation_sentence(
             " and they are texted now, as it starts within 2 hours" if late else ""
         )
         lines.append(
-            f"Any calendar invites they were sent are withdrawn; {host_told}; {residents}."
+            f"Anyone sent a confirmation email gets a cancellation email; {host_told}; {residents}."
         )
     else:
         others = [person.name for person in booked if person.id != target.id]
@@ -350,7 +350,7 @@ def cancellation_sentence(
             " and they are texted now, as it starts within 2 hours" if late else ""
         )
         lines.append(
-            f"Any calendar invite they were sent is withdrawn; {host_told}; "
+            f"If they were sent a confirmation email, they get a cancellation email; {host_told}; "
             f"{_names(others)} {'stays' if len(others) == 1 else 'stay'} booked."
         )
     lines.append(sending_sentence(settings, showing.unit))

@@ -188,12 +188,12 @@ test("only a save that starts real sends in production asks, and names the units
   const live = (patch: Partial<BookingSettings> = {}) => settings({ send_mode: "live", ...patch });
   assert.equal(
     liveStartQuestion(settings(), live({ live_units: ["320-03", "412-01"] }), true),
-    "This starts real texts and calendar invites for 320-03 and 412-01. Save?",
+    "This starts real texts and emails for 320-03 and 412-01. Save?",
   );
   // Only the ones it starts.
   assert.equal(
     liveStartQuestion(live({ live_units: ["320-03"] }), live({ live_units: ["320-03", "12-A"] }), true),
-    "This starts real texts and calendar invites for 12-A. Save?",
+    "This starts real texts and emails for 12-A. Save?",
   );
   // A tick saved while the mode was another one starts now.
   assert.match(
@@ -283,9 +283,9 @@ test("a captured message says why it is grayed, or why it would wait", () => {
     "The booking was cancelled.",
   );
   // It waits for its confirmation only while both are ticked, or while that is on its way.
-  const invite = captured({ id: 2, kind: "prospect_invite", waits_for_notice_id: 1 });
-  assert.equal(capturedLine(invite, new Set([1, 2])), "Goes once the confirmation is delivered.");
-  assert.equal(capturedLine(invite, new Set([2])), null);
+  const email = captured({ id: 2, kind: "prospect_email", waits_for_notice_id: 1 });
+  assert.equal(capturedLine(email, new Set([1, 2])), "Goes once the confirmation is delivered.");
+  assert.equal(capturedLine(email, new Set([2])), null);
   assert.equal(
     capturedLine(captured({ confirmation_on_its_way: true }), none),
     "Goes once the confirmation is delivered.",
@@ -529,7 +529,7 @@ test("a team cancellation says what it changes and sends", () => {
 
   const one = describeRemoval(SHOWING, PEOPLE[0], "");
   assert.match(one, /^Remove Alex Parker from the showing of 320-03/);
-  assert.match(one, /Alex Parker gets a cancellation text, their calendar invite is withdrawn, and Jane Doe's event is updated\.$/);
+  assert.match(one, /Alex Parker gets a cancellation text, a cancellation email if they got the confirmation email, and Jane Doe's event is updated\.$/);
   const last = describeRemoval({ ...SHOWING, people: [PEOPLE[1]] }, PEOPLE[1], "");
   assert.match(last, /Robin Lee gets no text, .*the showing is cancelled, with Jane Doe's event\.$/);
 });

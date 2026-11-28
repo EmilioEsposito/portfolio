@@ -34,7 +34,7 @@ before the send:
   (name, mobile, email, the consent to texts and the requirement ticks) and its
   number is not known to be wrong, the new place takes them over as they are
   (``_moving``), the consent record included: consent was given then. Its
-  confirmation text, worded as a move, and the invite behind it are queued too,
+  confirmation text and email, worded as a move, are queued too,
   and nothing reaches the lead before the reply's send is settled
   (``delivery_checks.reply_unsettled``). The email told the lead, so the place
   stands if the number is refused, and is marked for the team. Otherwise the

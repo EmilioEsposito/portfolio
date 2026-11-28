@@ -12,6 +12,7 @@ sent. A notice the guard captures is never asked about.
 | A message | Follows | Goes when |
 | --- | --- | --- |
 | the residents' cancellation | their new-showing text, or a reminder that listed the showing | one of them went |
+| a prospect's cancellation email | their confirmation email | it went |
 | a host's event or a prospect's invite cancelled, an old host's event cancelled | the event | there is an event to cancel |
 | a host's event update because someone left, with no event to change | the host's event | an earlier host notice was not just captured |
 | a host's text that someone left, that the showing is cancelled or that it moved away | anything that told that host of the showing | something did, or nothing was captured for them |
@@ -31,6 +32,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.src.showing_bookings import delivery_checks, host_event, residents
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 
+EMAIL_NEVER_SENT = (
+    "Not sent: the confirmation email was captured and never sent, "
+    "so there is nothing to cancel by email."
+)
 HOST_NEVER_TOLD = (
     "Not sent: the host's messages about this showing were captured and never sent, "
     "so there is nothing to change."
@@ -103,6 +108,14 @@ async def missing(session: AsyncSession, notice: ShowingNotice, event_id: str | 
     it follows never was; None when it may go. ``event_id``: the calendar event it
     applies to, as the outbox found it, or None when there is none."""
     kind = notice.kind
+    if kind == host_event.EMAIL_CANCEL_KIND:
+        rows = await session.execute(
+            select(ShowingNotice.status, ShowingNotice.sending_started_at).where(
+                ShowingNotice.attendee_id == notice.attendee_id,
+                ShowingNotice.kind == host_event.EMAIL_KIND,
+            )
+        )
+        return None if any(_went(status, started) for status, started in rows) else EMAIL_NEVER_SENT
     if kind == residents.CANCELLED_KIND:
         told = await _residents_told(session, notice.showing_id)
         return None if told else residents.NEVER_TOLD_NOTE

@@ -221,7 +221,7 @@ JOB_INFO = JobInfo(
         "that still hold a prospect's details, and removes them. Each attendee's name "
         'becomes "Removed"; their mobile, email, browser details, hashed IP address, '
         "lead link token and requirement ticks are emptied; and their cancel link stops "
-        "working. Every text, email, calendar event and invite recorded for the showing, "
+        "working. Every text, email and calendar event recorded for the showing, "
         "to prospects, residents or the host, has its recipient and wording replaced by a "
         "note that it was removed."
         "\n\n"

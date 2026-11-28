@@ -249,7 +249,7 @@ class ShowingAttendee(Base):
     user_agent: Mapped[str | None] = mapped_column(String, nullable=True)
     # The request's ``Signature-Agent`` header, when an agent signed it.
     signature_agent: Mapped[str | None] = mapped_column(String, nullable=True)
-    # The prospect's own event, which invites only them.
+    # The prospect's own invite event, sent only before 2026-11-28 (one per prospect).
     calendar_event_id: Mapped[str | None] = mapped_column(String, nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Why a cancelled attendee was cancelled, such as "number_refused" when Quo

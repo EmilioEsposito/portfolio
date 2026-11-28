@@ -54,7 +54,7 @@ cancel token.
 
 ## Notices
 
-Every text, email, calendar event and invite is a row in `showing_notices`
+Every text, email and calendar event is a row in `showing_notices`
 before it is anything else (`channel` is `sms`, `email`, `calendar_event` or
 `calendar_invite`). Code that owes a notice calls `outbox.enqueue` inside its own
 transaction, so the notice is saved with the booking or not at all. Queuing the
@@ -85,10 +85,14 @@ row still marked as sending ten minutes later was cut off midway and becomes
 may work (Quo out of reach or rate limited), the row stays `pending` with a
 later `not_before`, up to five attempts.
 
-The only email ever sent is a lead's reminder in their Zillow thread
-(`lead_email_reminder`, see Reminders the evening before). An email notice is
-captured like any other; one of another kind that the guard would send is
-saved as `failed` with the reason `no_email_sender`. A notice whose check
+Two sorts of email are sent: a lead's reminder in their Zillow thread
+(`lead_email_reminder`, see Reminders the evening before), and a prospect's
+confirmation and cancellation emails (`prospect_email`, `prospect_email_cancel`,
+see The prospect's emails). An email notice is captured like any other; one of
+another kind that the guard would send is saved as `failed` with the reason
+`no_email_sender`. The `calendar_invite` channel is for the invites prospects
+got before 2026-11-28: none is queued now, and one already sent is withdrawn
+when its booking is cancelled. A notice whose check
 finds it cannot go and needs the team (the reminder by email with no usable
 route) is saved as `failed` before the guard is asked, with no send.
 
@@ -112,8 +116,9 @@ general `send_message` or `create_calendar_event`, which have no guard. The
 team's alert channel (`push.py`) is held to the same rule: only `outbox.py`
 imports it or calls `send_alert`, and the reminders, host's texts and alerts
 reach no provider but through the outbox. Email too: only `outbox.py` imports
-the Gmail sender (`gmail_thread.py`) or calls `send_in_thread`, and only the
-Gmail sender imports the lead agent's module or names one of its sends.
+the Gmail sender (`gmail_thread.py`) or calls `send_in_thread` or `send_new`,
+and only the Gmail sender imports the lead agent's module or names one of its
+sends.
 
 ## Send modes and the guard
 
@@ -232,7 +237,8 @@ and never sent.
 | A message | Goes when |
 | --- | --- |
 | the residents' cancellation | their new-showing text, or a reminder that listed the showing, went |
-| a host's event or prospect's invite cancelled, an old host's event cancelled | there is an event to cancel |
+| a prospect's cancellation email | their confirmation email went |
+| a host's event or prospect's old invite cancelled, an old host's event cancelled | there is an event to cancel |
 | a host's event update because someone left, with no event yet | something for that host about the showing went, or nothing was captured |
 | a host's text that someone left, that the showing is cancelled or that it moved away | the same |
 
@@ -256,11 +262,16 @@ joins live a showing that was booked in capture mode.
   A number like that is not caught when the text is sent; reading the text's
   status afterwards (`outbox.refresh_text_status`) is what catches it.
 - `EmailSender`: an email as a reply in a Zillow lead's thread
-  (`ThreadRoute`: the relay address, the thread's subject, the message it
-  answers). `gmail_thread.GmailThreadSender` reads the thread's headers and
-  sends with `zillow_leads.handle.send_thread_email`, the Gmail call behind
-  the lead agent's `send_reply`, from the shared external mailbox. It never
-  sends unthreaded: headers it cannot read are `NotSent`, tried again later.
+  (`send_in_thread`, with a `ThreadRoute`: the relay address, the thread's
+  subject, the message it answers), or a new email to a prospect (`send_new`,
+  with a `NewEmail`: plain text and HTML). `gmail_thread.GmailThreadSender`
+  sends both from the shared external mailbox through the lead agent's own
+  Gmail call: a reply reads the thread's headers and goes with
+  `zillow_leads.handle.send_thread_email`, the call behind the lead agent's
+  `send_reply`, and never unthreaded (headers it cannot read are `NotSent`,
+  tried again later); a new email goes with `handle.send_new_email`, the same
+  call and credentials with no thread, from "Sernia Capital
+  <all@serniacapital.com>".
   Gmail's refusals (by the lead agent's own `handle.send_result`) become
   `NotSent`; anything else may have gone out and is saved as `unknown`.
 - `TeamAlerter`: an alert on the team's phones. `push.PushTeamAlerter` uses
@@ -604,9 +615,10 @@ Sernia sign-in.
 `public_booking_enabled` in the settings row is true, false or unset. Unset
 means off in production and on everywhere else. While it is off, every public
 route answers 404, as for a path that does not exist, and saves nothing,
-except two: `POST /bookings/lookup` and `POST /bookings/cancel` answer either
-way, so a person booked before the team closed booking can still read and
-cancel from the link in their text. A cancel token exists only for a booking
+except three: `POST /bookings/lookup`, `POST /bookings/calendar` and
+`POST /bookings/cancel` answer either way, so a person booked before the team
+closed booking can still read, add to a calendar and cancel from the links in
+their text and email. A cancel token exists only for a booking
 once made, so they show nothing while booking has never been on. The tab's "Who
 can book" sets it on or off through `PUT /settings/public-booking`; a send-mode
 save keeps it as stored.
@@ -630,6 +642,7 @@ tokens; a cancel token travels in the body for the same reason.
 | `POST /units/{unit}/lead-booking` | `{lead_token}`: the place booked for the token's thread at this unit: `{unit, address, starts_at, ends_at, timezone, details_added, texted}`, nothing else. `details_added` is false for the place the lead agent booked by email while the lead has not added their details, and true when they are in. `texted` is whether their confirmation text went. 404 `no_booking` with neither, or with the lead agent's switch off. See Showings booked by email below. |
 | `POST /units/{unit}/lead-booking/unit` | `{lead_token}`: what `GET /units/{unit}` answers, with no offers, for a thread with such a place, whether or not the unit may be booked now. 404 `no_booking` otherwise. |
 | `POST /units/{unit}/lead-booking/details` | The booking form's body without `start`, plus `lead_token`: completes that place with the lead's details. 201 with the same answer as a booking, `kind` `details`; 409 `already_completed`; 404 `no_booking`. |
+| `POST /bookings/calendar` | `{cancel_token}`: the booking as an iCalendar file (`text/calendar`), for the confirmation email's "Add to Apple or Outlook calendar" link (see The prospect's emails). Only while it is booked and the start is ahead: 409 `not_booked` or `started` otherwise, 404 `unknown_booking`. |
 | `POST /bookings/lookup` | `{cancel_token}`: status, unit, address, start and end, time zone, the mobile with all but the last two digits hidden, `texted` (the confirmation text to that mobile went out, or may have; false while it is captured or waiting, when the page says "We'll text" instead of "We texted"), the corrections left, `started` (the start has passed) and `cancelled_by_team` (cancelled by the team or because the unit went off the market). |
 | `POST /bookings/mobile` | `{cancel_token, mobile}`: texts the confirmation to the new number, at most twice per booking; the same answer as the lookup. |
 | `POST /bookings/cancel` | `{cancel_token}`: cancels the booking (see Cancelling below) and answers as the lookup does. A booking already cancelled answers the same and sends nothing; 409 `started` once the showing has started; 404 `unknown_booking`. |
@@ -671,11 +684,11 @@ tokens; a cancel token travels in the body for the same reason.
      `already_booked`, as a mobile already in it is.
    - the notices: the prospect's confirmation text, due now; a host event
      notice (`host_event` with the first attendee, `host_event_update` for
-     each one who joins); and the prospect's own invite (`prospect_invite`,
-     with that prospect as its only guest). The host notice and the invite
-     are held behind the confirmation text. Someone booked without texts, or
-     with no mobile, gets no text and nothing is held: the host notice and
-     the invite are due now, and with no email there is no invite.
+     each one who joins); and the prospect's confirmation email
+     (`prospect_email`, see The prospect's emails). The host notice and the
+     email are held behind the confirmation text. Someone booked without
+     texts, or with no mobile, gets no text and nothing is held: the host
+     notice and the email are due now, and with no address there is no email.
 
    Steps 3 and 4 are `bookings.place_booking`, which every booking goes
    through: the page, the team (the tab's Add a booking and the general
@@ -693,7 +706,7 @@ tokens; a cancel token travels in the body for the same reason.
    confirmation or due at once without one; a lookup that went wrong marks the
    showing and never stops the booking. A place booked from the lead agent's
    reply stands whatever happens to its confirmation text (the email told the
-   lead), so only its invite waits for that text; its host notice and the
+   lead), so only its email waits for that text; its host notice and the
    residents' text do not.
 4. After the commit the confirmation text is delivered at once. If Quo refuses
    the number (invalid, unreachable or opted out) the booking is withdrawn:
@@ -759,11 +772,11 @@ notice waits a minute. A showing that is cancelled or has no one booked
 cancels the notice ("Not sent: the showing has no one booked"), and so does an
 earlier create whose outcome is unknown, rather than risk a second event.
 What was rendered is saved on the row, so the Messages list and capture mode
-show what went out. The prospect's own invite keeps the payload it was queued
-with.
+show what went out. The prospect's confirmation email keeps the payload it was
+queued with.
 
 A cancellation of the host's event (`host_event_cancel`) or of a prospect's
-invite (`prospect_invite_cancel`) is checked the same way when it is delivered
+invite sent before 2026-11-28 (`prospect_invite_cancel`) is checked the same way when it is delivered
 (`host_event.cancel_check`): it waits a minute while the event is being
 created, goes ahead when the event exists, or when its create was captured
 (so capture mode keeps the cancellation too), and is cancelled otherwise,
@@ -773,6 +786,49 @@ the calendar and remove it by hand". A cancellation never creates an event.
 All wording, with versions, is in `wording.py`: the three confirmations, the
 consent small print, and the texts and calendar entries a booking sends.
 Emilio reviews it before launch.
+
+### The prospect's emails
+
+`prospect_email.py` lays out; `wording.py` holds the words
+(`confirmation_email`, `cancellation_email`, `PROSPECT_EMAIL_VERSION`).
+
+A prospect with an email address gets a plain email from all@serniacapital.com,
+never a calendar invitation: Gmail files a calendar invitation from a sender
+the recipient has never dealt with as "Invitation from an unknown sender" and
+keeps it off their calendar, which is every prospect. Until 2026-11-28 a
+booking sent a Google invite (`prospect_invite`); invites already sent stay as
+they are, and one is still withdrawn when its booking is cancelled.
+
+| Email | Kind | When | Says |
+| --- | --- | --- | --- |
+| The confirmation | `prospect_email` | queued with the booking, held behind the confirmation text like the host's event (due at once with no text); for a lead who adds their details, behind that text | when, where with a map link, that a Sernia Capital agent will meet them, "Add to Google Calendar", "Add to Apple or Outlook calendar", and the cancel link. Worded as a move ("Your showing has moved", the time it replaces, remove it from your calendar) for a lead's moved showing |
+| The cancellation | `prospect_email_cancel` | the booking is cancelled after the confirmation went out (sent, captured, unknown or being sent), except the old place of a moved showing | the showing is cancelled, remove it from your calendar, and the unit's booking page (they cancelled) or the units open for showings (the team cancelled, or the unit went off the market) |
+
+- Subjects: "Your showing: 324 S Main St Apt 11, Sun, Nov 29 at 1:30 PM",
+  "Your showing has moved: …", "Showing cancelled: …".
+- Each is plain text with an HTML alternative: one card in the Sernia public
+  pages' colours, inline styles and tables only, and no images or tracking.
+  No attachment.
+- "Add to Google Calendar" opens Google Calendar's add-event page filled in
+  (title, times, address, the cancel link); nothing is added until they save.
+  "Add to Apple or Outlook calendar" is `<SHOWING_PUBLIC_BASE_URL>/showings/calendar/<cancel token>.ics`:
+  the web app posts the token to `POST /public/bookings/calendar` and serves
+  the answer as a download, or sends the person to the cancel page when the
+  booking is cancelled, started or unknown. The file is one event,
+  `METHOD:PUBLISH`, no organizer or attendees, with an id derived from the
+  token (not the token), the address, the times and the cancel link: what
+  the cancel page shows.
+- Every rule of the invite holds: the guard and capture mode (the address is
+  checked against `SHOWING_TEST_EMAILS`), held behind the confirmation text
+  and stopped when it is undelivered or the booking is withdrawn, the
+  unsettled-reply rule for a place the lead agent booked, checked again each
+  time it is delivered (`host_event.FOR_A_BOOKING_KINDS`), alerts, and the
+  12-month removal of the recipient and payload. No address, no email.
+- The cancellation never overtakes the confirmation: it waits a minute while
+  the confirmation is being sent, and when it would really go it is stopped
+  if the confirmation was only captured (`told.py`).
+- Sent through the outbox's `EmailSender.send_new`; Gmail's refusal is
+  `failed`, anything else uncertain is `unknown`, as for every email.
 
 ### Changing the host
 
@@ -809,7 +865,7 @@ create was captured, and is cancelled with "never created", or "check the
 calendar and remove it by hand" when the old create's outcome is unknown.
 The old host's notices that are stopped lose their hold, so a corrected
 mobile does not bring them back. Prospects are told nothing: they were never
-shown a host, and their invites stay as they are.
+shown a host, and their emails stay as they are.
 
 ### Cancelling
 
@@ -819,10 +875,10 @@ because phones and mail scanners open links to preview them.
 
 | Case | Attendee | Showing | Prospect | Host's event |
 | --- | --- | --- | --- | --- |
-| A prospect cancels, others still booked | cancelled, `prospect` | stays | a text confirming it, with the unit's booking page; invite withdrawn | updated |
+| A prospect cancels, others still booked | cancelled, `prospect` | stays | a text and an email confirming it, with the unit's booking page | updated |
 | The last prospect cancels | cancelled, `prospect` | cancelled, `prospect` | the same | cancelled |
-| A lead moved their showing by email: the old place | cancelled, `prospect` | stays, or cancelled (`prospect`) when they were the last | no text; invite withdrawn | updated, or cancelled when they were the last |
-| The team removes one attendee | cancelled, `team` | cancelled when they were the last | the team's cancellation text, with the units on offer; invite withdrawn | updated, or cancelled when they were the last |
+| A lead moved their showing by email: the old place | cancelled, `prospect` | stays, or cancelled (`prospect`) when they were the last | nothing: the new place's text and email say it replaces this one | updated, or cancelled when they were the last |
+| The team removes one attendee | cancelled, `team` | cancelled when they were the last | the team's cancellation text and email, with the units on offer | updated, or cancelled when they were the last |
 | The team cancels a showing | each cancelled, `team` | cancelled, `team` | the same | cancelled |
 | The unit goes off the market | each cancelled, `off_market` | cancelled, `off_market` | the same | cancelled |
 
@@ -830,21 +886,23 @@ because phones and mail scanners open links to preview them.
   gone out are stopped (`cancelled`, "Not sent: the booking was cancelled.");
   ones being sent are left to finish. A cancellation never stops the notices
   an earlier cancellation queued.
-- An invite or host's event that went out (sent, captured, unknown or being
-  sent) gets a cancellation notice; one still held or pending gets nothing.
+- A confirmation email that went out (sent, captured, unknown or being sent)
+  gets a cancellation email; one still held or pending gets nothing. The same
+  rule withdraws an invite sent before 2026-11-28 and cancels the host's
+  event.
   When someone is still booked, the host's event gets an update that renders
   at delivery without them.
 - Texts go only to an attendee with a mobile who accepted texts and whose
   confirmation text was not reported undelivered or refused
   (`attention_reason`); a number known to be wrong is not texted again, though
-  the invite is still withdrawn. Nor is a lead about a place whose reply never
+  the email still goes. Nor is a lead about a place whose reply never
   went (`delivery_checks.reply_unsettled`), which they never heard of. A
   prospect's or the team's cancellation text is delivered at once; calendar
   changes go with the job every minute. Off-market cancellations queue
   everything for the job.
 - A showing that moved texts the lead no cancellation: the old place is
   cancelled with `moved` (`cancelling.cancel_attendee`), which leaves out that
-  one text and nothing else. The invite is withdrawn, and the host's and the
+  text and the cancellation email, and nothing else: the host's and the
   residents' notices are those of any cancellation. A real cancellation by the
   lead still texts them.
 - Up to the start. A prospect cancelling after it is refused with 409
@@ -875,7 +933,7 @@ because phones and mail scanners open links to preview them.
   sentence in its arguments (`off_market_effect`). With nothing booked from
   the date, both save at once. The Sernia MCP service gets the refusal and
   saves nothing; it has no confirm step yet.
-- A prospect's confirmation text and invite are checked again each time they
+- A prospect's confirmation text and email are checked again each time they
   are delivered, first try or retry (`host_event.FOR_A_BOOKING_KINDS`): once
   the attendee is cancelled or the showing is, they are cancelled and never
   sent. So a send under way when the booking is cancelled, which then fails
@@ -891,7 +949,7 @@ booked people.
 `holds.release_held(now=)` looks at each confirmation text that holds
 something:
 
-| The confirmation | The held event and invite |
+| The confirmation | The held event and email |
 | --- | --- |
 | reported `delivered` | released: pending and due now |
 | reported `undelivered` or `failed` | cancelled; the booking gets `attention_reason` `confirmation_undelivered` |
@@ -900,7 +958,7 @@ something:
 | refused or otherwise failed, or cancelled | cancelled; the booking is marked for the team |
 | pending, or unknown for less than 5 minutes | left held |
 
-A confirmation or an invite for a place the lead agent booked also waits,
+A confirmation text or email for a place the lead agent booked also waits,
 whatever its time, until the reply that books the place is settled: sent, or
 possibly sent (see Showings booked by email). Such a row stays as it is, and
 counts as stuck ten minutes after it was due, so the team is alerted.
@@ -1064,19 +1122,20 @@ read again under the booking locks; one that changed meanwhile holds the reply
 - The confirmation text says it is a move: the new day, time and place, the
   showing it replaces, the cancel link and the STOP line
   (`wording.moved_confirmation_text`, version `MOVED_VERSION`, the same kind
-  of notice as any confirmation). The invite waits behind its delivery.
-- Nothing reaches the lead before the reply is settled. The text and the invite
+  of notice as any confirmation). The confirmation email, worded as a move,
+  waits behind its delivery.
+- Nothing reaches the lead before the reply is settled. The text and the email
   are held like the place's other notices and go when the reply is sent, or
   after the five minutes when its result is uncertain. Beyond that hold they
   never go while the reply is unsettled, and neither does a reminder, an apply
   text or a cancellation text about the place. A process that stopped before
   the send therefore texts the lead nothing until a person decides the card.
-  The run every minute leaves such a text and invite out before its limit, so
+  The run every minute leaves such a text and email out before its limit, so
   they never hold up other messages, and stops them once the showing starts.
 - A definite failure cancels the place before anything went, with no text.
 - If Quo refuses the number, or the text is undelivered, the place stands,
   marked for the team (`confirmation_refused`, `confirmation_undelivered`), and
-  the invite is not sent. The host's event and the residents' text do not wait
+  the email is not sent. The host's event and the residents' text do not wait
   for the text. The reminder the evening before then goes by email.
 
 The lead adds their details (`lead_details.py`). The reply's link carries the
@@ -1092,7 +1151,7 @@ With neither, it is the normal form.
 `POST /units/{unit}/lead-booking/details` checks the fields and ticks as for a
 page booking, Turnstile, the page's limits (not counting this place), then under the locks (shared booking lock, mobile, email, thread)
 saves the details and the consent record on the same attendee and queues the
-confirmation text with the invite held behind it, plus a host event update
+confirmation text with the confirmation email held behind it, plus a host event update
 held behind it when the host's event already went out. The confirmation is
 delivered at once; the held notices are released by the usual rules. If Quo
 refuses the number, the details are undone, the held notices stopped, and the
@@ -1407,7 +1466,7 @@ A booking for a caller:
   bookings do not count towards the site's daily cap.
 - `texts: true` with a mobile: the consent record is saved (the time, the
   wording version, and `team:<who took it>` as the page), the confirmation
-  text is delivered at once, and the host's event and the invite wait behind
+  text is delivered at once, and the host's event and the email wait behind
   it, as for a page booking. A number Quo refuses withdraws the booking as on
   the page: 422 `number_refused`.
 - Otherwise the attendee is saved as not accepting texts, nothing is texted
@@ -1454,7 +1513,7 @@ be booked for now, with the reason), `unknown_showing`, `unknown_attendee`,
 `already_cancelled` or `started`. The paragraph names who is booked or
 cancelled, the unit, the time in local words and the host. It says who is
 told: the host's calendar event (and a text inside 2 hours), the residents'
-text, the prospect's confirmation text and invite, or cancellation texts. It
+text, the prospect's confirmation text and email, or cancellation texts and emails. It
 ends with what the send mode does with those messages (`sending_sentence`).
 The booking preview reads calendars afresh (`open_times.recheck`), so the
 host it names is the host the booking would get. Because a preview is read
@@ -1573,7 +1632,7 @@ and after the start; attendance; and every route refused without a sign-in.
 `test_showing_cancelling.py` runs each cancellation through the routes: a
 prospect with others booked, the last one, twice, after the start, an unknown
 link, while the notices are held, while the event is being created, after the
-event and invite went out, the team's two actions, an off-market date saved
+event and email went out, the team's two actions, an off-market date saved
 through the rental listing routes, the place offered again, and that no answer
 shows another attendee. `test_showing_residents.py` covers the residents'
 texts: held, released, stopped and handed over; joins; the 8 AM to 9 PM window
@@ -1595,7 +1654,7 @@ a reply that would change a booking never sent automatically, and one that chang
 no start, an unlisted unit, a rejected reply); a refused time holding the
 reply; a refused, an uncertain and an interrupted send; approving twice;
 moves, cancellations and the decisions that make them; and the lead adding
-their details (the confirmation and the invite, a refused number, twice,
+their details (the confirmation and the email, a refused number, twice,
 another thread's or unit's token, the limits, the switches, nothing about
 anyone else), and the Showings section. `test_zillow_lead_email_reminder.py`
 covers the reminder by email: queued at 6 PM for a place whose reply was sent
@@ -1609,7 +1668,7 @@ answers, the live sender refusing under pytest and its own logic with Gmail
 mocked; and the Messages list.
 
 `test_zillow_lead_moves.py` covers a showing moved by email that keeps the
-lead's details: what the new place takes over; the moved text and the invite
+lead's details: what the new place takes over; the moved text and the email
 waiting for the send, past the hold too; a refused, an uncertain and an
 interrupted send; a refused or undelivered number; no cancellation text for the
 old place and one for a real cancellation; when the details are not kept; the
