@@ -21,7 +21,9 @@ a ``problem`` the team sees on the showing, and the booking goes ahead with
 no resident text. No residents and no problem means the unit is vacant.
 
 Resident texts go out only in the daytime, 8 AM to 9 PM in the showing rules'
-time zone (``next_daytime``); the outbox applies it when one is due.
+time zone (``next_daytime``); the outbox applies it when one is due, and
+writes the text again then (``text_for``), from the showing and the wording as
+they are when it goes.
 """
 
 import re
@@ -39,7 +41,9 @@ from api.src.open_phone.tenants import (
     is_internal_contact,
     parse_lease_date,
 )
+from api.src.showing_bookings import wording
 from api.src.showing_bookings.fakes import StandInContacts
+from api.src.showing_bookings.models import Showing
 from api.src.showing_bookings.quo_contacts import LiveQuoInTests, QuoContacts
 from api.src.showing_bookings.schema import normalize_us_mobile
 from api.src.showing_bookings.settings import current_environment
@@ -76,6 +80,23 @@ NEVER_TOLD_NOTE = (
     "Not sent: the residents' text about this showing never went out, "
     "so there is nothing to cancel."
 )
+
+
+def text_for(kind: str, showing: Showing, timezone: str) -> str:
+    """The words of a resident text of ``kind`` about ``showing``, with its date and
+    time in ``timezone``. Written when the text is queued and again when it goes."""
+    visit = wording.Visit(
+        unit=showing.unit,
+        address=showing.address,
+        starts_at=showing.starts_at,
+        ends_at=showing.ends_at,
+        timezone=timezone,
+    )
+    if kind == NEW_SHOWING_KIND:
+        return wording.resident_new_showing_text(visit)
+    if kind == CANCELLED_KIND:
+        return wording.resident_cancelled_text(visit)
+    raise ValueError(f"not a resident text: {kind}")
 
 
 class ContactSource(Protocol):
