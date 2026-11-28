@@ -15,6 +15,7 @@ import {
   relativeText,
   scheduleWords,
   STALE_AFTER_MS,
+  WAKE_UP_SCHEDULE,
   zoneName,
 } from "../../app/sites/team/lib/scheduler-jobs.ts";
 
@@ -190,6 +191,23 @@ test("a job with no next run says why", () => {
     text: "Not started: the scheduler is not running here",
   });
   assert.deepEqual(nextRun(job("interval[0:00:30]"), NOW, NOW), { kind: "none", text: "Paused: no next run" });
+});
+
+test("a wake-up job runs when work is due, and says so when idle", () => {
+  const next = new Date(NOW + 4 * 60_000).toISOString();
+  const waiting = { ...job("date[2026-11-23 14:25:00 EST]", ET, next), wake_up: true };
+  const idle = { ...job("idle", null), wake_up: true };
+  assert.equal(scheduleWords(waiting, new Date(NOW)), WAKE_UP_SCHEDULE);
+  assert.equal(scheduleWords(idle, new Date(NOW)), "Runs when work is due");
+  assert.deepEqual(nextRun(waiting, NOW, NOW), { kind: "upcoming", at: NOW + 4 * 60_000, projected: false });
+  assert.deepEqual(nextRun(idle, NOW, NOW), { kind: "none", text: "Idle: runs when work arrives" });
+  // Registered before the scheduler started: not idle, just not started.
+  assert.equal(
+    (nextRun({ ...idle, pending: true }, NOW, NOW) as { text: string }).text,
+    "Not started: the scheduler is not running here",
+  );
+  // An API without the field: the job reads as before.
+  assert.equal(scheduleWords(job("interval[0:00:30]"), new Date(NOW)), "Every 30 seconds");
 });
 
 test("the list goes stale and refreshes on its own", () => {

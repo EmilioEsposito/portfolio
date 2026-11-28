@@ -11,10 +11,12 @@ from datetime import datetime, timedelta
 import pytest
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.util import ref_to_obj
 
 import api.index as index
-from api.src.apscheduler_service import service
+from api.src.apscheduler_service import service, wakeups
 from api.src.apscheduler_service.service import upsert_job
+from api.src.apscheduler_service.tracing import is_traced
 from api.src.schedulers import job_info, routes
 from api.src.schedulers.job_info import JobInfo
 from api.src.sernia_ai.config import DEFAULT_SCHEDULE_DAYS_OF_WEEK, DEFAULT_SCHEDULE_HOURS
@@ -28,7 +30,19 @@ PRODUCTION_JOBS = {
     "sernia_scheduled_checks": "cron[day_of_week='0,1,2,3,4', hour='8,11,14,17', minute='0']",
     "showing-details-removal": "cron[hour='3', minute='30']",
     "showing-notices": "interval[0:01:00]",
-    "zillow-email-queue": "interval[0:00:30]",
+    "wake-up-catch-up": "interval[0:15:00]",
+}
+# Queues with a wake-up job (apscheduler_service/wakeups.py): at startup each is
+# a one-time job set for shortly after the scheduler starts.
+WAKE_UP_QUEUES = {"zillow-email-queue"}
+# Jobs whose function is not yet decorated with @scheduled_job, so their runs
+# from the production job store have no span. Each is fixed where its feature
+# is next changed; do not add to this.
+NOT_YET_TRACED = {
+    "escalation-outbox",
+    "quo-lead-contacts",
+    "showing-details-removal",
+    "showing-notices",
 }
 
 
@@ -39,6 +53,8 @@ def scheduler(monkeypatch) -> AsyncIOScheduler:
     monkeypatch.setattr(fresh, "start", lambda *args, **kwargs: None)
     monkeypatch.setattr(service, "_scheduler", fresh)
     monkeypatch.setattr(job_info, "_BY_JOB_ID", {})
+    monkeypatch.setattr(wakeups, "_QUEUES", {})
+    monkeypatch.setattr(wakeups, "_catch_up_registered", False)
     return fresh
 
 
@@ -62,9 +78,13 @@ async def test_every_job_registered_at_startup_is_described(scheduler, monkeypat
     await _register_as_production(monkeypatch)
     jobs = {job.id: job for job in scheduler.get_jobs()}
 
-    assert set(PRODUCTION_JOBS) <= set(jobs)
+    assert set(PRODUCTION_JOBS) | WAKE_UP_QUEUES <= set(jobs)
     for job_id, trigger in PRODUCTION_JOBS.items():
         assert str(jobs[job_id].trigger) == trigger, job_id
+    for job_id in WAKE_UP_QUEUES:
+        assert str(jobs[job_id].trigger).startswith("date["), job_id
+        # A wake-up due while no server ran (a deploy) still runs.
+        assert jobs[job_id].misfire_grace_time is None, job_id
 
     for job in jobs.values():
         info = job_info.info_for(job.id)
@@ -127,3 +147,20 @@ async def test_get_jobs_returns_the_description_and_lists_jobs_without_one(sched
     assert jobs["bare-job"]["summary"] is None
     # Not started here, so no job has a next run yet; listing must not fail on that.
     assert all(job["pending"] and job["next_run_time"] is None for job in jobs.values())
+
+
+@pytest.mark.asyncio
+async def test_production_job_runs_from_the_job_store_are_traced(scheduler, monkeypatch):
+    """The production job store keeps a job's function as an import path and
+    imports it for every run. That path must lead to the traced function, which
+    it does only when ``@scheduled_job`` decorates it where it is defined."""
+    await _register_as_production(monkeypatch)
+    for job in scheduler.get_jobs():
+        stored = ref_to_obj(job.func_ref)
+        if job.id in NOT_YET_TRACED:
+            assert not is_traced(stored), f"{job.id} is traced now: take it off NOT_YET_TRACED"
+            continue
+        assert is_traced(stored), (
+            f"{job.id}: decorate {job.func_ref} with @scheduled_job "
+            "(api/src/apscheduler_service/tracing.py)"
+        )

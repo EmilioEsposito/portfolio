@@ -14,6 +14,21 @@ the general agent's scheduled checks.
 - **Initialization**: The scheduler is automatically initialized and started when the main FastAPI application starts, and shut down when the application stops. This is managed via FastAPI's lifespan events in `api/index.py`.
 - **Service Functions**: `api/src/apscheduler_service/service.py` is responsible for initializing the scheduler and showing examples of how to add jobs.
 
+## Wake-up jobs and tracing
+
+- [`wakeups.py`](wakeups.py): a queue whose work sits in its own table with a
+  due time gets one one-time job, set for its earliest due work and moved after
+  every enqueue and every run, instead of an interval job that polls. The
+  [scheduler guide](../schedulers/README.md#wake-up-jobs) explains when to use one.
+- [`tracing.py`](tracing.py): decorate a job's async function with
+  `@scheduled_job` where it is defined, so each run from the production job
+  store gets its own trace and span. A wrapper made when the job is registered
+  is lost there, because the job store saves and re-imports the function by its
+  import path.
+- Never move or rename a stored job's function. During a deploy the old server
+  shares the job store, and APScheduler deletes a stored job whose function it
+  cannot import.
+
 ## Job Store: Local vs Railway
 
 | Environment | Job Store | Persistence | Why |

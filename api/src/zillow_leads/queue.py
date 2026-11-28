@@ -2,9 +2,14 @@
 Zillow email event trigger — a durable queue in front of the lead agent.
 
 When a Zillow email arrives via Gmail Pub/Sub it is written to the
-``zillow_email_jobs`` table. A scheduled worker picks up due jobs, groups them
-by lead thread, and hands each thread to the dedicated lead agent
-(``zillow_leads``), once per thread. The general Sernia agent is not involved.
+``zillow_email_jobs`` table. A worker picks up due jobs, groups them by lead
+thread, and hands each thread to the dedicated lead agent (``zillow_leads``),
+once per thread. The general Sernia agent is not involved.
+
+The worker is not on a timer. It is the queue's wake-up job
+(``apscheduler_service/wakeups.py``): recording an email sets it to run when
+that email is due, and each run sets the next one from the table
+(``next_due_at``). With nothing waiting it is idle.
 
 Lifecycle of a job row::
 
@@ -70,6 +75,8 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from api.src.agent_conversations.models import get_agent_conversation
+from api.src.apscheduler_service import wakeups
+from api.src.apscheduler_service.tracing import scheduled_job
 from api.src.database.database import AsyncSessionFactory
 from api.src.schedulers.job_info import JobInfo
 from api.src.utils.automation import is_sernia_ai_enabled
@@ -85,8 +92,6 @@ ZILLOW_EMAIL_DOMAIN = "zillow.com"
 TRIGGER_SOURCE = "zillow_email_event"
 JOB_ID = "zillow-email-queue"
 
-# How often the worker looks for due jobs.
-POLL_SECONDS = 30
 # A job is dropped rather than run once the email is this old. It bounds the
 # backlog after an outage, and it is what makes label changes on old emails
 # harmless (they re-notify through Pub/Sub long after the lead went cold).
@@ -98,7 +103,8 @@ LEASE = timedelta(minutes=30)
 MAX_ATTEMPTS = 3
 # Wait before retry N: 2 min, then 4 min.
 RETRY_BASE = timedelta(minutes=2)
-# Threads handled per worker tick, so one tick can't run unbounded.
+# Threads handled per run, so one run can't go on unbounded. More due than
+# this are taken by the next run, which the end of this one sets for shortly after.
 MAX_THREADS_PER_TICK = 10
 # Arbitrary constant naming this queue's advisory lock.
 _CLAIM_LOCK_KEY = 0x5A11_10AB
@@ -213,6 +219,9 @@ async def enqueue_zillow_email(
         subject=subject,
         debounce_seconds=config["debounce_seconds"],
     )
+    # Set the worker to run when this email is due. Never raises: the row is
+    # saved, and the catch-up job sets the wake-up if this one is lost.
+    await wakeups.wake(JOB_ID)
     return True
 
 
@@ -383,13 +392,76 @@ async def _next_due_batch(session, now: datetime) -> list[ZillowEmailJob] | None
 
     due: list[tuple[datetime, list[ZillowEmailJob]]] = []
     for rows in by_thread.values():
-        head = [r for r in rows if r.conversation_id == rows[0].conversation_id]
+        head = _head_batch(rows)
         ready_at = min(r.next_attempt_at for r in head)
         if ready_at <= now:
             due.append((ready_at, head))
     if not due:
         return None
     return min(due, key=lambda item: item[0])[1]
+
+
+def _head_batch(rows: Sequence[ZillowEmailJob]) -> list[ZillowEmailJob]:
+    """A thread's head batch: its oldest claimable row and the rows of the same
+    batch (same conversation ID, or none yet). ``rows`` are oldest first."""
+    return [r for r in rows if r.conversation_id == rows[0].conversation_id]
+
+
+def _is_claimable(row: ZillowEmailJob, now: datetime) -> bool:
+    """``_claimable`` for a row in memory."""
+    return row.state == _STATE_PENDING or (
+        row.state == _STATE_RUNNING and row.lease_until is not None and row.lease_until <= now
+    )
+
+
+def earliest_due(rows: Sequence[ZillowEmailJob], now: datetime) -> datetime | None:
+    """When the worker next has something to do, by the claim's own rules.
+
+    ``rows`` are the pending and running rows, oldest first. The candidates:
+
+    - each thread's head batch, at its earliest ``next_attempt_at`` (the time
+      ``_next_due_batch`` takes it), or when the thread's lease ends if a run
+      holds it, since a thread with a live lease is not claimed at all;
+    - each live lease's end, when a worker that died lets its rows go.
+
+    A time already past means now.
+    """
+    leases: dict[str, datetime] = {}
+    for row in rows:
+        if row.state == _STATE_RUNNING and row.lease_until is not None and row.lease_until > now:
+            leases[row.thread_id] = max(leases.get(row.thread_id, row.lease_until), row.lease_until)
+    times = list(leases.values())
+
+    by_thread: dict[str, list[ZillowEmailJob]] = {}
+    for row in rows:
+        if _is_claimable(row, now):
+            by_thread.setdefault(row.thread_id, []).append(row)
+    for thread_id, thread_rows in by_thread.items():
+        ready_at = min(r.next_attempt_at for r in _head_batch(thread_rows))
+        if thread_id in leases:
+            ready_at = max(ready_at, leases[thread_id])
+        times.append(ready_at)
+    return min(times, default=None)
+
+
+async def next_due_at() -> datetime | None:
+    """When the queue's wake-up should run next; None when nothing waits.
+
+    None while Sernia AI's automated runs are off: the worker would do nothing,
+    and a wake-up set for "now" would run again every few seconds. The catch-up
+    job sets it again within 15 minutes of their being switched back on.
+    """
+    if not await is_sernia_ai_enabled():
+        return None
+    async with AsyncSessionFactory() as session:
+        rows = (
+            await session.scalars(
+                select(ZillowEmailJob)
+                .where(ZillowEmailJob.state.in_([_STATE_PENDING, _STATE_RUNNING]))
+                .order_by(ZillowEmailJob.id)
+            )
+        ).all()
+    return earliest_due(rows, _utcnow())
 
 
 async def _finish(claim: ClaimedThread, **values) -> int:
@@ -554,20 +626,28 @@ async def process_thread(claim: ClaimedThread) -> None:
         )
 
 
-# Held while a tick is working. An agent run outlasts the poll interval, so
-# the next tick arrives mid-run; it sees the lock and leaves quietly.
+# Held while a run is working, so a second run in this process (a test, or a
+# direct call) leaves quietly instead of working the queue alongside it.
 _worker_busy = asyncio.Lock()
 
 
+@scheduled_job
 async def process_zillow_email_queue() -> None:
-    """One worker tick: run every due lead thread, one at a time.
+    """One worker run: run every due lead thread, one at a time, then set the
+    next wake-up from the table.
 
     Each thread is claimed just before it runs, so its lease starts fresh
     rather than ticking away behind the threads ahead of it.
+
+    This is the wake-up job's function, stored in the job store by this import
+    path (``sernia_ai/triggers/zillow_email_event_trigger.py`` keeps an older
+    one importable). Do not move or rename it.
     """
-    if _worker_busy.locked() or not await is_sernia_ai_enabled():
-        return
-    async with _worker_busy:
+    if _worker_busy.locked():
+        return  # the run in progress sets the next wake-up when it ends
+    async with _worker_busy, wakeups.rearm(JOB_ID):
+        if not await is_sernia_ai_enabled():
+            return
         for _ in range(MAX_THREADS_PER_TICK):
             claim = await claim_next_thread()
             if claim is None:
@@ -600,27 +680,23 @@ JOB_INFO = JobInfo(
         "minutes, then 4; after three tries the emails are left as failed and logged as an "
         "error for a person."
         "\n\n"
-        "It looks every 30 seconds, so a thread usually starts within 30 seconds of its "
-        "wait ending. Paused or removed, emails are still recorded as they arrive, but no "
-        "lead is answered or escalated, and emails left waiting more than 24 hours expire."
+        "It is not on a timer. Recording an email sets it to run when that email's wait "
+        "ends, and each run sets the next one from the table: a retry, an email that "
+        "arrived during the run, or a run another server did not finish. With nothing "
+        "waiting, or while Sernia AI's automated runs are off, it is idle. It also runs 30 "
+        "seconds after each deploy, and the catch-up job sets it again if a wake-up is lost."
     ),
+)
+
+QUEUE = wakeups.WakeQueue(
+    job_id=JOB_ID,
+    info=JOB_INFO,
+    run=process_zillow_email_queue,
+    next_due_at=next_due_at,
 )
 
 
 def register_zillow_email_queue() -> None:
-    """Schedule the worker. Called at startup when background automation is on."""
-    from api.src.apscheduler_service.service import get_scheduler, upsert_job
-
-    upsert_job(
-        get_scheduler(),
-        info=JOB_INFO,
-        id=JOB_ID,
-        func=process_zillow_email_queue,
-        trigger="interval",
-        seconds=POLL_SECONDS,
-        # Two, so a tick that arrives while one is mid-run can start, see
-        # `_worker_busy`, and return — rather than APScheduler logging a
-        # "max instances reached" warning every 30s for the length of a run.
-        max_instances=2,
-        coalesce=True,
-    )
+    """Register the worker's wake-up. Called at startup when background automation
+    is on; it replaces the interval job the worker had before."""
+    wakeups.register_queue(QUEUE)

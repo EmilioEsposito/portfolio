@@ -10,6 +10,8 @@ from api.src.apscheduler_service.routes import delete_job as apscheduler_delete_
 # from api.src.dbos_service.routes import run_job_now as dbos_run_job_now
 from api.src.apscheduler_service.routes import get_jobs as apscheduler_get_jobs
 from api.src.apscheduler_service.routes import run_job_now as apscheduler_run_job_now
+from api.src.apscheduler_service.tracing import job_name
+from api.src.apscheduler_service.wakeups import WakeQueue, get_queue, queues, run_soon
 from api.src.schedulers.job_info import info_for
 from api.src.utils.clerk import verify_serniacapital_user
 
@@ -35,18 +37,42 @@ def _with_service(job: dict, service: SchedulerService) -> dict:
     j["name"] = info.name if info else (j.get("name") or j.get("id"))
     j["summary"] = info.summary if info else None
     j["description"] = info.description if info else None
+    # Runs when work is due (``wakeups.py``), not on a schedule of its own.
+    j["wake_up"] = get_queue(j.get("id", "")) is not None
     return j
+
+
+def _idle(queue: WakeQueue) -> dict:
+    """A queue with nothing waiting: it has no wake-up job, but the page lists it."""
+    return {
+        "id": queue.job_id,
+        "name": queue.info.name,
+        "func_ref": f"api.src.{job_name(queue.run)}",
+        "args": [],
+        "kwargs": {},
+        "trigger": "idle",
+        "timezone": None,
+        "next_run_time": None,
+        "coalesce": None,
+        "executor": None,
+        "max_instances": None,
+        "misfire_grace_time": None,
+        "pending": False,
+    }
 
 
 @router.get("/get_jobs", response_model=list[dict])
 async def get_jobs():
     """
-    Retrieve scheduled jobs from APScheduler.
+    Retrieve scheduled jobs from APScheduler, and each wake-up queue with
+    nothing waiting (``wake_up`` true, no next run).
 
     DBOS is currently disabled. See api/src/schedulers/README.md for re-enabling.
     """
     # DBOS DISABLED: Only return APScheduler jobs
     aps_jobs = await apscheduler_get_jobs()
+    listed = {j["id"] for j in aps_jobs}
+    aps_jobs += [_idle(q) for q in queues() if q.job_id not in listed]
     combined = [_with_service(j, "apscheduler") for j in aps_jobs]
     combined.sort(key=lambda j: (j.get("service", ""), j.get("id", "")))
     return combined
@@ -66,6 +92,12 @@ async def run_job_now(service: SchedulerService, job_id: str):
             detail="DBOS is currently disabled. See api/src/schedulers/README.md for re-enabling.",
         )
     if service == "apscheduler":
+        # A wake-up queue may be idle, with no job to move: set its wake-up for now.
+        if run_soon(job_id):
+            return {
+                "message": f"Job {job_id} has been triggered to run now.",
+                "service": "apscheduler",
+            }
         result = await apscheduler_run_job_now(job_id)
         result["service"] = "apscheduler"
         return result

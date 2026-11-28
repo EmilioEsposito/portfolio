@@ -21,6 +21,7 @@ import logfire
 from sqlalchemy import select
 
 from api.src.apscheduler_service.service import get_scheduler, upsert_job
+from api.src.apscheduler_service.tracing import scheduled_job
 from api.src.schedulers.job_info import JobInfo
 from api.src.sernia_ai.config import (
     DEFAULT_SCHEDULE_DAYS_OF_WEEK,
@@ -58,6 +59,7 @@ JOB_INFO = JobInfo(
 )
 
 
+@scheduled_job
 async def run_scheduled_checks() -> None:
     logfire.info("scheduled_trigger: running scheduled checks")
     await run_agent_for_trigger(
