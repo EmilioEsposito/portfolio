@@ -7,6 +7,8 @@ method. An interactive version, with an example for every stage, is at
 
 ## Running experiments
 
+For `run` and `judge`, configure a dedicated `LOCAL_PORTFOLIO_OPENROUTER_API_KEY` with its own OpenRouter credit limit.
+
 ```bash
 # Private data lives in evals/data, which Git ignores. See the private-data section below.
 DATA=api/src/zillow_leads/evals/data

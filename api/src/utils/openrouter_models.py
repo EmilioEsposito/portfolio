@@ -22,6 +22,7 @@ from pydantic_ai.models.openrouter import (
     OpenRouterStreamedResponse,
 )
 
+from api.src.utils.llm import operational_openrouter_provider
 from api.src.utils.llm_cost_breakdown import ATTR_BILLED_COST, gateway_billed_cost
 
 # Keep the same upstream pin for GPT requests through OpenRouter.
@@ -191,7 +192,7 @@ def stamp_openrouter_cost(response: ModelResponse) -> None:
 @cache
 def _openrouter_model(model_name: str) -> SerniaOpenRouterModel:
     """Cached model instance — each one owns an HTTP client, so don't rebuild per run."""
-    return SerniaOpenRouterModel(model_name)
+    return SerniaOpenRouterModel(model_name, provider=operational_openrouter_provider())
 
 
 def resolve_model(model_string: str) -> SerniaOpenRouterModel | str:

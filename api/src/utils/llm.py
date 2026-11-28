@@ -13,25 +13,44 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
+from api import HOSTED_API, operational_openrouter_key
+
 DEMO_MODEL_ID = "openai/gpt-5.6-luna"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
-def _api_key() -> str:
-    key = os.getenv("PORTFOLIO_OPENROUTER_API_KEY") or os.getenv("OPENROUTER_API_KEY")
-    if not key:
-        raise RuntimeError("PORTFOLIO_OPENROUTER_API_KEY is required for inference")
-    return key
+async def _async_operational_key() -> str:
+    return operational_openrouter_key()
+
+
+def operational_openrouter_provider() -> OpenRouterProvider:
+    if HOSTED_API:
+        return OpenRouterProvider(api_key=operational_openrouter_key())
+    # Import-time agents also serve offline commands. The SDK calls this supplier
+    # before sending a request, so a missing local key disables inference only.
+    return OpenRouterProvider(
+        openai_client=AsyncOpenAI(base_url=OPENROUTER_BASE_URL, api_key=_async_operational_key)
+    )
 
 
 @cache
 def async_openrouter_client() -> AsyncOpenAI:
-    return AsyncOpenAI(api_key=_api_key(), base_url=OPENROUTER_BASE_URL, timeout=30, max_retries=0)
+    return AsyncOpenAI(
+        api_key=operational_openrouter_key(),
+        base_url=OPENROUTER_BASE_URL,
+        timeout=30,
+        max_retries=0,
+    )
 
 
 @cache
 def openrouter_client() -> OpenAI:
-    return OpenAI(api_key=_api_key(), base_url=OPENROUTER_BASE_URL, timeout=30, max_retries=0)
+    return OpenAI(
+        api_key=operational_openrouter_key(),
+        base_url=OPENROUTER_BASE_URL,
+        timeout=30,
+        max_retries=0,
+    )
 
 
 def demo_model_settings() -> OpenRouterModelSettings:

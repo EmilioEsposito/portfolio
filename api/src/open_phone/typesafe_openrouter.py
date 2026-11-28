@@ -1,10 +1,10 @@
 """Use the TypeSafe SDK with OpenRouter's compatible Decisions API."""
 
-import os
-
 import httpx2
 from pydantic import Field
 from typesafe_sdk import AsyncTypeSafeClient, RetryPolicy, SystemOneResponse, Usage
+
+from api import operational_openrouter_key
 
 JEV_MODEL = "typesafe/jev-1.13"
 
@@ -32,11 +32,8 @@ def create_jev_client(
     The escalation caller owns retries, so disable nested SDK retries. Explicit
     credentials/base URL prevent accidental fallback to the direct TypeSafe API.
     """
-    api_key = os.getenv("PORTFOLIO_OPENROUTER_API_KEY")
-    if not api_key:
-        raise ValueError("PORTFOLIO_OPENROUTER_API_KEY is required for Jev")
     return AsyncTypeSafeClient(
-        api_key=api_key,
+        api_key=operational_openrouter_key(),
         model=JEV_MODEL,
         base_url="https://openrouter.ai",
         retry=RetryPolicy(max_retries=0),
