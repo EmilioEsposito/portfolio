@@ -22,8 +22,8 @@ export default function SmsTermsPage() {
         <p>
           When you book a showing and tick “Text me about this showing and my rental inquiry,” Sernia Capital texts
           you from our team number to confirm, remind and coordinate your showing, and about your rental inquiry.
-          That usually means a confirmation when you book, a reminder the evening before, a message if anything
-          changes, and a follow-up after the showing about how to apply.
+          That usually means a confirmation when you book, a reminder on the morning of the showing and an hour
+          before it, a message if anything changes, and a follow-up after the showing about how to apply.
         </p>
         <p>Message frequency varies. Message and data rates may apply.</p>
       </LegalSection>

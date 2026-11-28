@@ -86,7 +86,7 @@ may work (Quo out of reach or rate limited), the row stays `pending` with a
 later `not_before`, up to five attempts.
 
 The only email ever sent is a lead's reminder in their Zillow thread
-(`lead_email_reminder`, see Reminders the evening before). An email notice is
+(`lead_email_reminder`, see Reminders on the day). An email notice is
 captured like any other; one of another kind that the guard would send is
 saved as `failed` with the reason `no_email_sender`. A notice whose check
 finds it cannot go and needs the team (the reminder by email with no usable
@@ -961,10 +961,38 @@ booking transaction, as it may read Quo.
 
 | When | The residents get |
 | --- | --- |
-| A new showing is booked | one text from the team number (`resident_new_showing`), held behind the booking prospect's confirmation text like the host's event |
+| A new showing is booked | one text from the team number (`resident_new_showing`), held behind the booking prospect's confirmation text like the host's event, listing every upcoming showing they were told of with the new one |
 | Someone joins a booked showing | nothing |
-| The showing is cancelled after they were told | a cancellation text (`resident_cancelled`) to the same numbers |
+| The showing is cancelled after they were told | a cancellation text (`resident_cancelled`) to the same numbers, with what is still scheduled |
 | The showing is cancelled before their text went out | nothing: their text is stopped with the showing's other notices |
+| 8 AM on a day with showings there | a reminder with the day's times (`resident_reminder`, see Reminders on the day) |
+
+What a text says is written when it goes (`digests.py`, `wording.resident_text`,
+version `RESIDENT_VERSION`), from the unit's showings then:
+
+- One new showing and nothing else they know of: "Automated showing alert:
+  We've scheduled an in-person showing of your unit on Wed, Apr 14 at 4:00 PM.
+  A Sernia agent will be there the whole time. You may be present or we can
+  let ourselves in if you are not home."
+- A new showing among others: "Automated showing alert: We've scheduled
+  another in-person showing of your unit. Upcoming showings:", one line per
+  upcoming showing they were told of ("- Wed, Apr 14 at 4:00 PM"), "(new)"
+  after the new ones only when the list mixes new and earlier ones, and the
+  same closing sentence. Several new and none earlier: "We've scheduled
+  in-person showings of your unit."
+- A cancellation: "Automated showing alert: The in-person showing of your
+  unit on Wed, Apr 14 at 4:00 PM is cancelled." and, when others remain,
+  "Still scheduled:" and their lines.
+- A showing whose own announcement is still held (behind a confirmation not
+  delivered yet) is left out of every list until its own text goes.
+- Texts due together for the same unit and the same numbers (an announcement
+  and a cancellation, two announcements after 9 PM, the 8 AM reminder and the
+  night's news) go as one text: cancellations first, then the reminder, then
+  the new showings and the list. A showing announced in that very text needs
+  no reminder besides. The others are saved cancelled, "Not sent by itself:
+  it went in the same text as notice N", and the text names every showing it
+  tells of in `showing_ids`, so each counts as told once it went
+  (`resident_texts.told_ids`).
 
 - One notice per showing for all of a unit's residents (recipient key
   `residents`): an ordinary text for one resident, one group text for
@@ -995,12 +1023,13 @@ booking transaction, as it may read Quo.
   applied by the outbox when the text is due, in capture mode too). One whose
   showing has started by then, or a new-showing text whose showing is
   cancelled, is cancelled instead of sent.
-- "Told" means the first text was sent, captured, may have gone out
-  (unknown), or is being sent when the showing is cancelled; when the
-  cancellation would really go, captured is not enough (Told already, above). The cancellation
-  text never overtakes the announcement: while the announcement is being sent
-  it waits a minute, then goes only if the announcement went out, and is
-  cancelled ("never went out") if it failed or was stopped.
+- "Told" means a text that told them of the showing (its announcement, or one
+  that listed it) was sent, captured, may have gone out (unknown), or is being
+  sent when the showing is cancelled; when the cancellation would really go,
+  captured is not enough (Told already, above). The cancellation text never
+  overtakes what told them: while that is being sent it waits a minute, then
+  goes only if it went out, and is cancelled ("never went out") if it failed
+  or was stopped (`resident_texts.check`).
 - A lookup that goes wrong never blocks a booking. The booking stands, no
   resident text is queued, and the showing gets `resident_attention`, which
   the Showings section shows beside it: `lookup_failed` (Quo out of reach),
@@ -1014,11 +1043,9 @@ booking transaction, as it may read Quo.
   another way, such as `3` for `03`), `resident_without_mobile`, or
   `too_many_residents` (more than ten).
 - Behind the guard like every notice; every number in the text counts.
-- Wording: `wording.resident_new_showing_text` and
-  `wording.resident_cancelled_text`, version `RESIDENT_VERSION`. The outbox
-  writes the text again from its showing when it goes
-  (`residents.text_for`), so a change of wording reaches texts already
-  queued, such as one waiting for 8 AM.
+- Wording: `wording.resident_text`, version `RESIDENT_VERSION`. Written when
+  it goes, so a change of wording reaches texts already queued, such as one
+  waiting for 8 AM.
 - No public answer carries anything about residents.
 
 ### Showings booked by email
@@ -1096,7 +1123,7 @@ read again under the booking locks; one that changed meanwhile holds the reply
 - If Quo refuses the number, or the text is undelivered, the place stands,
   marked for the team (`confirmation_refused`, `confirmation_undelivered`), and
   the invite is not sent. The host's event and the residents' text do not wait
-  for the text. The reminder the evening before then goes by email.
+  for the text. The reminder on the day then goes by email.
 
 The lead adds their details (`lead_details.py`). The reply's link carries the
 thread's token; on that unit's page the web app's loader asks
@@ -1124,32 +1151,37 @@ The Showings section marks such a place "Booked by email with the lead agent"
 with "details not added yet" or "details added" (`details_pending`) and a
 link to the conversation (`lead_conversation_id`).
 
-Until the lead adds their details, the reminder the evening before goes by
-email in their thread (see Reminders the evening before). The Messages list
+Until the lead adds their details, the reminder on the day goes by
+email in their thread (see Reminders on the day). The Messages list
 shows it as "Lead's reminder by email, in their Zillow thread", to the relay
 address, with a link to the conversation.
 
-### Reminders the evening before
+### Reminders on the day
 
-`reminders.py`. "The evening before" is 6 PM in the showing rules' time zone
-on the day before the showing (`reminders.due_at`). `reminders.queue_due(now=)`
-is a step of the job every minute: it queues every reminder due by `now` that
-is not queued yet, so it is safe to run every minute and catches up after a
-missed evening while the showing is still ahead.
+`reminders.py`. "On the day" is 8 AM in the showing rules' time zone on the
+showing's day (`reminders.due_at`). `reminders.queue_due(now=)` is a step of
+the job every minute: it queues every reminder due by `now` that is not queued
+yet, so it is safe to run every minute and catches up after a missed morning
+while the showing is still ahead.
 
 | Reminder | Kind | Goes to | Says |
 | --- | --- | --- | --- |
 | The prospect's | `prospect_reminder`, one per booking | someone still booked, with a mobile, who accepted texts and whose number is not known to be wrong (and not for a place whose lead agent's reply is not settled) | when, where, and the cancel link |
-| The residents' | `resident_reminder`, one per unit and day (recipient key `residents:<day>`) | the unit's residents, found afresh that evening by the announcement's own lookup, one group text for roommates | the times of the next day's scheduled showings there, in order |
+| The residents' | `resident_reminder`, one per unit and day (recipient key `residents:<day>`) | the unit's residents, found afresh that morning by the announcement's own lookup, one group text for roommates | the times of the day's scheduled showings there they were told of, in order, with any of their texts due at 8 AM in the same text (Residents' texts, above) |
 | A lead's, by email | `lead_email_reminder`, one per booking, channel `email` | a place the Zillow lead agent booked in an email thread whose confirming reply was sent (`lead_reply_sent_at`), for a lead with no mobile we text; only while `lead_agent_uses_open_times` is on | when, where, the cancel link, and the lead's own link to add their details, as a plain-text reply in their Zillow thread |
 
-- A booking made at or after 6 PM the day before gets no reminder: the
+- A booking made at or after 8 AM on the day gets no reminder: the
   confirmation it just received is enough. A showing first booked then is
   left out of the residents' list too; its own announcement covers it.
-- The residents' reminder belongs to the day's first showing and lists every
-  showing in `payload.showing_ids`. A cancelled showing never stops it; at
-  delivery it is rewritten without the showings cancelled or started since,
-  and with none left it is not sent.
+- Never two reminders within 90 minutes: the prospect's reminder is not
+  queued, and is cancelled at delivery ("the text 1 hour before goes soon
+  after it"), when they are owed the text 1 hour before
+  (`delivery_checks.hour_text_wins`) and it comes less than 90 minutes after
+  (`REMINDER_GAP`), as for a showing before about 10:30 AM. The 1-hour text wins.
+- The residents' reminder belongs to the day's first showing and names every
+  showing in `payload.showing_ids`. A cancelled showing never stops it; it is
+  written when it goes, from the day's showings still ahead that they were
+  told of, and with none left it is not sent.
 - A vacant unit gets none. A lookup problem marks the day's showings at the
   unit (`resident_attention`), as for an announcement. A unit looked up with no
   one to text is not looked up again for an hour in that process.
@@ -1160,8 +1192,10 @@ missed evening while the showing is still ahead.
 - The step reads the residents before its transaction, as that may reach Quo,
   then queues everything holding the shared booking lock, in the module's lock
   order.
-- Wording: `wording.prospect_reminder_text` and `wording.resident_reminder_text`,
-  version `REMINDER_VERSION`.
+- Wording: `wording.prospect_reminder_text` ("Sernia Capital: a reminder of
+  your in-person showing today at 4:00 PM at <place>.", the cancel link and the
+  STOP line) and `wording.resident_text`, versions `REMINDER_VERSION` and
+  `RESIDENT_VERSION`.
 
 The lead's reminder by email (`lead_email.py`, queued by the same step):
 
@@ -1172,7 +1206,7 @@ The lead's reminder by email (`lead_email.py`, queued by the same step):
   text is queued by the next run.
 - Not for a place whose reply is uncertain (`reply_uncertain`, no
   `lead_reply_sent_at`) or was never sent, nor one whose reply was sent at or
-  after 6 PM the day before (the reply just confirmed it).
+  after 8 AM on the day (the reply just confirmed it).
 - Where it goes: the `reply_route` stored on the lead conversation that booked
   the place (`lead_conversation_id`), never the attendee's own fields, a
   request or anything a lead wrote. `lead_email.route_of` reads it when the
@@ -1193,32 +1227,52 @@ The lead's reminder by email (`lead_email.py`, queued by the same step):
 - Wording: `wording.lead_email_reminder_text`, version `LEAD_EMAIL_VERSION`;
   the subject is the thread's (`Re: …`).
 
-### The host's texts inside 2 hours
+### The host's texts
 
-`host_texts.py`. The host's calendar event follows every change, but inside 2
-hours of the start a change also texts the host, from the AI line, at
-their own mobile:
+`host_texts.py`. The host's calendar event follows every change, and every
+change also texts the host, from the AI line, at their own mobile:
 
-| When, less than 2 hours before the start | Kind | Paths |
+| When | Kind | Paths |
 | --- | --- | --- |
-| Someone books, joining or as a new showing | `host_late_join` | the page, the team's booking for a caller (`bookings.place_booking`) |
-| Someone cancels, or the team removes them | `host_late_cancel` | the cancel link, the team's Remove |
+| Someone books, joining or as a new showing | `host_late_join` | the page, the team's booking for a caller, the lead agent (`bookings.place_booking`) |
+| Someone cancels, or the team removes them | `host_late_cancel` | the cancel link, the team's Remove, a lead's cancellation or move by email |
 | The showing is cancelled | `host_showing_cancelled` | the team's Cancel showing, an off-market date |
 | The team gives the showing to another host | `host_moved_to` to the new host, `host_moved_from` to the old | the team's Change host |
 
-- Delivered at once after the change commits, except an off-market save, whose
-  texts go with the job a minute later. A booking's host text goes after its
-  confirmation; a withdrawn booking's is stopped at delivery.
-- An agent with no mobile gets none. A text names the person and the showing,
-  never a number: no more than the host's event shows.
+(The kinds keep their names from when only changes inside 2 hours texted.)
+
+- At once from 8 AM to 9 PM in the showing rules' time zone; a change after
+  9 PM waits for 8 AM. A booking's host text goes after its confirmation; a
+  withdrawn booking's is stopped at delivery. An off-market save's texts go
+  with the job a minute later.
+- One text for everything due at once (`digests.py`): "Sernia Capital: " and
+  what changed, one change per line in the order it happened, then a blank
+  line, "Your upcoming showings:" and one line per upcoming showing of theirs
+  ("- Wed, Apr 14 at 4:00 PM at 320 Example St (unit 320-03), 2 people"), or
+  "You have no upcoming showings." Changes waiting for 8 AM open the morning
+  text instead (below). The others are saved cancelled, "Not sent by itself:
+  it went in the same text as notice N".
+- The changes, each its own sentence (`TextPayload.line`): "Alex Parker booked
+  your showing of <place> on <when>.", "Alex Parker cancelled your showing of
+  <place> on <when>." (or "The team removed Alex Parker from …"), adding "No
+  one is booked now, so the showing is cancelled." when no one is left, "Your
+  showing of <place> on <when> is cancelled. <why>", "The showing of <place>
+  on <when> is now yours to host.", and "The showing of <place> on <when> has
+  moved to another host. You are no longer hosting it."
+- A text that someone left, that the showing is cancelled or that it moved
+  away is queued only when something already told that host of the showing
+  (their event or a text, sent or captured: `told.host_heard_of`), so a
+  booking stopped before anything went tells the host nothing.
+- An agent with no mobile gets none. A text names the people who changed
+  something and the showing, never a number: no more than the host's event shows.
 - At delivery: only before the start; "someone booked" only while that person
   is still booked; the cancel texts to the showing's host then; after a change
   of host, each text to the host it names, the new host's only while they
   still host it and the old host's only while they do not, so after quick
   moves (A to B to A, or A to B to C) every text that goes is true when it goes.
-- Wording: `wording.host_joined_text`, `host_left_text`,
-  `host_showing_cancelled_text`, `host_moved_to_text`, `host_moved_from_text`,
-  version `HOST_TEXT_VERSION`.
+- Wording: `wording.host_joined_line`, `host_left_line`,
+  `host_showing_cancelled_line`, `host_moved_to_line`, `host_moved_from_line`
+  and `host_text`, version `HOST_TEXT_VERSION`.
 - A host's reply, to these or to the morning text, reaches Sernia AI's SMS
   conversation (`sernia_ai/triggers/ai_sms_event_trigger.py`). When Quo lists
   the host's mobile as a Sernia Capital LLC contact, Sernia AI answers with the
@@ -1245,9 +1299,13 @@ showings in order, each with its time, place and how many people are booked.
   the Messages list still shows it. It never mixes the two. Sent by hand, it lists
   every showing of the day. The same rule runs
   when it is queued and again at delivery, where it may move to another of the
-  day's showings; the outbox then judges it by that showing's unit. It is the
-  only notice that lists more than one unit: the residents' reminder lists one
-  unit's showings, and every other notice names one showing.
+  day's showings; the outbox then judges it by that showing's unit. A host's
+  change text lists their upcoming showings too, and goes with others only
+  when the guard judges them alike (`digests.py`).
+- Changes due at 8 AM (made after 9 PM, or before 8 AM) open it, in one text:
+  "Sernia Capital: " and the changes, a blank line, then "Your showings today,
+  Wed, Apr 14:" and the list. With no change it reads "Sernia Capital: your
+  showings today, Wed, Apr 14:" and the list, as before.
   The step looks for it by kind and key, so it is queued once whichever
   showing comes first.
 - Safe every minute and after a missed run: queued from 8 AM up to noon. A
@@ -1266,6 +1324,7 @@ showings in order, each with its time, place and how many people are booked.
   per line), and if still too long lists as many showings as fit and ends
   with "…and 3 more showings today."
 - Wording: `wording.host_morning_text`, version `HOST_MORNING_VERSION`.
+- A host's reply to any of these texts reaches Sernia AI (The host's texts, above).
 
 ### The text 1 hour before
 
@@ -1542,7 +1601,7 @@ action makes before it saves, and raises `Refused` with a plain message:
 be booked for now, with the reason), `unknown_showing`, `unknown_attendee`,
 `already_cancelled` or `started`. The paragraph names who is booked or
 cancelled, the unit, the time in local words and the host. It says who is
-told: the host's calendar event (and a text inside 2 hours), the residents'
+told: the host's calendar event and a text, the residents'
 text, the prospect's confirmation text and invite, or cancellation texts. It
 ends with what the send mode does with those messages (`sending_sentence`).
 The booking preview reads calendars afresh (`open_times.recheck`), so the
@@ -1687,7 +1746,7 @@ moves, cancellations and the decisions that make them; and the lead adding
 their details (the confirmation and the invite, a refused number, twice,
 another thread's or unit's token, the limits, the switches, nothing about
 anyone else), and the Showings section. `test_zillow_lead_email_reminder.py`
-covers the reminder by email: queued at 6 PM for a place whose reply was sent
+covers the reminder by email: queued at 8 AM on the day for a place whose reply was sent
 and not for one booked after, never sent or uncertain; the text instead for a
 lead who added details, before or after it was queued, and never both; none
 after a cancellation or with the switch off; the 8 AM to 9 PM window; the
@@ -1719,6 +1778,14 @@ the daily job on the database's clock). `test_showing_late_joins.py` covers
 joins until 2 hours before (offered 3 hours ahead and not 1, booking,
 the team, a new time still refused, the re-check, a full showing, the lead
 agent's times unchanged).
+`test_showing_notice_schedule.py` covers when each party is told and what
+texts due together say: a booking at 7 PM, 10 PM and 7 AM for the prospect,
+the host and the residents; the 8 AM merges into the host's morning text and
+the residents' text; a booking after 8 AM on the day; an early showing where
+the 1-hour text wins; changes at night in order; a second showing listed with
+the first; cancellations with and without others left; an announcement still
+held left out; told staying true for a showing a merged text covered; and
+capture mode keeping one merged text.
 `test_showing_guard.py` runs the guard over every mode, environment, tick, set of
 addresses and approval, and the rows saved before test mode.
 `test_showing_captured.py` covers captured messages: each state and the list, a

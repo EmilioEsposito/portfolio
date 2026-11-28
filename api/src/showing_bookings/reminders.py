@@ -1,35 +1,40 @@
-"""The reminders the evening before a showing: the prospect's, and the residents' list.
+"""The reminders on the day of a showing, at 8 AM: the prospect's, a lead's by email,
+and the residents' list.
 
-"The evening before" is 6 PM in the showing rules' time zone on the day
-before the showing (``due_at``). ``queue_due(now=)`` is one step of the job
-every minute (``holds.send_pending``): it queues every reminder that is due by
-``now`` and not queued yet, so it is safe every minute, and after a missed
-evening it catches up while the showing is still ahead.
+"On the day" is 8 AM in the showing rules' time zone on the showing's day
+(``due_at``). ``queue_due(now=)`` is one step of the job every minute
+(``holds.send_pending``): it queues every reminder that is due by ``now`` and
+not queued yet, so it is safe every minute, and after a missed morning it
+catches up while the showing is still ahead.
 
 - A prospect's reminder (``prospect_reminder``, one per booking): to someone
   still booked, with a mobile, who accepted texts and whose number is not
-  known to be wrong. A booking made at or after 6 PM the day before gets none:
-  the confirmation it just received is enough. It carries the cancel link.
+  known to be wrong. A booking made at or after 8 AM on the day gets none: the
+  confirmation it just received is enough. Nor does someone whose text 1 hour
+  before (``daily_texts``) would come within 90 minutes of it
+  (``delivery_checks.REMINDER_GAP``): the 1-hour text wins. It carries the
+  cancel link.
 - The residents' reminder (``resident_reminder``, one per unit and day): one
-  text listing the times of the next day's scheduled showings at the unit, in
-  order, to the unit's residents found afresh that evening (``residents.find``,
-  the announcement's lookup, with the same stand-in outside production). A
-  vacant unit gets none. A lookup problem marks those showings for the team
-  (``resident_attention``), as for an announcement. A showing booked at or
-  after 6 PM the day before is not listed: its own announcement covers it.
-  The notice belongs to the day's first showing and names every showing it
-  lists (``TextPayload.showing_ids``); a cancelled showing never stops it, and
-  at delivery it lists only the ones still ahead (``delivery_checks``).
+  text naming the times of the day's scheduled showings at the unit, to the
+  unit's residents found afresh that morning (``residents.find``, the
+  announcement's lookup, with the same stand-in outside production). A vacant
+  unit gets none. A lookup problem marks those showings for the team
+  (``resident_attention``), as for an announcement. A showing first booked at
+  or after 8 AM on the day is not listed: its own announcement covers it. The
+  notice belongs to the day's first showing and names every showing it lists
+  (``TextPayload.showing_ids``); a cancelled showing never stops it. It is
+  written when it goes (``digests.py``): the day's showings still ahead that
+  the residents were told of, with any announcement due at 8 AM in the same text.
 
 - A lead's reminder by email (``lead_email_reminder``, one per booking): for a
   place the Zillow lead agent booked in an email thread whose confirming reply
-  was sent (``lead_reply_sent_at``, before 6 PM the day before), for a lead
-  with no mobile we text, and only while ``lead_agent_uses_open_times`` is on.
-  It goes as a reply in the lead's thread, to the route stored on the
-  conversation that booked the place (``lead_email.py``), with the cancel
-  link and the lead's own link to add their details. Someone owed the
-  reminder text never gets it, and someone already sent it (or with it on
-  its way) is not queued the reminder text: one reminder per place.
+  was sent (``lead_reply_sent_at``, before 8 AM on the day), for a lead with no
+  mobile we text, and only while ``lead_agent_uses_open_times`` is on. It goes
+  as a reply in the lead's thread, to the route stored on the conversation
+  that booked the place (``lead_email.py``), with the cancel link and the
+  lead's own link to add their details. Someone owed the reminder text never
+  gets it, and someone already sent it (or with it on its way) is not queued
+  the reminder text: one reminder per place.
 
 Every reminder is a notice in the outbox behind the guard, checked again when
 it is delivered (still booked, still scheduled, not started) and sent only from
@@ -78,8 +83,8 @@ from api.src.zillow_leads import lead_links
 # mode. Someone with one is not queued the reminder text as well.
 _EMAIL_STANDS = ("pending", "held", "sent", "captured", "unknown", "skipped")
 
-EVENING = time(18, 0)
-# Showings this far ahead are the only ones whose evening can have come.
+DAY_OF = time(8, 0)
+# Showings this far ahead are the only ones whose morning can have come.
 LOOKAHEAD = timedelta(days=2)
 # A unit looked up with no one to text is looked up again after this.
 LOOK_AGAIN_AFTER = timedelta(hours=1)
@@ -105,9 +110,8 @@ def local_day(moment: datetime, timezone: str) -> date:
 
 
 def due_at(starts_at: datetime, timezone: str) -> datetime:
-    """6 PM, in ``timezone``, on the day before the showing's day there."""
-    day = local_day(starts_at, timezone) - timedelta(days=1)
-    return datetime.combine(day, EVENING, ZoneInfo(timezone))
+    """8 AM, in ``timezone``, on the showing's day there."""
+    return datetime.combine(local_day(starts_at, timezone), DAY_OF, ZoneInfo(timezone))
 
 
 def recipient_key(day: date) -> str:
@@ -116,7 +120,7 @@ def recipient_key(day: date) -> str:
 
 
 async def _due_showings(session: AsyncSession, now: datetime, timezone: str) -> list[Showing]:
-    """Scheduled showings not started whose evening before has come, by start."""
+    """Scheduled showings not started whose morning has come, by start."""
     showings = await session.scalars(
         select(Showing)
         .where(
@@ -201,6 +205,11 @@ async def _prospects(
         for person in people
         if delivery_checks.can_text(person)
         and person.created_at < due_at(by_id[person.showing_id].starts_at, timezone)
+        and not delivery_checks.hour_text_wins(
+            person,
+            by_id[person.showing_id].starts_at,
+            due_at(by_id[person.showing_id].starts_at, timezone),
+        )
     ]
 
 
@@ -209,7 +218,7 @@ async def _email_leads(
 ) -> list[ShowingAttendee]:
     """The places in ``showings`` owed a reminder by email and not yet queued one:
     booked by the lead agent in a Zillow thread, the confirming reply sent before
-    the evening came, and no mobile we text (``delivery_checks.owes_lead_email``)."""
+    8 AM on the day, and no mobile we text (``delivery_checks.owes_lead_email``)."""
     by_id = {showing.id: showing for showing in showings}
     queued = select(ShowingNotice.attendee_id).where(
         ShowingNotice.kind == LEAD_EMAIL_REMINDER_KIND,
@@ -366,8 +375,10 @@ async def queue_due(*, now: datetime) -> ReminderReport:
                 recipient=first,
                 recipient_key=recipient_key(day),
                 payload=TextPayload(
-                    body=wording.resident_reminder_text(
-                        [bookings.visit_of(showing, rules) for showing in group]
+                    # Written again when it goes, with what the residents were told.
+                    body=wording.resident_text(
+                        upcoming=[],
+                        today=[bookings.visit_of(showing, rules) for showing in group],
                     ),
                     also_to=others,
                     daytime_timezone=rules.timezone,

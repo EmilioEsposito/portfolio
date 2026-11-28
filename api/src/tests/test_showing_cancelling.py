@@ -262,11 +262,15 @@ async def test_a_cancellation_while_the_notices_are_still_held(world):
     await cancel(world, alex["cancel_token"])
 
     _, _, notices = await rows()
+    # The host was texted that Alex booked (captured: not on the test list), so they
+    # are told Alex cancelled too.
     assert statuses(notices) == [
         ("prospect_confirmation", "sent"),
         ("host_event", "cancelled"),
         ("prospect_invite", "cancelled"),
+        ("host_late_join", "captured"),
         ("prospect_cancelled", "sent"),
+        ("host_late_cancel", "captured"),
     ]
     assert notices[1].last_error == cancelling.STOPPED_NOTE
     # Nothing was created, so nothing is cancelled on a calendar.

@@ -8,7 +8,9 @@ catches up after a missed run.
 - The host's morning text (``host_morning``): from 8 AM in the showing rules'
   time zone, one text to each agent hosting at least one scheduled showing that
   day that has not started, at the agent's own mobile, listing the day's
-  showings in order (time, place, how many people). One per agent per day
+  showings in order (time, place, how many people). Not for an agent already
+  texted about a change since 8 AM that day: that text listed their upcoming
+  showings, today's included. Changes due at 8 AM go in it (``digests.py``). One per agent per day
   (recipient key ``agent:<id>:morning:<day>``). The guard judges a notice by
   one unit, so the text lists only the showings it would really send for to
   the agent's number (``delivery_checks.morning_selection``) and is attached to
@@ -128,10 +130,23 @@ async def _queue_mornings(session: AsyncSession, now: datetime, timezone: str) -
             )
         ).all()
     )
+    # A host texted about a change since 8 AM has had their upcoming showings
+    # listed already, today's included, so no morning text follows it.
+    opened = datetime.combine(day, MORNING, zone)
+    told_today = {
+        delivery_checks.named_agent(recipient_key)
+        for recipient_key in await session.scalars(
+            select(ShowingNotice.recipient_key).where(
+                ShowingNotice.kind.in_(delivery_checks.HOST_TEXT_KINDS),
+                ShowingNotice.status.in_(["sent", "captured", "unknown"]),
+                ShowingNotice.delivered_at >= opened,
+            )
+        )
+    }
     count = 0
     for key, agent_id in sorted(keys.items(), key=lambda item: item[1]):
         mobile = mobiles.get(agent_id)
-        if key in queued or not mobile:
+        if key in queued or not mobile or agent_id in told_today:
             continue
         showings = await delivery_checks.day_showings(session, agent_id, day, timezone, now)
         if not showings:

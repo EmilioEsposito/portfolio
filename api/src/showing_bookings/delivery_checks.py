@@ -117,6 +117,7 @@ NOTHING_TODAY = "Not sent: the host has no showing left today."
 APPLY_MISSED = "Not sent: the showing was more than two days ago."
 NUMBER_CHANGED = "Not sent: the booking's mobile was changed after this was written."
 HOUR_MISSED = "Not sent: it was too late for the text 1 hour before."
+HOUR_TEXT_WINS = "Not sent: the text 1 hour before goes soon after it."
 
 MORNING = time(8, 0)
 # A morning text not sent by noon is not sent at all.
@@ -130,6 +131,8 @@ APPLY_LOOKBACK = timedelta(days=2)
 HOUR_BEFORE = timedelta(hours=1)
 HOUR_BOOKED_BY = timedelta(minutes=75)
 HOUR_LAST = timedelta(minutes=45)
+# Never two reminders this close: the day's reminder gives way to the 1-hour text.
+REMINDER_GAP = timedelta(minutes=90)
 
 
 @dataclass(frozen=True)
@@ -173,6 +176,19 @@ def reply_unsettled_clause():
         ShowingAttendee.lead_token.is_(None),
         ShowingAttendee.lead_reply_sent_at.is_(None),
         ShowingAttendee.lead_reply_uncertain_at.is_(None),
+    )
+
+
+def gets_hour_text(attendee: ShowingAttendee, starts_at: datetime) -> bool:
+    """Whether ``attendee`` is owed the text 1 hour before ``starts_at``."""
+    return can_text(attendee) and attendee.created_at <= starts_at - HOUR_BOOKED_BY
+
+
+def hour_text_wins(attendee: ShowingAttendee, starts_at: datetime, reminder_at: datetime) -> bool:
+    """Whether the day's reminder at ``reminder_at`` gives way to the 1-hour text:
+    that text is owed and comes less than 90 minutes after it."""
+    return gets_hour_text(attendee, starts_at) and (
+        starts_at - HOUR_BEFORE - reminder_at < REMINDER_GAP
     )
 
 
@@ -258,8 +274,6 @@ async def check(session: AsyncSession, notice: ShowingNotice, now: datetime) -> 
     or re-render its text from things as they are now."""
     if notice.kind == PROSPECT_REMINDER_KIND:
         return await _prospect_reminder(session, notice, now)
-    if notice.kind == RESIDENT_REMINDER_KIND:
-        return await _resident_reminder(session, notice, now)
     if notice.kind == LEAD_EMAIL_REMINDER_KIND:
         return await _lead_email_reminder(session, notice, now)
     if notice.kind == HOST_MORNING_KIND:
@@ -339,6 +353,8 @@ async def _prospect_reminder(
         return Verdict(cancel=STARTED)
     if not can_text(attendee):
         return Verdict(cancel=NOT_TEXTED)
+    if hour_text_wins(attendee, starts_at, max(now, notice.not_before or now)):
+        return Verdict(cancel=HOUR_TEXT_WINS)
     notice.recipient = attendee.mobile
     return _daytime(notice, now)
 
@@ -366,43 +382,6 @@ async def _hour_text(session: AsyncSession, notice: ShowingNotice, now: datetime
     return GO
 
 
-async def _resident_reminder(
-    session: AsyncSession, notice: ShowingNotice, now: datetime
-) -> Verdict:
-    payload = TextPayload.model_validate(notice.payload)
-    ahead = list(
-        await session.scalars(
-            select(Showing)
-            .where(
-                Showing.id.in_(payload.showing_ids),
-                Showing.status == "scheduled",
-                Showing.starts_at > now,
-            )
-            .order_by(Showing.starts_at)
-        )
-    )
-    if not ahead:
-        return Verdict(cancel=NOTHING_LEFT)
-    if len(ahead) < len(payload.showing_ids):
-        timezone = payload.daytime_timezone or "UTC"
-        body = wording.resident_reminder_text(
-            [
-                wording.Visit(
-                    unit=showing.unit,
-                    address=showing.address,
-                    starts_at=showing.starts_at,
-                    ends_at=showing.ends_at,
-                    timezone=timezone,
-                )
-                for showing in ahead
-            ]
-        )
-        notice.payload = payload.model_copy(update={"body": body}).model_dump(
-            mode="json", exclude_defaults=True
-        )
-    return _daytime(notice, now)
-
-
 def named_agent(recipient_key: str) -> int:
     """The agent a host's notice names in its recipient key, ``agent:<id>...``."""
     return int(recipient_key.split(":")[1])
@@ -424,7 +403,7 @@ async def _host_text(session: AsyncSession, notice: ShowingNotice, now: datetime
             return Verdict(cancel=MOVED_AGAIN)
         if notice.kind == HOST_MOVED_FROM_KIND and named == showing.agent_id:
             return Verdict(cancel=HOSTING_AGAIN)
-        return GO
+        return _daytime(notice, now)
     if notice.kind == HOST_JOIN_KIND:
         status = await session.scalar(
             select(ShowingAttendee.status).where(ShowingAttendee.id == notice.attendee_id)
@@ -438,7 +417,8 @@ async def _host_text(session: AsyncSession, notice: ShowingNotice, now: datetime
     if not mobile:
         return Verdict(cancel=NO_HOST_MOBILE)
     notice.recipient = mobile
-    return GO
+    # Sent at once from 8 AM to 9 PM; after 9 PM it waits for 8 AM.
+    return _daytime(notice, now)
 
 
 # ---------------------------------------------------------------------------

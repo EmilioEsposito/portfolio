@@ -11,10 +11,10 @@ sent. A notice the guard captures is never asked about.
 
 | A message | Follows | Goes when |
 | --- | --- | --- |
-| the residents' cancellation | their new-showing text, or a reminder that listed the showing | one of them went |
+| the residents' cancellation | a residents' text that told them of the showing (its announcement, or one that listed it) | one of them went |
 | a host's event or a prospect's invite cancelled, an old host's event cancelled | the event | there is an event to cancel |
 | a host's event update because someone left, with no event to change | the host's event | an earlier host notice was not just captured |
-| a host's text that someone left, that the showing is cancelled or that it moved away | anything that told that host of the showing | something did, or nothing was captured for them |
+| a host's text that someone left, that the showing is cancelled or that it moved away | anything that told that host of the showing (their event, or a text that named or listed it) | something did, or nothing was captured for them |
 
 "Went" is sent, may have gone out (``unknown``) or being sent now. Everything
 else says something by itself: a confirmation, a reminder, a prospect's
@@ -28,7 +28,7 @@ Nothing here sends or changes anything.
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.src.showing_bookings import delivery_checks, host_event, residents
+from api.src.showing_bookings import delivery_checks, host_event, resident_texts, residents
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 
 HOST_NEVER_TOLD = (
@@ -43,7 +43,9 @@ HOST_CHANGE_TEXTS = frozenset(
         delivery_checks.HOST_MOVED_FROM_KIND,
     }
 )
-# What tells a host of one showing, beside the morning text that lists it.
+# Every text to a host.
+HOST_TEXTS = delivery_checks.HOST_TEXT_KINDS | {delivery_checks.HOST_MORNING_KIND}
+# What tells a host of one showing, beside a text that lists it.
 TELLS_THE_HOST = host_event.KINDS | {
     delivery_checks.HOST_JOIN_KIND,
     delivery_checks.HOST_MOVED_TO_KIND,
@@ -54,48 +56,45 @@ def _went(status: str, started: object) -> bool:
     return status in ("sent", "unknown") or (status == "pending" and started is not None)
 
 
-async def _residents_told(session: AsyncSession, showing_id: int) -> bool:
-    rows = await session.execute(
-        select(ShowingNotice.status, ShowingNotice.sending_started_at).where(
-            or_(
-                (ShowingNotice.showing_id == showing_id)
-                & (ShowingNotice.kind == residents.NEW_SHOWING_KIND),
-                (ShowingNotice.kind == delivery_checks.RESIDENT_REMINDER_KIND)
-                & ShowingNotice.payload["showing_ids"].contains([showing_id]),
-            )
-        )
+async def _host_rows(
+    session: AsyncSession, showing_id: int, agent_id: int, *, besides: int | None = None
+) -> list[tuple[str, object]]:
+    """The status and send marker of everything for this host about the showing:
+    their event, a text about it, or a text that named or listed it."""
+    for_host = (ShowingNotice.recipient_key == f"agent:{agent_id}") | (
+        ShowingNotice.recipient_key.startswith(f"agent:{agent_id}:", autoescape=True)
     )
-    return any(_went(status, started) for status, started in rows)
-
-
-async def _host_only_captured(session: AsyncSession, notice: ShowingNotice, agent_id: int) -> bool:
-    """Something else for this host about the showing was captured, and nothing went."""
-    showing_id = notice.showing_id
-    rows = (
+    return (
         await session.execute(
             select(ShowingNotice.status, ShowingNotice.sending_started_at).where(
-                ShowingNotice.id != notice.id,
+                *([ShowingNotice.id != besides] if besides is not None else []),
+                for_host,
                 or_(
                     (ShowingNotice.showing_id == showing_id)
-                    & ShowingNotice.kind.in_(TELLS_THE_HOST)
-                    & (
-                        (ShowingNotice.recipient_key == f"agent:{agent_id}")
-                        | ShowingNotice.recipient_key.startswith(
-                            f"agent:{agent_id}:", autoescape=True
-                        )
-                    ),
-                    (ShowingNotice.kind == delivery_checks.HOST_MORNING_KIND)
-                    & ShowingNotice.recipient_key.startswith(
-                        f"agent:{agent_id}:morning:", autoescape=True
-                    )
+                    & ShowingNotice.kind.in_(TELLS_THE_HOST),
+                    # A host's text that named or listed it, alone or with others.
+                    ShowingNotice.kind.in_(HOST_TEXTS)
                     & ShowingNotice.payload["showing_ids"].contains([showing_id]),
                 ),
             )
         )
     ).all()
+
+
+async def _host_only_captured(session: AsyncSession, notice: ShowingNotice, agent_id: int) -> bool:
+    """Something else for this host about the showing was captured, and nothing went."""
+    rows = await _host_rows(session, notice.showing_id, agent_id, besides=notice.id)
     return any(status == "captured" for status, _ in rows) and not any(
         _went(status, started) for status, started in rows
     )
+
+
+async def host_heard_of(session: AsyncSession, showing_id: int, agent_id: int) -> bool:
+    """Whether anything told this host of the showing: it went, may have, is being
+    sent, or was captured. A text that someone left, that it is cancelled or that it
+    moved away is queued only then (``host_texts``)."""
+    rows = await _host_rows(session, showing_id, agent_id)
+    return any(status == "captured" or _went(status, started) for status, started in rows)
 
 
 async def missing(session: AsyncSession, notice: ShowingNotice, event_id: str | None) -> str | None:
@@ -104,7 +103,7 @@ async def missing(session: AsyncSession, notice: ShowingNotice, event_id: str | 
     applies to, as the outbox found it, or None when there is none."""
     kind = notice.kind
     if kind == residents.CANCELLED_KIND:
-        told = await _residents_told(session, notice.showing_id)
+        told = await resident_texts.told_ids(session, [notice.showing_id], captured=False)
         return None if told else residents.NEVER_TOLD_NOTE
     if kind in host_event.CANCEL_KINDS | {host_event.MOVED_KIND}:
         return None if event_id else host_event.NEVER_CREATED

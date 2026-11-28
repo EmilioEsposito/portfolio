@@ -369,12 +369,12 @@ async def test_the_reminder_of_a_moved_showing_goes_by_text_not_by_email(lead):
     await move(lead)
     await lead.world.send_pending(lead.world.now + MINUTE)
 
-    report = await lead.world.send_pending(datetime.combine(TUESDAY, time(18), LOCAL))
+    report = await lead.world.send_pending(datetime.combine(WEDNESDAY, time(8), LOCAL))
 
     _, new = await places()
     assert (report.prospect_reminders, report.lead_email_reminders) == (1, 0)
     (reminder,) = (await notices_of(new.id))["prospect_reminder"]
-    assert "Wed, Apr 14 at 5:00 PM" in reminder.payload["body"]
+    assert "today at 5:00 PM" in reminder.payload["body"]
     assert lead.world.emails.sent == []
 
 
@@ -453,7 +453,7 @@ async def test_a_refused_number_marks_the_moved_place_and_it_stands(lead, monkey
     assert [n.status for n in told] == ["captured"]
     assert showings[1].status == "scheduled"
     # It reads on the Showings section, and the reminder goes by email instead.
-    report = await lead.world.send_pending(datetime.combine(TUESDAY, time(18), LOCAL))
+    report = await lead.world.send_pending(datetime.combine(WEDNESDAY, time(8), LOCAL))
     assert (report.prospect_reminders, report.lead_email_reminders) == (0, 1)
 
 
@@ -515,13 +515,13 @@ async def test_a_stopped_process_never_texts_the_lead(lead, monkeypatch):
             emails=lead.world.emails,
             alerter=alerter,
         )
-    report = await lead.world.send_pending(datetime.combine(TUESDAY, time(18), LOCAL))
+    report = await lead.world.send_pending(datetime.combine(WEDNESDAY, time(8), LOCAL))
 
     old, new = await places()
     assert old.status == new.status == "booked"
     # The old showing's reminder is the only new text; the new place has none.
     (reminder,) = texts_to_the_lead(lead)[len(first) :]
-    assert "a reminder of your in-person showing on Wed, Apr 14 at 4:00 PM" in reminder
+    assert "a reminder of your in-person showing today at 4:00 PM" in reminder
     assert report.prospect_reminders == 1 and report.lead_email_reminders == 0
     kinds = await notices_of(new.id)
     assert [n.status for n in kinds["prospect_confirmation"]] == ["pending"]
@@ -816,7 +816,7 @@ async def test_a_move_from_a_provisional_place_is_as_before(lead):
     assert old.status == "cancelled"
     assert_provisional(new)
     kinds = await notices_of(new.id)
-    assert set(kinds) == {"host_event"}  # no text and no invite
+    assert set(kinds) == {"host_event", "host_late_join"}  # no text to the lead, no invite
     assert all(n.status == "pending" for n in kinds["host_event"])
     row, _ = await stored(conversation_id)
     assert row.metadata_["showing_booking"]["details_kept"] is False
@@ -824,7 +824,7 @@ async def test_a_move_from_a_provisional_place_is_as_before(lead):
         await lead.world.send_pending(lead.world.now + minutes * MINUTE)
     assert lead.world.texts.sent == []
     # The reminder by email applies, as for any provisional place.
-    report = await lead.world.send_pending(datetime.combine(TUESDAY, time(18), LOCAL))
+    report = await lead.world.send_pending(datetime.combine(WEDNESDAY, time(8), LOCAL))
     assert (report.prospect_reminders, report.lead_email_reminders) == (0, 1)
 
 
@@ -839,7 +839,7 @@ async def test_a_place_with_a_wrong_number_moves_as_a_provisional_one(lead, reas
     old, new = await places()
     assert old.status == "cancelled"
     assert_provisional(new)
-    assert set(await notices_of(new.id)) == {"host_event"}
+    assert set(await notices_of(new.id)) == {"host_event", "host_late_join"}
     _, _, notices = await rows()
     assert "prospect_cancelled" not in by_kind(notices)
 

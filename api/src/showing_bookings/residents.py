@@ -87,8 +87,9 @@ NEVER_TOLD_NOTE = (
 
 
 def text_for(kind: str, showing: Showing, timezone: str) -> str:
-    """The words of a resident text of ``kind`` about ``showing``, with its date and
-    time in ``timezone``. Written when the text is queued and again when it goes."""
+    """The words of a resident text of ``kind`` about ``showing`` alone, with its date
+    and time in ``timezone``, as it is queued. It is written again when it goes,
+    with the unit's other showings (``digests.py``)."""
     visit = wording.Visit(
         unit=showing.unit,
         address=showing.address,
@@ -99,7 +100,7 @@ def text_for(kind: str, showing: Showing, timezone: str) -> str:
     if kind == NEW_SHOWING_KIND:
         return wording.resident_new_showing_text(visit)
     if kind == CANCELLED_KIND:
-        return wording.resident_cancelled_text(visit)
+        return wording.resident_text(upcoming=[], cancelled=[visit])
     raise ValueError(f"not a resident text: {kind}")
 
 

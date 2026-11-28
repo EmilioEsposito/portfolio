@@ -1,14 +1,14 @@
 """The reminder by email for a showing agreed in a Zillow lead's thread.
 
 A lead the lead agent booked in their email thread, whose confirming reply was
-sent and who has not added a mobile with consent, gets the evening-before
-reminder by email in the same thread instead of a text. These run the lead
+sent and who has not added a mobile with consent, gets the reminder at 8 AM on
+the day by email in the same thread instead of a text. These run the lead
 agent's code and the job every minute (``holds.send_pending``) against the test
 database, with the stand-ins of ``showing_public.py`` and the lead fixtures of
 ``test_zillow_lead_bookings.py``: Gmail is ``RecordingEmailSender``, and the
 model, Gmail and push are mocked. Names, numbers and threads are made up.
 
-The showing is Wednesday at 4 PM; the evening before is Tuesday at 6 PM.
+The showing is Wednesday at 4 PM; its reminder is due that morning at 8 AM.
 """
 
 # The ``world`` and ``lead`` fixtures are imported, so each test's parameter of
@@ -23,13 +23,19 @@ from sqlalchemy import delete, select, update
 
 from api.src.agent_conversations.models import AgentConversation
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings import delivery_checks, gmail_thread, lead_email, outbox, wording
+from api.src.showing_bookings import (
+    delivery_checks,
+    gmail_thread,
+    lead_email,
+    outbox,
+    reminders,
+    wording,
+)
 from api.src.showing_bookings.models import ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.providers import NotSent, ThreadRoute
 from api.src.tests.showing_helpers import LOCAL, store_settings
 from api.src.tests.showing_public import (
     ALEX_MOBILE,
-    TUESDAY,
     UNIT,
     WEDNESDAY,
     at,
@@ -54,11 +60,11 @@ SUBJECT = "Re: 320 Example St inquiry"
 MESSAGE_ID = f"{THREAD}-m10"
 
 
-def tuesday(hour: int, minute: int = 0) -> datetime:
-    return datetime.combine(TUESDAY, time(hour, minute), LOCAL)
+def wednesday(hour: int, minute: int = 0) -> datetime:
+    return datetime.combine(WEDNESDAY, time(hour, minute), LOCAL)
 
 
-EVENING = tuesday(18)
+MORNING = wednesday(8)
 
 
 async def booked_by_email(lead: Lead) -> str:
@@ -66,6 +72,15 @@ async def booked_by_email(lead: Lead) -> str:
     conversation_id = await lead.decide(outcome())
     await lead.decide_on(conversation_id)
     return conversation_id
+
+
+async def queued_not_sent() -> ShowingNotice:
+    """Queue the 8 AM reminder without delivering it, as when the job queued it and
+    something changed before the outbox reached it; the pending notice."""
+    await reminders.queue_due(now=MORNING)
+    (notice,) = await email_notices()
+    assert notice.status == "pending"
+    return notice
 
 
 async def email_notices() -> list[ShowingNotice]:
@@ -99,13 +114,13 @@ def live_to_the_thread(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_queued_at_6_pm_for_a_place_whose_reply_was_sent(lead):
+async def test_queued_at_8_am_on_the_day_for_a_place_whose_reply_was_sent(lead):
     conversation_id = await booked_by_email(lead)
 
-    await lead.world.send_pending(tuesday(17, 59))
+    await lead.world.send_pending(wednesday(7, 59))
     assert await email_notices() == []
 
-    report = await lead.world.send_pending(EVENING)
+    report = await lead.world.send_pending(MORNING)
 
     assert report.lead_email_reminders == 1 and report.prospect_reminders == 0
     (notice,) = await email_notices()
@@ -148,12 +163,12 @@ def test_the_wording_is_plain_text_from_a_fixed_template():
 
 
 @pytest.mark.asyncio
-async def test_a_place_booked_after_6_pm_gets_none(lead):
-    lead.world.now = tuesday(18, 30)
+async def test_a_place_booked_after_8_am_on_the_day_gets_none(lead):
+    lead.world.now = wednesday(8, 30)
     await booked_by_email(lead)
 
-    await lead.world.send_pending(tuesday(18, 31))
-    await lead.world.send_pending(tuesday(20))
+    await lead.world.send_pending(wednesday(8, 31))
+    await lead.world.send_pending(wednesday(12))
 
     assert await email_notices() == []
 
@@ -173,7 +188,7 @@ async def test_none_while_the_reply_was_never_sent(lead):
         now=lead.world.now,
     )
 
-    await lead.world.send_pending(EVENING)
+    await lead.world.send_pending(MORNING)
 
     _, (jordan,), _ = await rows()
     assert jordan.status == "booked" and jordan.lead_reply_sent_at is None
@@ -190,7 +205,7 @@ async def test_none_while_the_reply_may_or_may_not_have_gone(lead, monkeypatch):
     with pytest.raises(TimeoutError):
         await lead.decide_on(conversation_id)
 
-    await lead.world.send_pending(EVENING)
+    await lead.world.send_pending(MORNING)
 
     _, (jordan,), _ = await rows()
     assert jordan.attention_reason == "reply_uncertain" and jordan.lead_reply_sent_at is None
@@ -207,7 +222,7 @@ async def test_none_for_a_lead_who_added_their_details_they_get_the_text(lead):
         )
     assert answer.status_code == 201, answer.text
 
-    report = await lead.world.send_pending(EVENING)
+    report = await lead.world.send_pending(MORNING)
 
     assert (report.lead_email_reminders, report.prospect_reminders) == (0, 1)
     assert await email_notices() == []
@@ -219,12 +234,9 @@ async def test_none_for_a_lead_who_added_their_details_they_get_the_text(lead):
 @pytest.mark.asyncio
 async def test_details_added_before_it_goes_cancel_it_and_the_text_goes_instead(lead):
     await booked_by_email(lead)
-    # The job missed the evening; at 9:30 PM the email is queued and waits for 8 AM.
-    await lead.world.send_pending(tuesday(21, 30))
-    (notice,) = await email_notices()
-    assert notice.status == "pending"
+    await queued_not_sent()
 
-    lead.world.now = tuesday(22)
+    lead.world.now = MORNING
     token = await lead_links.token_for_thread(THREAD)
     async with lead.world.client() as client:
         answer = await client.post(
@@ -232,9 +244,8 @@ async def test_details_added_before_it_goes_cancel_it_and_the_text_goes_instead(
         )
     assert answer.status_code == 201, answer.text
 
-    morning = datetime.combine(WEDNESDAY, time(8), LOCAL)
-    await lead.world.send_pending(morning)
-    await lead.world.send_pending(morning + timedelta(minutes=1))
+    await lead.world.send_pending(MORNING + timedelta(minutes=1))
+    await lead.world.send_pending(MORNING + timedelta(minutes=2))
 
     (notice,) = await email_notices()
     assert (notice.status, notice.last_error) == ("cancelled", delivery_checks.TEXTED_INSTEAD)
@@ -246,18 +257,18 @@ async def test_details_added_before_it_goes_cancel_it_and_the_text_goes_instead(
 @pytest.mark.asyncio
 async def test_details_added_after_it_went_bring_no_reminder_text_as_well(lead):
     await booked_by_email(lead)
-    await lead.world.send_pending(EVENING)
+    await lead.world.send_pending(MORNING)
     assert [n.status for n in await email_notices()] == ["captured"]
 
-    lead.world.now = tuesday(19)
+    lead.world.now = wednesday(9)
     token = await lead_links.token_for_thread(THREAD)
     async with lead.world.client() as client:
         answer = await client.post(
             f"{PUBLIC}/units/{UNIT}/lead-booking/details", json=details(token)
         )
     assert answer.status_code == 201, answer.text
-    await lead.world.send_pending(tuesday(19, 1))
-    await lead.world.send_pending(tuesday(20))
+    await lead.world.send_pending(wednesday(9, 1))
+    await lead.world.send_pending(wednesday(10))
 
     _, _, notices = await rows()
     kinds = by_kind(notices)
@@ -275,7 +286,7 @@ async def test_none_after_a_cancellation(lead):
         )
     assert answer.status_code == 200, answer.text
 
-    await lead.world.send_pending(EVENING)
+    await lead.world.send_pending(MORNING)
 
     assert await email_notices() == []
 
@@ -283,11 +294,11 @@ async def test_none_after_a_cancellation(lead):
 @pytest.mark.asyncio
 async def test_a_cancellation_after_it_was_queued_stops_it(lead):
     await booked_by_email(lead)
-    await lead.world.send_pending(tuesday(21, 30))  # queued, waits for 8 AM
-    lead.world.now = tuesday(22)
+    await queued_not_sent()
+    lead.world.now = MORNING
     await lead.decide(outcome("no_reply", status="cancelled"))
 
-    await lead.world.send_pending(datetime.combine(WEDNESDAY, time(8), LOCAL))
+    await lead.world.send_pending(MORNING + timedelta(minutes=1))
 
     (notice,) = await email_notices()
     assert (notice.status, notice.last_error) == ("cancelled", delivery_checks.BOOKING_CANCELLED)
@@ -299,7 +310,7 @@ async def test_none_with_the_switch_off(lead):
     await booked_by_email(lead)
     await store_settings(lead_agent_uses_open_times=False)
 
-    report = await lead.world.send_pending(EVENING)
+    report = await lead.world.send_pending(MORNING)
 
     assert report.lead_email_reminders == 0
     assert await email_notices() == []
@@ -308,29 +319,31 @@ async def test_none_with_the_switch_off(lead):
 @pytest.mark.asyncio
 async def test_switched_off_after_it_was_queued_it_does_not_go(lead):
     await booked_by_email(lead)
-    await lead.world.send_pending(tuesday(21, 30))
+    await queued_not_sent()
     await store_settings(lead_agent_uses_open_times=False)
 
-    await lead.world.send_pending(datetime.combine(WEDNESDAY, time(8), LOCAL))
+    await lead.world.send_pending(MORNING + timedelta(minutes=1))
 
     (notice,) = await email_notices()
     assert (notice.status, notice.last_error) == ("cancelled", delivery_checks.SWITCH_OFF)
 
 
 @pytest.mark.asyncio
-async def test_held_to_8_am_to_9_pm(lead):
+async def test_a_missed_morning_catches_up_while_the_showing_is_ahead(lead):
     await booked_by_email(lead)
-    morning = datetime.combine(WEDNESDAY, time(8), LOCAL)
 
-    await lead.world.send_pending(tuesday(21, 30))
-    (notice,) = await email_notices()
-    assert (notice.status, notice.not_before) == ("pending", morning)
+    await lead.world.send_pending(wednesday(11))
 
-    await lead.world.send_pending(morning - timedelta(minutes=1))
-    assert [n.status for n in await email_notices()] == ["pending"]
-
-    await lead.world.send_pending(morning)
     assert [n.status for n in await email_notices()] == ["captured"]
+
+
+@pytest.mark.asyncio
+async def test_none_once_the_showing_has_started(lead):
+    await booked_by_email(lead)
+
+    await lead.world.send_pending(wednesday(16, 1))
+
+    assert await email_notices() == []
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +354,7 @@ async def test_held_to_8_am_to_9_pm(lead):
 @pytest.mark.asyncio
 async def test_the_route_is_read_from_the_conversation_when_it_goes(lead, monkeypatch):
     conversation_id = await booked_by_email(lead)
-    await lead.world.send_pending(tuesday(21, 30))  # queued to the stored route, waits
+    await queued_not_sent()  # queued to the stored route, not sent yet
     other = f"{THREAD}-later@convo.zillow.com"
     await set_route(
         conversation_id,
@@ -356,7 +369,7 @@ async def test_the_route_is_read_from_the_conversation_when_it_goes(lead, monkey
     monkeypatch.setenv("SHOWING_TEST_EMAILS", other)
     await go_live()
 
-    await lead.world.send_pending(datetime.combine(WEDNESDAY, time(8), LOCAL))
+    await lead.world.send_pending(MORNING + timedelta(minutes=1))
 
     (sent,) = lead.world.emails.sent
     assert sent.route == ThreadRoute(to=other, subject="Re: Later", reply_to_message_id="later-m1")
@@ -406,7 +419,7 @@ async def test_a_missing_or_unsafe_route_fails_for_the_team_and_sends_nothing(
     monkeypatch.setenv("SHOWING_TEST_EMAILS", f"{RELAY},jordan@example.com")
     await go_live()
 
-    await lead.world.send_pending(EVENING)
+    await lead.world.send_pending(MORNING)
 
     (notice,) = await email_notices()
     assert (notice.status, notice.provider_status, notice.last_error) == (
@@ -414,22 +427,22 @@ async def test_a_missing_or_unsafe_route_fails_for_the_team_and_sends_nothing(
         problem.reason,
         problem.detail,
     )
-    assert notice.alert_reason == "failed" and notice.alerted_at == EVENING
+    assert notice.alert_reason == "failed" and notice.alerted_at == MORNING
     assert lead.world.emails.sent == []
     # Never tried again.
-    await lead.world.send_pending(EVENING + timedelta(minutes=1))
+    await lead.world.send_pending(MORNING + timedelta(minutes=1))
     assert lead.world.emails.sent == []
 
 
 @pytest.mark.asyncio
 async def test_a_route_lost_after_queuing_fails_at_delivery(lead, monkeypatch):
     conversation_id = await booked_by_email(lead)
-    await lead.world.send_pending(tuesday(21, 30))
+    await queued_not_sent()
     await set_route(conversation_id, reply_route=None)
     live_to_the_thread(monkeypatch)
     await go_live()
 
-    await lead.world.send_pending(datetime.combine(WEDNESDAY, time(8), LOCAL))
+    await lead.world.send_pending(MORNING + timedelta(minutes=1))
 
     (notice,) = await email_notices()
     assert (notice.status, notice.provider_status) == ("failed", "no_route")
@@ -462,7 +475,7 @@ async def test_test_mode_captures_unless_the_thread_is_a_test_recipient(lead, mo
     monkeypatch.setenv("SHOWING_TEST_EMAILS", "pat@example.com")
     await go_live()
 
-    await lead.world.send_pending(EVENING)
+    await lead.world.send_pending(MORNING)
 
     (notice,) = await email_notices()
     assert (notice.status, notice.mode, notice.guard_reason) == (
@@ -479,7 +492,7 @@ async def test_live_outside_production_is_captured_whoever_it_is_to(lead, monkey
     live_to_the_thread(monkeypatch)
     await store_settings(lead_agent_uses_open_times=True, send_mode="live", live_all_units=True)
 
-    await lead.world.send_pending(EVENING)
+    await lead.world.send_pending(MORNING)
 
     (notice,) = await email_notices()
     assert (notice.status, notice.mode, notice.guard_reason) == (
@@ -496,7 +509,7 @@ async def test_live_with_the_thread_as_a_test_recipient_sends_once_in_the_thread
     live_to_the_thread(monkeypatch)
     await go_live()
 
-    for moment in (EVENING, EVENING + timedelta(minutes=1), tuesday(20), tuesday(20, 59)):
+    for moment in (MORNING, MORNING + timedelta(minutes=1), wednesday(10), wednesday(12)):
         await lead.world.send_pending(moment)
 
     (sent,) = lead.world.emails.sent
@@ -520,12 +533,12 @@ async def test_what_gmail_answers_is_saved(lead, monkeypatch, failing, status):
     await go_live()
     lead.world.emails.failing = failing
 
-    await lead.world.send_pending(EVENING)
+    await lead.world.send_pending(MORNING)
 
     (notice,) = await email_notices()
     assert notice.status == status
     if status == "pending":  # nothing went out: tried again later
-        assert notice.not_before > EVENING and notice.attempts == 1
+        assert notice.not_before > MORNING and notice.attempts == 1
 
 
 @pytest.mark.asyncio
@@ -533,14 +546,12 @@ async def test_without_a_stand_in_the_live_gmail_sender_refuses_under_pytest(lea
     await booked_by_email(lead)
     live_to_the_thread(monkeypatch)
     await go_live()
-    await lead.world.send_pending(tuesday(17))  # the other notices go first
+    await lead.world.send_pending(wednesday(7))  # the other notices go first
 
-    from api.src.showing_bookings import reminders
-
-    await reminders.queue_due(now=EVENING)
+    await reminders.queue_due(now=MORNING)
     (notice,) = await email_notices()
     with pytest.raises(gmail_thread.LiveGmailInTests):
-        await outbox.deliver(notice.id, now=EVENING)
+        await outbox.deliver(notice.id, now=MORNING)
     with pytest.raises(gmail_thread.LiveGmailInTests):
         await gmail_thread.GmailThreadSender().send_in_thread(
             ThreadRoute(to=RELAY, subject=SUBJECT, reply_to_message_id=MESSAGE_ID), "Hi"
@@ -565,11 +576,11 @@ async def test_another_email_the_guard_would_send_still_cannot_go(lead, monkeypa
             recipient=RELAY,
             recipient_key="other",
             payload=EmailPayload(subject="Hi", body="Hi", reply_to_message_id=MESSAGE_ID),
-            now=EVENING,
+            now=MORNING,
         )
         await session.commit()
 
-    assert await outbox.deliver(notice.id, now=EVENING, emails=lead.world.emails) == "failed"
+    assert await outbox.deliver(notice.id, now=MORNING, emails=lead.world.emails) == "failed"
     async with AsyncSessionFactory() as session:
         saved = await session.scalar(select(ShowingNotice).where(ShowingNotice.id == notice.id))
     assert saved.provider_status == "no_email_sender"
@@ -694,7 +705,7 @@ async def test_a_reply_still_goes_through_the_same_gmail_call(monkeypatch):
 @pytest.mark.asyncio
 async def test_the_messages_list_names_it_and_its_thread(lead):
     conversation_id = await booked_by_email(lead)
-    await lead.world.send_pending(EVENING)
+    await lead.world.send_pending(MORNING)
 
     async with lead.world.client(lead.world.team_app()) as client:
         listed = (await client.get("/api/showing-bookings/notices")).json()

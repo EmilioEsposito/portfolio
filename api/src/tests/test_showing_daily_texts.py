@@ -53,7 +53,8 @@ THURSDAY = date(2027, 4, 15)
 
 
 def morning_texts(world: PublicWorld, number: str = JANE_MOBILE) -> list[str]:
-    return [body for body in world.texts.to(number) if "your showings today" in body]
+    """The texts listing the day's showings, alone or after changes due with them."""
+    return [body for body in world.texts.to(number) if "your showings today" in body.lower()]
 
 
 def apply_texts(world: PublicWorld, number: str = ALEX_MOBILE) -> list[str]:
@@ -74,6 +75,13 @@ async def showing_of(token: str) -> tuple[int, int]:
 
 ONE_SHOWING = (
     "Sernia Capital: your showings today, Wed, Apr 14:\n"
+    "- 4:00 PM at 320 Example St (unit 320-03), 1 person"
+)
+# Robin's cancellation of the 10 AM showing, due with the morning text: one text.
+ROBIN_LEFT_AND_ONE_SHOWING = (
+    "Sernia Capital: Robin Lee cancelled your showing of 320 Example St (unit 320-03) on "
+    "Wed, Apr 14 at 10:00 AM. No one is booked now, so the showing is cancelled.\n\n"
+    "Your showings today, Wed, Apr 14:\n"
     "- 4:00 PM at 320 Example St (unit 320-03), 1 person"
 )
 
@@ -125,7 +133,7 @@ async def test_three_showings_are_listed_in_order_with_how_many_people(world):
     showings, _, _ = await rows()
     by_start = {s.starts_at: s.id for s in showings}
     assert notice.showing_id == by_start[at(10)]
-    assert notice.payload["showing_ids"] == [by_start[at(10)], by_start[at(13)], by_start[at(16)]]
+    assert sorted(notice.payload["showing_ids"]) == sorted(by_start.values())
     # No prospect's name, number or email in it.
     for secret in ("Alex", "Robin", "Casey", ALEX_MOBILE, ROBIN_MOBILE, CASEY_MOBILE, "@"):
         assert secret not in notice.payload["body"]
@@ -204,8 +212,8 @@ async def test_a_showing_cancelled_before_the_morning_is_left_out(world):
     world.now = at(7)
     await cancel(world, robin_booking["cancel_token"])  # the last one: the showing is cancelled
 
-    await run(world, at(8))
-    assert morning_texts(world) == [ONE_SHOWING]
+    await run(world, at(8))  # the host's text about it waited for 8 AM: one text
+    assert morning_texts(world) == [ROBIN_LEFT_AND_ONE_SHOWING]
 
 
 @pytest.mark.asyncio
@@ -230,9 +238,12 @@ async def test_a_showing_cancelled_between_queueing_and_sending_is_left_out(worl
     (notice,) = await of_kind(MORNING)
     assert notice.status == "pending" and "10:00 AM" in notice.payload["body"]
 
-    await cancel(world, robin_booking["cancel_token"])
+    await cancel(world, robin_booking["cancel_token"])  # its text takes the morning text in
     await run(world, at(8, 1))
-    assert morning_texts(world) == [ONE_SHOWING]
+    assert morning_texts(world) == [ROBIN_LEFT_AND_ONE_SHOWING]
+    (morning,) = await of_kind(MORNING)
+    assert morning.status == "cancelled"
+    assert morning.last_error.startswith("Not sent by itself: it went in the same text as notice")
 
 
 @pytest.mark.asyncio

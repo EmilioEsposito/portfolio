@@ -95,19 +95,19 @@ const nodes: Node[] = [
   },
   {
     id: "leadEmail", title: "Lead booked by email", subtitle: "Email only, until they add details", icon: Mail, tone: "told", box: [24, 838, 222, 112],
-    detail: "This lead has only the confirming email. A phone number that appeared in a Zillow email is never texted, because the lead has not agreed to texts. The evening before, they get a reminder by email in the same thread, with a link to cancel. Once they add a mobile number and email through their own link, they are treated like any other lead.",
+    detail: "This lead has only the confirming email. A phone number that appeared in a Zillow email is never texted, because the lead has not agreed to texts. At 8 AM on the day, they get a reminder by email in the same thread, with a link to cancel. Once they add a mobile number and email through their own link, they are treated like any other lead.",
   },
   {
     id: "leadDetails", title: "Lead with details", subtitle: "Confirmation text + calendar invite", icon: Smartphone, tone: "told", box: [346, 838, 222, 112],
-    detail: "Gets a confirmation text with a link to cancel, then a calendar invite by email. The evening before, a reminder text. Two hours after the showing starts, a text with the link to apply. If they cancel, by the link or by email to the agent, everyone else is updated.",
+    detail: "Gets a confirmation text with a link to cancel, then a calendar invite by email, at once. At 8 AM on the day, a reminder text, and 1 hour before, a text with the address and time. Two hours after the showing starts, a text with the link to apply. If they cancel, by the link or by email to the agent, everyone else is updated.",
   },
   {
-    id: "host", title: "The showing agent", subtitle: "Calendar event + texts on the day", icon: UserRoundCheck, tone: "told", box: [600, 838, 235, 112],
-    detail: "Gets one event on their calendar for each showing, listing who is coming, how to reach them, and how each one booked. The event changes when someone joins, cancels, or moves. On the morning of a showing day they get one text listing the day’s showings, and a text for any change within two hours of a start.",
+    id: "host", title: "The showing agent", subtitle: "Calendar event + a text per change", icon: UserRoundCheck, tone: "told", box: [600, 838, 235, 112],
+    detail: "Gets one event on their calendar for each showing, listing who is coming, how to reach them, and how each one booked. The event changes when someone joins, cancels, or moves. Every change also texts them from the AI line, saying what changed and listing their upcoming showings: at once from 8 AM to 9 PM, else at 8 AM. At 8 AM on a showing day, one text lists the day’s showings, opening with any change from the night.",
   },
   {
     id: "residents", title: "Current residents", subtitle: "One group text; none if vacant", icon: Home, tone: "told", box: [855, 838, 235, 112],
-    detail: "The people on a current lease at the unit get one group text when a showing is first booked there, sent in the daytime, and a reminder the evening before listing the next day’s showings. If a showing is cancelled after they were told, they get a text saying so. A vacant unit gets nothing. If the residents cannot be looked up, the showing is flagged so the team tells them.",
+    detail: "The people on a current lease at the unit get one group text when a showing is first booked there, listing every upcoming showing they were told of, and a reminder at 8 AM on the day. Texts go at once from 8 AM to 9 PM; later ones wait for 8 AM, and texts due together go as one. If a showing is cancelled after they were told, they get a text saying so and what is still scheduled. A vacant unit gets nothing. If the residents cannot be looked up, the showing is flagged so the team tells them.",
   },
 ];
 

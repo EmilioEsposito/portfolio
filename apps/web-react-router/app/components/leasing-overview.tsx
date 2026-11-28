@@ -9,33 +9,33 @@ import LeasingArchitecture from "~/components/leasing-architecture";
 const told: { when: string; lead: string; host: string; residents: string }[] = [
   {
     when: "A showing is booked",
-    lead: "A confirmation text with a link to cancel, then a calendar invite. Booked by email: the confirming email only, until they add their details.",
-    host: "An event on their calendar, listing who is coming.",
-    residents: "One group text, in the daytime. Nothing more when another lead joins.",
+    lead: "At once, any hour: a confirmation text with a link to cancel, then a calendar invite. Booked by email: the confirming email only, until they add their details.",
+    host: "An event on their calendar, listing who is coming, and a text saying who booked, then their upcoming showings.",
+    residents: "A text listing every upcoming showing they have been told of, the new one marked. Nothing more when another lead joins.",
   },
   {
-    when: "The evening before",
-    lead: "A reminder text. Booked by email without details: a reminder email in the same thread.",
+    when: "8 AM on the day",
+    lead: "A reminder text, if they booked before 8 AM, unless the 1-hour text comes within 90 minutes. Booked by email without details: a reminder email in the same thread.",
+    host: "One text with the day’s showings, in order, opening with any change from the night.",
+    residents: "A reminder text with the day’s times, and any news from the night in the same text.",
+  },
+  {
+    when: "1 hour before",
+    lead: "A text with the address and the time, unless they booked less than 75 minutes before.",
     host: "",
-    residents: "A reminder text listing the next day’s showings.",
-  },
-  {
-    when: "The morning of",
-    lead: "",
-    host: "One text with the day’s showings, in order.",
     residents: "",
   },
   {
-    when: "A change within two hours of the start",
+    when: "Someone joins or cancels, or the showing gets another agent",
     lead: "",
-    host: "A text saying who joined or cancelled.",
+    host: "A text saying what changed, then their upcoming showings. The agent who lost it is told too.",
     residents: "",
   },
   {
     when: "A showing is cancelled or moved",
-    lead: "A text confirming the cancellation, and the invite is withdrawn. A move by email is confirmed in the reply.",
-    host: "The event is updated, or removed when no one is left.",
-    residents: "A text saying the showing is off, if they had been told about it.",
+    lead: "At once: a text confirming the cancellation, and the invite is withdrawn. A move by email is confirmed in the reply.",
+    host: "The event is updated, or removed when no one is left, and a text.",
+    residents: "A text saying it is off and what is still scheduled, if they had been told about it.",
   },
   {
     when: "Two hours after the start",
@@ -74,7 +74,7 @@ export function LeasingOverview() {
       <section aria-labelledby="told-title" className="mt-9">
         <h2 id="told-title" className="font-semibold">Who hears what, and when</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-          Every text, invite and calendar event below is sent by the system. Texts go only to a lead who agreed to them, and to residents only in the daytime.
+          Every text, invite and calendar event below is sent by the system. Leads and residents are texted from the team line, showing agents from the AI line. Texts to showing agents and residents go at once from 8 AM to 9 PM; later ones wait for 8 AM and go together in one text. Texts go only to a lead who agreed to them.
         </p>
         <div className="mt-4 overflow-x-auto rounded-xl border">
           <table className="w-full min-w-[44rem] border-collapse text-left text-sm">

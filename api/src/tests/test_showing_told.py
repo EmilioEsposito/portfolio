@@ -11,13 +11,10 @@ import pytest_asyncio
 from sqlalchemy import select, update
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.rental_listings import service as listings_service
 from api.src.showing_bookings import (
-    bookings,
     captured,
     delivery_checks,
     host_event,
-    host_texts,
     open_times,
     reminders,
     residents,
@@ -25,9 +22,7 @@ from api.src.showing_bookings import (
     told,
 )
 from api.src.showing_bookings.models import (
-    Showing,
     ShowingAgentRecord,
-    ShowingAttendee,
     ShowingNotice,
 )
 from api.src.tests.showing_helpers import clear_showing_data, store_settings
@@ -169,10 +164,10 @@ async def test_residents_told_get_the_cancellation(world):
 
 @pytest.mark.asyncio
 async def test_residents_told_by_a_reminder_get_the_cancellation(world):
-    """The announcement was captured, but the evening's reminder listed the showing."""
+    """The announcement was captured, but the 8 AM reminder listed the showing."""
     booked = await book(world)
     await live_mode()
-    world.now = at(18, day=TUESDAY)
+    world.now = at(8)
     await world.send_pending()
     assert len(world.texts.to(RESIDENT)) == 1
 
@@ -345,19 +340,15 @@ async def test_a_host_never_told_is_not_texted_that_it_moved_away_but_the_new_on
 
 @pytest.mark.asyncio
 async def test_a_host_is_texted_that_someone_booked_whatever_came_before(world):
-    """It names the showing and who is coming, so it says something alone."""
+    """It names the showing and who is coming, so it says something alone: Alex's
+    booking (the host's event and text) was captured, Robin's join is sent."""
     await book(world)
-    world.now = at(14, 30)
+    world.now = at(15, day=TUESDAY)
     await live_mode()
-    async with AsyncSessionFactory() as session, session.begin():
-        rules = await listings_service.read_showing_rules(session)
-        showing = await session.scalar(select(Showing))
-        alex = await session.scalar(select(ShowingAttendee))
-        notice_id = await host_texts.queue_join(session, showing, alex, rules=rules, now=world.now)
 
-    await bookings.deliver_host_text(notice_id, now=world.now, texts=world.texts)
+    await book(world, robin())
 
-    assert await found(delivery_checks.HOST_JOIN_KIND) == [("sent", None)]
+    assert await found(delivery_checks.HOST_JOIN_KIND) == [("captured", None), ("sent", None)]
     assert len(world.texts.to(JANE_MOBILE)) == 1
 
 
@@ -373,7 +364,7 @@ async def test_a_host_told_by_the_event_is_texted(world):
 
     assert await found(delivery_checks.HOST_LEFT_KIND) == [("sent", None)]
     assert await found(delivery_checks.HOST_SHOWING_CANCELLED_KIND) == [("sent", None)]
-    assert len(world.texts.to(JANE_MOBILE)) == 2
+    assert len(world.texts.to(JANE_MOBILE)) == 4  # each booking, Robin leaving, the cancel
 
 
 @pytest.mark.asyncio
@@ -437,7 +428,7 @@ async def test_a_unit_unticked_with_showings_booked_keeps_them_and_captures_thei
     sent_before = len(world.texts.sent)
     await store_settings(send_mode="live", live_units=["412-01"], public_booking_enabled=True)
 
-    world.now = at(18, day=TUESDAY)
+    world.now = at(8)
     await world.send_pending()
     showings, (alex,), _ = await rows()
     assert (showings[0].status, alex.status) == ("scheduled", "booked")

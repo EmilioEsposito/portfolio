@@ -54,12 +54,18 @@ The old host's event after a change of host (``host_event.MOVED_KIND``) is
 checked the same way, and is applied to the event the notice names, never to
 the showing's current one.
 
-A resident's text (``residents.TEXT_KINDS``) is checked too: the new-showing
-text is cancelled once the showing is, either is cancelled once the showing
-has started, and one due outside 8 AM to 9 PM in its time zone waits for 8 AM.
-The cancellation text never overtakes the announcement: it waits a minute while
-the announcement is being sent, then goes only if the announcement went out
-(sent, captured or unknown), and is cancelled otherwise.
+A residents' text (``resident_texts.KINDS``) is checked too
+(``resident_texts.check``): the new-showing text is cancelled once the showing
+is, each is cancelled once its showing has started, and one due outside 8 AM to
+9 PM in its time zone waits for 8 AM. The cancellation text never overtakes the
+announcement: it waits a minute while the text that tells them of the showing
+is being sent, then goes only if one went out (sent, captured or unknown), and
+is cancelled otherwise.
+
+A host's text or a residents' text is written when it is captured or claimed
+for sending, together with every other one due for the same host or the same
+unit's residents (``digests.compose``): one text, with the others saved
+cancelled as having gone in it. A preview writes it without touching the others.
 A group text (``TextPayload.also_to``) goes out as one text to every number,
 and the guard counts every number in it.
 
@@ -101,10 +107,11 @@ from api.src.database.database import AsyncSessionFactory
 from api.src.showing_bookings import (
     connections,
     delivery_checks,
+    digests,
     google_http,
     host_event,
     lines,
-    residents,
+    resident_texts,
     told,
 )
 from api.src.showing_bookings.gmail_thread import GmailThreadSender, LiveGmailInTests
@@ -372,7 +379,19 @@ async def preview(
             problem = delivery_checks.REPLY_NOT_SENT
     else:
         problem = await told.missing(session, copy, prepared)
-    goes_out = _ask(copy, unit, await _guard_inputs(session)).action == "send"
+    inputs = await _guard_inputs(session)
+    decision = _ask(copy, unit, inputs)
+    goes_out = decision.action == "send"
+    if problem is None and later is None:
+        # Written as it would go, with whatever is due for the same people now.
+        problem = await digests.compose(
+            session,
+            copy,
+            now=now,
+            sending=goes_out,
+            lock=False,
+            same=lambda other, other_unit: _ask(other, other_unit, inputs) == decision,
+        )
     return Preview(problem, later, goes_out, copy.recipient, dict(copy.payload))
 
 
@@ -511,20 +530,38 @@ async def _guard(
     event_id: str | None,
     inputs: _GuardInputs,
     now: datetime,
+    *,
+    compose_sends: bool = False,
 ) -> Decision | None:
     """Ask the guard about one locked row, and settle it when the answer is capture.
 
+    A host's or residents' text is written with the others due for the same people
+    (``digests.compose``) when it is captured here, or, with ``compose_sends``,
+    just before it is claimed for sending.
+
     None when the guard would send it but what it follows was never sent
-    (``told.missing``): the row is cancelled.
+    (``told.missing``), or when nothing it would say is still true: the row is
+    cancelled.
     """
     decision = _ask(notice, unit, inputs)
+
+    def same(other: ShowingNotice, other_unit: str) -> bool:
+        return _ask(other, other_unit, inputs) == decision
+
     if decision.action != "send":
+        note = await digests.compose(session, notice, now=now, sending=False, lock=True, same=same)
+        if note is not None:
+            notice.status = "cancelled"
+            notice.last_error = note
+            return None
         notice.mode = inputs[0].send_mode
         notice.guard_reason = decision.reason
         notice.status = "captured"
         notice.delivered_at = now
         return decision
     note = await told.missing(session, notice, event_id)
+    if note is None and compose_sends:
+        note = await digests.compose(session, notice, now=now, sending=True, lock=True, same=same)
     if note is not None:
         notice.status = "cancelled"
         notice.last_error = note
@@ -589,8 +626,16 @@ async def _prepare(
             notice.status = "cancelled"
             notice.last_error = problem
             return _NOT_NOW
-    if notice.kind in residents.TEXT_KINDS:
-        return await _prepare_resident_text(session, notice, now)
+    if notice.kind in resident_texts.KINDS:
+        verdict = await resident_texts.check(session, notice, now)
+        if verdict.cancel is not None:
+            notice.status = "cancelled"
+            notice.last_error = verdict.cancel
+            return _NOT_NOW
+        if verdict.later is not None:
+            notice.not_before = verdict.later
+            return _NOT_NOW
+        return None
     if notice.kind in delivery_checks.KINDS:
         verdict = await delivery_checks.check(session, notice, now)
         if verdict.cancel is not None:
@@ -711,56 +756,6 @@ async def _recalendar(session: AsyncSession, notice: ShowingNotice, event_id: st
     notice.payload = {**notice.payload, "calendar_id": calendar_id}
 
 
-async def _prepare_resident_text(session: AsyncSession, notice: ShowingNotice, now: datetime):
-    """A resident's text goes only while its showing is ahead, and only in the daytime.
-
-    Its words are written again as it goes (``residents.text_for``), so a text
-    queued before a change of wording goes out in the new wording.
-    """
-    showing = (
-        await session.execute(
-            select(Showing)
-            .where(Showing.id == notice.showing_id)
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one()
-    note = None
-    if notice.kind == residents.NEW_SHOWING_KIND and showing.status != "scheduled":
-        note = residents.SHOWING_CANCELLED_NOTE
-    elif showing.starts_at <= now:
-        note = residents.TOO_LATE_NOTE
-    if note is None and notice.kind == residents.CANCELLED_KIND:
-        # Never ahead of the announcement: wait while it is being sent, then go
-        # only if it went out (or may have).
-        told = (
-            await session.execute(
-                select(ShowingNotice.status, ShowingNotice.sending_started_at).where(
-                    ShowingNotice.showing_id == notice.showing_id,
-                    ShowingNotice.kind == residents.NEW_SHOWING_KIND,
-                )
-            )
-        ).first()
-        if told is not None and told[0] == "pending" and told[1] is not None:
-            notice.not_before = now + HOST_EVENT_BUSY_DELAY
-            return _NOT_NOW
-        if told is None or told[0] not in ("sent", "captured", "unknown"):
-            note = residents.NEVER_TOLD_NOTE
-    if note is not None:
-        notice.status = "cancelled"
-        notice.last_error = note
-        return _NOT_NOW
-    timezone = notice.payload.get("daytime_timezone")
-    later = residents.next_daytime(now, timezone) if timezone else None
-    if later is not None:
-        notice.not_before = later
-        return _NOT_NOW
-    if timezone:
-        body = residents.text_for(notice.kind, showing, timezone)
-        if body != notice.payload.get("body"):
-            notice.payload = {**notice.payload, "body": body}
-    return None
-
-
 async def _unit_now(
     session: AsyncSession, notice: ShowingNotice, showing_before: int, unit: str
 ) -> str:
@@ -802,6 +797,8 @@ async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainRep
                 )
             inputs = await _guard_inputs(session)
             for notice, unit, _host_event_id, _invite_event_id in rows:
+                if notice.status != "pending":
+                    continue  # went in another's text just now
                 showing_before = notice.showing_id
                 prepared = await _prepare(session, notice, now)
                 if prepared is _NOT_NOW:
@@ -841,7 +838,7 @@ async def _claim_one(notice_id: int, *, now: datetime) -> tuple[_Claimed | None,
         elif prepared is not None:
             invite_event_id = prepared
         inputs = await _guard_inputs(session)
-        decision = await _guard(session, notice, unit, prepared, inputs, now)
+        decision = await _guard(session, notice, unit, prepared, inputs, now, compose_sends=True)
         if decision is None:
             return None, None
         if decision.action != "send":

@@ -101,11 +101,13 @@ async def test_a_new_showing_in_capture_mode(world):
         ("pets", "No pet dogs will live in the apartment."),
     ]
     assert alex.cancel_token == result["cancel_token"]
-    # The confirmation is captured; the event and the invite wait for it.
+    # The confirmation is captured; the event and the invite wait for it. The host's
+    # text that someone booked goes after the confirmation, and is captured too.
     assert statuses(notices) == [
         ("prospect_confirmation", "captured"),
         ("host_event", "held"),
         ("prospect_invite", "held"),
+        ("host_late_join", "captured"),
     ]
     confirmation = notices[0]
     assert confirmation.recipient == ALEX_MOBILE
@@ -122,6 +124,7 @@ async def test_a_new_showing_in_capture_mode(world):
         ("prospect_confirmation", "captured"),
         ("host_event", "captured"),
         ("prospect_invite", "captured"),
+        ("host_late_join", "captured"),
     ]
     host, invite = notices[1], notices[2]
     assert host.payload["attendees"] == [JANE] and host.payload["operation"] == "create"
@@ -140,12 +143,15 @@ async def test_a_new_showing_in_live_mode_with_a_test_recipient(world):
     assert answer.json()["confirmation"] == "sent"
     assert len(world.texts.to(ALEX_MOBILE)) == 1
     _, _, notices = await rows()
+    # Jane's text that someone booked goes after the confirmation; Jane is not on the
+    # test list, so it is captured.
     assert statuses(notices) == [
         ("prospect_confirmation", "sent"),
         ("host_event", "held"),
         ("prospect_invite", "held"),
+        ("host_late_join", "captured"),
     ]
-    # Nothing but the text until it is reported delivered.
+    # Nothing else but the text until it is reported delivered.
     assert world.calendar.events == {}
 
     await world.send_pending(NOW + timedelta(minutes=1))
@@ -156,6 +162,7 @@ async def test_a_new_showing_in_live_mode_with_a_test_recipient(world):
         ("prospect_confirmation", "sent"),
         ("host_event", "sent"),
         ("prospect_invite", "sent"),
+        ("host_late_join", "captured"),
     ]
     events = world.calendar.events_in(SHOWINGS_CALENDAR)
     assert sorted(event.draft.attendees for event in events) == [[ALEX_EMAIL], [JANE]]
@@ -179,6 +186,7 @@ async def test_undelivered_stops_the_event_and_invite_and_marks_the_booking(worl
         ("prospect_confirmation", "sent"),
         ("host_event", "cancelled"),
         ("prospect_invite", "cancelled"),
+        ("host_late_join", "captured"),
     ]
     assert attendees[0].status == "booked"
     assert attendees[0].attention_reason == "confirmation_undelivered"
@@ -196,13 +204,13 @@ async def test_five_minutes_with_no_report_lets_them_go(world):
 
     await world.send_pending(NOW + timedelta(minutes=4, seconds=59))
     _, _, notices = await rows()
-    assert [n.status for n in notices[1:]] == ["held", "held"]
+    assert [n.status for n in notices[1:]] == ["held", "held", "captured"]
     assert world.calendar.events == {}
 
     report = await world.send_pending(NOW + timedelta(minutes=5))
     assert report.released == 2
     _, attendees, notices = await rows()
-    assert [n.status for n in notices[1:]] == ["sent", "sent"]
+    assert [n.status for n in notices[1:]] == ["sent", "sent", "captured"]
     assert attendees[0].attention_reason is None
     assert len(world.calendar.events) == 2
 
@@ -225,9 +233,13 @@ async def test_quo_refusing_the_number_withdraws_the_booking(world):
         ("prospect_confirmation", "failed"),
         ("host_event", "cancelled"),
         ("prospect_invite", "cancelled"),
+        # The host's text is stopped at delivery, by the next run.
+        ("host_late_join", "pending"),
     ]
     await world.send_pending(NOW + timedelta(minutes=10))
     assert world.calendar.events == {} and world.texts.sent == []
+    _, _, notices = await rows()
+    assert statuses(notices)[-1] == ("host_late_join", "cancelled")
     # The time is open again.
     world.texts = type(world.texts)()
     again = await book(world, booking(mobile=ROBIN_MOBILE, email=ROBIN_EMAIL))

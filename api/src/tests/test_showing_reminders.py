@@ -1,4 +1,4 @@
-"""Reminders the evening before, the host's texts inside 2 hours, and the team's alerts.
+"""Reminders at 8 AM on the day, the host's texts on every change, and the team's alerts.
 
 Each scenario books through the public or team routes, cancels through them,
 runs the job's steps (``holds.send_pending``) as the clock moves, and checks
@@ -60,7 +60,7 @@ JANE_MOBILE = "+14125550101"
 SAM_MOBILE = "+14125550102"
 PROSPECT_REMINDER = delivery_checks.PROSPECT_REMINDER_KIND
 RESIDENT_REMINDER = delivery_checks.RESIDENT_REMINDER_KIND
-EVENING = at(18, day=TUESDAY)  # 6 PM the day before Wednesday's showings
+MORNING = at(8)  # 8 AM on the day of Wednesday's showings
 EVERY_TEST_PHONE = [ALEX_MOBILE, ROBIN_MOBILE, CASEY_MOBILE, RESIDENT, ROOMMATE]
 
 
@@ -141,12 +141,16 @@ def reminders_to(world: PublicWorld, number: str) -> list[str]:
     return [body for body in world.texts.to(number) if "reminder" in body]
 
 
+def residents_reminders(world: PublicWorld, number: str = RESIDENT) -> list[str]:
+    return [body for body in world.texts.to(number) if "Reminder:" in body]
+
+
 def cancel_link(token: str) -> str:
     return f"https://serniacapital.com/showings/cancel/{token}"
 
 
 ALEX_REMINDER = (
-    "Sernia Capital: a reminder of your in-person showing on Wed, Apr 14 at 4:00 PM at "
+    "Sernia Capital: a reminder of your in-person showing today at 4:00 PM at "
     "320 Example St (unit 320-03).\nTo cancel: {link}\nReply STOP to opt out."
 )
 
@@ -157,16 +161,16 @@ ALEX_REMINDER = (
 
 
 @pytest.mark.asyncio
-async def test_the_reminder_goes_at_6_pm_the_evening_before_and_never_twice(world):
+async def test_the_reminder_goes_at_8_am_on_the_day_and_never_twice(world):
     await live()
     alex = await book(world)
     await run(world, NOW + timedelta(minutes=1))
 
-    report = await run(world, EVENING - timedelta(minutes=1))
+    report = await run(world, MORNING - timedelta(minutes=1))
     assert report.prospect_reminders == 0
     assert await of_kind(PROSPECT_REMINDER) == []
 
-    report = await run(world, EVENING)
+    report = await run(world, MORNING)
     assert report.prospect_reminders == 1
     assert reminders_to(world, ALEX_MOBILE) == [
         ALEX_REMINDER.format(link=cancel_link(alex["cancel_token"]))
@@ -179,32 +183,31 @@ async def test_the_reminder_goes_at_6_pm_the_evening_before_and_never_twice(worl
     )
 
     for minutes in (1, 2, 60, 600):
-        report = await run(world, EVENING + timedelta(minutes=minutes))
+        report = await run(world, MORNING + timedelta(minutes=minutes))
         assert report.prospect_reminders == 0
     assert len(reminders_to(world, ALEX_MOBILE)) == 1
     assert len(await of_kind(PROSPECT_REMINDER)) == 1
 
 
 @pytest.mark.asyncio
-async def test_after_a_skipped_evening_the_reminder_waits_for_8_am_then_goes(world):
+async def test_no_reminder_is_queued_the_evening_before_it_waits_for_8_am(world):
     await live()
     await book(world)
     await run(world, NOW + timedelta(minutes=1))
 
-    # The job did not run in the evening; it comes back at 11 PM.
-    await run(world, at(23, day=TUESDAY))
-    (notice,) = await of_kind(PROSPECT_REMINDER)
-    assert (notice.status, notice.not_before) == ("pending", at(8))
+    for moment in (at(18, day=TUESDAY), at(23, day=TUESDAY), at(7, 59)):
+        await run(world, moment)
+    assert await of_kind(PROSPECT_REMINDER) == []
     assert reminders_to(world, ALEX_MOBILE) == []
 
-    await run(world, at(7, 59))
-    assert reminders_to(world, ALEX_MOBILE) == []
     await run(world, at(8))
+    (notice,) = await of_kind(PROSPECT_REMINDER)
+    assert notice.status == "sent"
     assert len(reminders_to(world, ALEX_MOBILE)) == 1
 
 
 @pytest.mark.asyncio
-async def test_after_a_whole_missed_evening_the_reminder_still_goes_before_the_start(world):
+async def test_after_a_missed_8_am_the_reminder_still_goes_before_the_start(world):
     await live()
     await book(world)
     await run(world, NOW + timedelta(minutes=1))
@@ -224,21 +227,21 @@ async def test_no_reminder_once_the_booking_is_cancelled(world):
     world.now = at(17, day=TUESDAY)
     await cancel(world, alex["cancel_token"])
 
-    await run(world, EVENING)
+    await run(world, MORNING)
     assert await of_kind(PROSPECT_REMINDER) == []
     assert reminders_to(world, ALEX_MOBILE) == []
 
 
 @pytest.mark.asyncio
-async def test_a_reminder_queued_then_cancelled_before_8_am_is_never_sent(world):
+async def test_a_reminder_queued_then_cancelled_before_it_goes_is_never_sent(world):
     await live()
     alex = await book(world)
     await run(world, NOW + timedelta(minutes=1))
-    await run(world, at(23, day=TUESDAY))  # queued, waiting for 8 AM
-    world.now = at(7)
+    await reminders.queue_due(now=at(8))  # queued, not delivered yet
+    world.now = at(8)
     await cancel(world, alex["cancel_token"])
 
-    await run(world, at(8))
+    await run(world, at(8, 1))
     (notice,) = await of_kind(PROSPECT_REMINDER)
     assert (notice.status, notice.last_error) == ("cancelled", cancelling.STOPPED_NOTE)
     assert reminders_to(world, ALEX_MOBILE) == []
@@ -252,24 +255,37 @@ async def test_no_reminder_for_a_withdrawn_booking(world):
         answer = await client.post(f"{PUBLIC}/units/{UNIT}/bookings", json=booking())
     assert answer.status_code == 422
 
-    await run(world, EVENING)
+    await run(world, MORNING)
     assert await of_kind(PROSPECT_REMINDER) == []
 
 
 @pytest.mark.asyncio
-async def test_no_reminder_for_a_booking_made_after_6_pm_the_day_before(world):
+async def test_no_reminder_for_a_booking_made_at_8_am_on_the_day(world):
     await live()
     lives_here(world)
-    short_notice(world, 12)
-    world.now = at(18, 30, day=TUESDAY)
+    short_notice(world)
+    world.now = at(8)
     await book(world)
     await run(world, world.now + timedelta(minutes=1))
 
-    for moment in (at(19, day=TUESDAY), at(9), at(15)):
+    for moment in (at(9), at(15)):
         report = await run(world, moment)
         assert (report.prospect_reminders, report.resident_reminders) == (0, 0)
     assert reminders_to(world, ALEX_MOBILE) == []
     assert await of_kind(RESIDENT_REMINDER) == []
+
+
+@pytest.mark.asyncio
+async def test_a_booking_made_at_7_59_on_the_day_gets_the_reminder_at_8(world):
+    await live()
+    short_notice(world)
+    world.now = at(7, 59)
+    await book(world)
+    await run(world, world.now)
+
+    report = await run(world, at(8))
+    assert report.prospect_reminders == 1
+    assert len(reminders_to(world, ALEX_MOBILE)) == 1
 
 
 @pytest.mark.asyncio
@@ -278,7 +294,7 @@ async def test_no_reminder_for_a_caller_who_declined_texts(world):
     answer = await team_book(world, caller(mobile="412-555-0119", email=CASEY_EMAIL))
     assert answer.status_code == 201, answer.text
 
-    await run(world, EVENING)
+    await run(world, MORNING)
     assert await of_kind(PROSPECT_REMINDER) == []
     assert world.texts.to(CASEY_MOBILE) == []
 
@@ -290,7 +306,7 @@ async def test_a_caller_who_takes_texts_gets_the_reminder(world):
     assert answer.status_code == 201, answer.text
     await run(world, NOW + timedelta(minutes=1))
 
-    await run(world, EVENING)
+    await run(world, MORNING)
     assert len(reminders_to(world, CASEY_MOBILE)) == 1
 
 
@@ -301,7 +317,7 @@ async def test_no_reminder_to_a_number_reported_undelivered(world):
     await book(world)
     await run(world, NOW + timedelta(minutes=1))
 
-    await run(world, EVENING)
+    await run(world, MORNING)
     assert await of_kind(PROSPECT_REMINDER) == []
 
 
@@ -311,7 +327,7 @@ async def test_capture_mode_keeps_the_reminders_and_sends_nothing(world):
     await book(world)
     await run(world, NOW + timedelta(minutes=1))
 
-    await run(world, EVENING)
+    await run(world, MORNING)
     (prospect,) = await of_kind(PROSPECT_REMINDER)
     (resident,) = await of_kind(RESIDENT_REMINDER)
     assert (prospect.status, resident.status) == ("captured", "captured")
@@ -326,7 +342,7 @@ async def test_live_mode_sends_only_to_test_recipients(world, monkeypatch):
     await book(world, robin(at(17)))
     await run(world, NOW + timedelta(minutes=1))
 
-    await run(world, EVENING)
+    await run(world, MORNING)
     sent = {n.recipient: n.status for n in await of_kind(PROSPECT_REMINDER)}
     assert sent == {ALEX_MOBILE: "sent", ROBIN_MOBILE: "captured"}
     assert reminders_to(world, ROBIN_MOBILE) == []
@@ -344,22 +360,21 @@ async def test_the_residents_get_one_reminder_for_one_showing(world):
     await book(world)
     await run(world, NOW + timedelta(minutes=1))
 
-    await run(world, EVENING - timedelta(minutes=1))
+    await run(world, MORNING - timedelta(minutes=1))
     assert await of_kind(RESIDENT_REMINDER) == []
-    report = await run(world, EVENING)
+    report = await run(world, MORNING)
     assert report.resident_reminders == 1
 
-    assert reminders_to(world, RESIDENT) == [
-        "Hi, this is Sernia Capital. A reminder: an in-person showing of your home at "
-        "320 Example St (unit 320-03) is booked for Wed, Apr 14 at 4:00 PM. It will take "
-        "about 30 minutes, and a Sernia agent will be there the whole time. Questions? "
-        "Reply to this number."
+    assert residents_reminders(world) == [
+        "Automated showing alert: Reminder: an in-person showing of your unit is scheduled "
+        "today at 4:00 PM. A Sernia agent will be there the whole time. You may be present "
+        "or we can let ourselves in if you are not home."
     ]
     (notice,) = await of_kind(RESIDENT_REMINDER)
     assert notice.recipient_key == "residents:2027-04-14"
     for minutes in (1, 30, 600):
-        await run(world, EVENING + timedelta(minutes=minutes))
-    assert len(reminders_to(world, RESIDENT)) == 1
+        await run(world, MORNING + timedelta(minutes=minutes))
+    assert len(residents_reminders(world)) == 1
 
 
 @pytest.mark.asyncio
@@ -373,14 +388,13 @@ async def test_three_showings_at_one_unit_are_one_text_in_order(world):
     await book(world, booking(at(10)))
     await run(world, NOW + timedelta(minutes=1))
 
-    await run(world, EVENING)
-    (text,) = [t for t in world.texts.groups() if "reminder" in t.body]
+    await run(world, MORNING)
+    (text,) = [t for t in world.texts.groups() if "Reminder:" in t.body]
     assert set(text.numbers) == {RESIDENT, ROOMMATE}
     assert text.body == (
-        "Hi, this is Sernia Capital. A reminder: in-person showings of your home at "
-        "320 Example St (unit 320-03) are booked for Wed, Apr 14 at 10:00 AM, 1:00 PM and "
-        "4:00 PM. Each will take about 30 minutes, and a Sernia agent will be there the "
-        "whole time. Questions? Reply to this number."
+        "Automated showing alert: Reminder: in-person showings of your unit are scheduled "
+        "today at 10:00 AM, 1:00 PM and 4:00 PM. A Sernia agent will be there the whole "
+        "time. You may be present or we can let ourselves in if you are not home."
     )
     (notice,) = await of_kind(RESIDENT_REMINDER)
     showings, _, _ = await rows()
@@ -395,11 +409,11 @@ async def test_a_vacant_unit_gets_no_residents_reminder(world):
     await book(world)
     await run(world, NOW + timedelta(minutes=1))
 
-    report = await run(world, EVENING)
+    report = await run(world, MORNING)
     assert (report.prospect_reminders, report.resident_reminders) == (1, 0)
     assert await of_kind(RESIDENT_REMINDER) == []
     reads = len(world.residents.reads)
-    await run(world, EVENING + timedelta(minutes=1))
+    await run(world, MORNING + timedelta(minutes=1))
     assert len(world.residents.reads) == reads  # not looked up every minute
 
 
@@ -413,7 +427,7 @@ async def test_a_lookup_problem_marks_the_showings_and_sends_nothing(world):
     await run(world, NOW + timedelta(minutes=1))
     world.residents.fail()
 
-    await run(world, EVENING)
+    await run(world, MORNING)
     assert await of_kind(RESIDENT_REMINDER) == []
     showings, _, _ = await rows()
     assert {showing.resident_attention for showing in showings} == {"lookup_failed"}
@@ -423,28 +437,34 @@ async def test_a_lookup_problem_marks_the_showings_and_sends_nothing(world):
 
 @pytest.mark.asyncio
 async def test_a_showing_cancelled_after_the_reminder_was_queued_is_left_out(world):
+    """The cancellation, due at the same moment, goes in the same text."""
     await live()
     short_notice(world, 12)
     lives_here(world)
     alex = await book(world, booking(at(10)))
     await book(world, robin(at(16)))
     await run(world, NOW + timedelta(minutes=1))
-    await run(world, at(22, day=TUESDAY))  # queued after 9 PM: waits for 8 AM
+    await reminders.queue_due(now=at(8))  # queued, not delivered yet
     (notice,) = await of_kind(RESIDENT_REMINDER)
     assert notice.status == "pending"
 
-    world.now = at(7)
+    world.now = at(8)
     await cancel(world, alex["cancel_token"])  # the first showing, which the notice belongs to
-    await run(world, at(8))
+    await run(world, at(8, 1))
 
     (notice,) = await of_kind(RESIDENT_REMINDER)
     assert notice.status == "sent"
-    assert reminders_to(world, RESIDENT) == [
-        "Hi, this is Sernia Capital. A reminder: an in-person showing of your home at "
-        "320 Example St (unit 320-03) is booked for Wed, Apr 14 at 4:00 PM. It will take "
-        "about 30 minutes, and a Sernia agent will be there the whole time. Questions? "
-        "Reply to this number."
+    assert residents_reminders(world) == [
+        "Automated showing alert: The in-person showing of your unit on Wed, Apr 14 at "
+        "10:00 AM is cancelled. Reminder: an in-person showing of your unit is scheduled "
+        "today at 4:00 PM. A Sernia agent will be there the whole time. You may be present "
+        "or we can let ourselves in if you are not home."
     ]
+    (cancellation,) = await of_kind(residents.CANCELLED_KIND)
+    assert (cancellation.status, cancellation.last_error) == (
+        "cancelled",
+        f"Not sent by itself: it went in the same text as notice {notice.id}.",
+    )
 
 
 @pytest.mark.asyncio
@@ -453,35 +473,49 @@ async def test_every_listed_showing_cancelled_means_no_residents_reminder(world)
     lives_here(world)
     alex = await book(world)
     await run(world, NOW + timedelta(minutes=1))
-    await run(world, at(22, day=TUESDAY))
-    world.now = at(7)
+    await reminders.queue_due(now=at(8))
+    world.now = at(8)
     await cancel(world, alex["cancel_token"])
 
-    await run(world, at(8))
+    await run(world, at(8, 1))
     (notice,) = await of_kind(RESIDENT_REMINDER)
     assert (notice.status, notice.last_error) == ("cancelled", delivery_checks.NOTHING_LEFT)
-    assert reminders_to(world, RESIDENT) == []
+    assert residents_reminders(world) == []
+    # The cancellation goes by itself.
+    assert world.texts.to(RESIDENT)[-1] == (
+        "Automated showing alert: The in-person showing of your unit on Wed, Apr 14 at "
+        "4:00 PM is cancelled."
+    )
 
 
 @pytest.mark.asyncio
 async def test_a_showing_booked_after_the_reminder_is_covered_by_its_announcement(world):
     await live()
     lives_here(world)
-    short_notice(world, 12)
+    short_notice(world)
     await book(world, booking(at(10)))
     await run(world, NOW + timedelta(minutes=1))
-    await run(world, EVENING)
-    assert len(reminders_to(world, RESIDENT)) == 1
+    await run(world, MORNING)
+    assert len(residents_reminders(world)) == 1
 
-    world.now = at(19, day=TUESDAY)
+    world.now = at(9)
     await book(world, robin(at(16)))
-    await run(world, at(19, 1, day=TUESDAY))
-    await run(world, at(19, 10, day=TUESDAY))
+    await run(world, at(9, 1))
+    await run(world, at(9, 10))
 
     assert len(await of_kind(RESIDENT_REMINDER)) == 1
-    assert len(reminders_to(world, RESIDENT)) == 1
+    assert len(residents_reminders(world)) == 1
     announcements = [b for b in world.texts.to(RESIDENT) if "We've scheduled" in b]
     assert len(announcements) == 2
+    # The new one lists the showing the residents were already told of.
+    assert announcements[-1] == (
+        "Automated showing alert: We've scheduled another in-person showing of your unit. "
+        "Upcoming showings:\n"
+        "- Wed, Apr 14 at 10:00 AM\n"
+        "- Wed, Apr 14 at 4:00 PM (new)\n"
+        "A Sernia agent will be there the whole time. You may be present or we can let "
+        "ourselves in if you are not home."
+    )
 
 
 @pytest.mark.asyncio
@@ -492,15 +526,15 @@ async def test_reminders_for_two_days_are_separate(world):
     await book(world, robin(at(16, day=WEDNESDAY + timedelta(days=1))))
     await run(world, NOW + timedelta(minutes=1))
 
-    await run(world, EVENING)
-    await run(world, at(18))
+    await run(world, MORNING)
+    await run(world, at(8, day=WEDNESDAY + timedelta(days=1)))
     keys = sorted(n.recipient_key for n in await of_kind(RESIDENT_REMINDER))
     assert keys == ["residents:2027-04-14", "residents:2027-04-15"]
     assert len(await of_kind(PROSPECT_REMINDER)) == 2
 
 
 # ---------------------------------------------------------------------------
-# The host's texts inside 2 hours
+# The host's texts
 # ---------------------------------------------------------------------------
 
 
@@ -508,46 +542,88 @@ def host_texts(world: PublicWorld, number: str = JANE_MOBILE) -> list[str]:
     return world.texts.to(number)
 
 
+def showing_at(clock: str, people: int) -> str:
+    """One line of a host's upcoming showings, at the unit on Wednesday."""
+    return (
+        f"- Wed, Apr 14 at {clock} at 320 Example St (unit 320-03), "
+        f"{people} {'person' if people == 1 else 'people'}"
+    )
+
+
+def to_host(*changes: str, upcoming: tuple[str, ...] = ()) -> str:
+    """A host's text as it goes: what changed, then their upcoming showings."""
+    head = "\n".join([f"Sernia Capital: {changes[0]}", *changes[1:]])
+    if not upcoming:
+        return f"{head}\n\nYou have no upcoming showings."
+    return "\n".join([head, "", "Your upcoming showings:", *upcoming])
+
+
+FOUR_PM = "320 Example St (unit 320-03) on Wed, Apr 14 at 4:00 PM"
+TEN_AM = "320 Example St (unit 320-03) on Wed, Apr 14 at 10:00 AM"
+ALEX_BOOKED = to_host(
+    f"Alex Parker booked your showing of {FOUR_PM}.", upcoming=(showing_at("4:00 PM", 1),)
+)
+ROBIN_JOINED = to_host(
+    f"Robin Lee booked your showing of {FOUR_PM}.", upcoming=(showing_at("4:00 PM", 2),)
+)
+
+
 @pytest.mark.asyncio
-async def test_a_join_inside_2_hours_texts_the_host_at_once(world):
+async def test_a_booking_and_a_join_each_text_the_host_at_once(world):
     await live()
     short_notice(world)
     world.now = at(11)
-    await book(world)  # 5 hours ahead: no text
-    assert host_texts(world) == []
+    await book(world)  # 5 hours ahead
+    assert host_texts(world) == [ALEX_BOOKED]
 
     world.now = at(14, 30)
     await book(world, robin())
-    assert host_texts(world) == [
-        "Sernia Capital: Robin Lee just booked your showing of 320 Example St (unit 320-03) "
-        "on Wed, Apr 14 at 4:00 PM. 2 people are booked now."
-    ]
-    (notice,) = await of_kind(delivery_checks.HOST_JOIN_KIND)
-    assert (notice.status, notice.recipient) == ("sent", JANE_MOBILE)
+    assert host_texts(world) == [ALEX_BOOKED, ROBIN_JOINED]
+    notices = await of_kind(delivery_checks.HOST_JOIN_KIND)
+    assert [(n.status, n.recipient) for n in notices] == [("sent", JANE_MOBILE)] * 2
 
 
 @pytest.mark.asyncio
-async def test_a_join_just_outside_2_hours_texts_the_host_nothing(world):
+async def test_a_booking_after_9_pm_texts_the_host_at_8_am_with_the_days_showings(world):
     await live()
     short_notice(world)
-    world.now = at(13, 59)
+    world.now = at(20, 59, day=TUESDAY)
     await book(world)
-    assert host_texts(world) == []
-    world.now = at(14)
+    assert host_texts(world) == [ALEX_BOOKED]  # before 9 PM: at once
+
+    world.now = at(21, day=TUESDAY)
     await book(world, robin())
-    assert len(host_texts(world)) == 1
+    (_, waiting) = await of_kind(delivery_checks.HOST_JOIN_KIND)
+    assert (waiting.status, waiting.not_before) == ("pending", at(8))
+    await run(world, at(7, 59))
+    assert host_texts(world) == [ALEX_BOOKED]
+
+    await run(world, at(8))
+    assert host_texts(world) == [
+        ALEX_BOOKED,
+        f"Sernia Capital: Robin Lee booked your showing of {FOUR_PM}.\n\n"
+        "Your showings today, Wed, Apr 14:\n"
+        "- 4:00 PM at 320 Example St (unit 320-03), 2 people",
+    ]
+    (morning,) = await of_kind(delivery_checks.HOST_MORNING_KIND)
+    assert (morning.status, morning.last_error) == (
+        "cancelled",
+        f"Not sent by itself: it went in the same text as notice {waiting.id}.",
+    )
 
 
 @pytest.mark.asyncio
-async def test_a_team_booking_inside_2_hours_texts_the_host(world):
+async def test_a_team_booking_texts_the_host(world):
     await live()
     short_notice(world)
-    world.now = at(15)
+    world.now = at(11)
     answer = await team_book(world, caller())
     assert answer.status_code == 201, answer.text
     assert host_texts(world) == [
-        "Sernia Capital: Casey Morgan just booked your showing of 320 Example St (unit "
-        "320-03) on Wed, Apr 14 at 4:00 PM. 1 person is booked now."
+        to_host(
+            f"Casey Morgan booked your showing of {FOUR_PM}.",
+            upcoming=(showing_at("4:00 PM", 1),),
+        )
     ]
     assert delivery_checks.HOST_JOIN_KIND in {n["kind"] for n in answer.json()["notices"]}
 
@@ -568,26 +644,31 @@ async def test_a_withdrawn_late_booking_never_texts_the_host(world):
 
 
 @pytest.mark.asyncio
-async def test_a_prospect_cancelling_inside_2_hours_texts_the_host(world):
+async def test_a_prospect_cancelling_texts_the_host(world):
     await live()
     alex = await book(world)
     robin_booking = await book(world, robin())
     await run(world, NOW + timedelta(minutes=10))
+    assert host_texts(world) == [ALEX_BOOKED, ROBIN_JOINED]
 
-    world.now = at(13, 59)  # outside 2 hours
+    world.now = at(11)  # 5 hours ahead
     await cancel(world, alex["cancel_token"])
-    assert host_texts(world) == []
-
     world.now = at(14, 30)
     await cancel(world, robin_booking["cancel_token"])
-    assert host_texts(world) == [
-        "Sernia Capital: Robin Lee cancelled your showing of 320 Example St (unit 320-03) on "
-        "Wed, Apr 14 at 4:00 PM. No one is booked now, so the showing is cancelled."
+    assert host_texts(world)[2:] == [
+        to_host(
+            f"Alex Parker cancelled your showing of {FOUR_PM}.",
+            upcoming=(showing_at("4:00 PM", 1),),
+        ),
+        to_host(
+            f"Robin Lee cancelled your showing of {FOUR_PM}. No one is booked now, so the "
+            "showing is cancelled."
+        ),
     ]
 
 
 @pytest.mark.asyncio
-async def test_a_prospect_cancelling_with_others_booked_says_how_many_are_left(world):
+async def test_a_prospect_cancelling_with_others_booked_shows_how_many_are_left(world):
     await live()
     alex = await book(world)
     await book(world, robin())
@@ -595,30 +676,36 @@ async def test_a_prospect_cancelling_with_others_booked_says_how_many_are_left(w
     world.now = at(15)
     await cancel(world, alex["cancel_token"])
     assert host_texts(world) == [
-        "Sernia Capital: Alex Parker cancelled your showing of 320 Example St (unit 320-03) "
-        "on Wed, Apr 14 at 4:00 PM. 1 person is booked still."
+        ALEX_BOOKED,
+        ROBIN_JOINED,
+        to_host(
+            f"Alex Parker cancelled your showing of {FOUR_PM}.",
+            upcoming=(showing_at("4:00 PM", 1),),
+        ),
     ]
 
 
 @pytest.mark.asyncio
-async def test_the_team_removing_someone_inside_2_hours_texts_the_host(world):
+async def test_the_team_removing_someone_texts_the_host(world):
     await live()
     await book(world)
     await book(world, robin())
     await run(world, NOW + timedelta(minutes=10))
     showings, attendees, _ = await rows()
-    world.now = at(15)
+    world.now = at(11)
     answer = await team(world, f"/showings/{showings[0].id}/attendees/{attendees[0].id}/remove")
     assert answer.status_code == 200, answer.text
     assert answer.json()["texts_queued"] == 1  # the prospect's; the host's is not counted
-    assert host_texts(world) == [
-        "Sernia Capital: the team removed Alex Parker from your showing of 320 Example St "
-        "(unit 320-03) on Wed, Apr 14 at 4:00 PM. 1 person is booked still."
+    assert host_texts(world)[2:] == [
+        to_host(
+            f"The team removed Alex Parker from your showing of {FOUR_PM}.",
+            upcoming=(showing_at("4:00 PM", 1),),
+        )
     ]
 
 
 @pytest.mark.asyncio
-async def test_the_team_cancelling_a_showing_texts_the_host_only_inside_2_hours(world):
+async def test_the_team_cancelling_a_showing_texts_the_host_at_once_or_at_8_am(world):
     await live()
     short_notice(world, 12)
     await book(world)
@@ -626,19 +713,28 @@ async def test_the_team_cancelling_a_showing_texts_the_host_only_inside_2_hours(
     await run(world, NOW + timedelta(minutes=10))
     showings, _, _ = await rows()
     four, ten = sorted(showings, key=lambda s: s.starts_at, reverse=True)
+    assert len(host_texts(world)) == 2  # each booking
 
     world.now = at(7, 59)
-    answer = await team(world, f"/showings/{ten.id}/cancel")  # 2 hours and a minute ahead
+    answer = await team(world, f"/showings/{ten.id}/cancel")  # before 8 AM: waits for 8
     assert answer.status_code == 200
-    assert host_texts(world) == []
+    (waiting,) = await of_kind(delivery_checks.HOST_SHOWING_CANCELLED_KIND)
+    assert (waiting.status, waiting.not_before) == ("pending", at(8))
+    assert len(host_texts(world)) == 2
+
+    await run(world, at(8))  # with the morning text, in one
+    assert host_texts(world)[2:] == [
+        f"Sernia Capital: Your showing of {TEN_AM} is cancelled. The team cancelled it.\n\n"
+        "Your showings today, Wed, Apr 14:\n"
+        "- 4:00 PM at 320 Example St (unit 320-03), 1 person"
+    ]
 
     world.now = at(14)
-    answer = await team(world, f"/showings/{four.id}/cancel")  # exactly 2 hours ahead
+    answer = await team(world, f"/showings/{four.id}/cancel")
     assert answer.status_code == 200
     assert answer.json()["texts_queued"] == 1
-    assert host_texts(world) == [
-        "Sernia Capital: your showing of 320 Example St (unit 320-03) on Wed, Apr 14 at "
-        "4:00 PM is cancelled. The team cancelled it."
+    assert host_texts(world)[3:] == [
+        to_host(f"Your showing of {FOUR_PM} is cancelled. The team cancelled it.")
     ]
 
 
@@ -658,7 +754,7 @@ async def test_an_agent_without_a_mobile_gets_no_text(world):
 
 
 @pytest.mark.asyncio
-async def test_a_change_of_host_inside_2_hours_texts_both_hosts(world):
+async def test_a_change_of_host_texts_both_hosts(world):
     await live()
     short_notice(world, 12)
     sam = await add_sam()
@@ -667,30 +763,45 @@ async def test_a_change_of_host_inside_2_hours_texts_both_hosts(world):
     await run(world, NOW + timedelta(minutes=10))
     showings, _, _ = await rows()
     four, ten = sorted(showings, key=lambda s: s.starts_at, reverse=True)
+    assert len(host_texts(world)) == 2  # each booking
 
     world.now = at(7)
-    assert (await move(world, ten.id, sam)).status_code == 200  # 3 hours ahead
-    assert host_texts(world) == [] and host_texts(world, SAM_MOBILE) == []
+    assert (await move(world, ten.id, sam)).status_code == 200  # before 8 AM: both wait
+    assert len(host_texts(world)) == 2 and host_texts(world, SAM_MOBILE) == []
+
+    await run(world, at(8))  # each with their morning text
+    assert host_texts(world, SAM_MOBILE) == [
+        f"Sernia Capital: The showing of {TEN_AM} is now yours to host.\n\n"
+        "Your showings today, Wed, Apr 14:\n"
+        "- 10:00 AM at 320 Example St (unit 320-03), 1 person"
+    ]
+    assert host_texts(world)[2:] == [
+        f"Sernia Capital: The showing of {TEN_AM} has moved to another host. You are no "
+        "longer hosting it.\n\n"
+        "Your showings today, Wed, Apr 14:\n"
+        "- 4:00 PM at 320 Example St (unit 320-03), 1 person"
+    ]
 
     world.now = at(15)
-    assert (await move(world, four.id, sam)).status_code == 200
-    assert host_texts(world, SAM_MOBILE) == [
-        "Sernia Capital: the showing of 320 Example St (unit 320-03) on Wed, Apr 14 at "
-        "4:00 PM is now yours to host. 1 person is booked."
+    assert (await move(world, four.id, sam)).status_code == 200  # at once
+    assert host_texts(world, SAM_MOBILE)[1:] == [
+        to_host(
+            f"The showing of {FOUR_PM} is now yours to host.",
+            upcoming=(showing_at("4:00 PM", 1),),
+        )
     ]
-    assert host_texts(world) == [
-        "Sernia Capital: the showing of 320 Example St (unit 320-03) on Wed, Apr 14 at "
-        "4:00 PM has moved to another host. You are no longer hosting it."
+    assert host_texts(world)[3:] == [
+        to_host(
+            f"The showing of {FOUR_PM} has moved to another host. You are no longer hosting it."
+        )
     ]
 
 
-MOVED_AWAY = (
-    "Sernia Capital: the showing of 320 Example St (unit 320-03) on Wed, Apr 14 at "
-    "4:00 PM has moved to another host. You are no longer hosting it."
+MOVED_AWAY = to_host(
+    f"The showing of {FOUR_PM} has moved to another host. You are no longer hosting it."
 )
-NOW_YOURS = (
-    "Sernia Capital: the showing of 320 Example St (unit 320-03) on Wed, Apr 14 at "
-    "4:00 PM is now yours to host. 1 person is booked."
+NOW_YOURS = to_host(
+    f"The showing of {FOUR_PM} is now yours to host.", upcoming=(showing_at("4:00 PM", 1),)
 )
 LEE_MOBILE = "+14125550103"
 
@@ -731,7 +842,7 @@ async def test_a_move_back_stops_the_old_hosts_waiting_no_longer_yours_text(worl
     world.now = at(15)
     world.texts.refuse(JANE_MOBILE, "unavailable", retryable=True)  # Quo out of reach
     assert (await move(world, showings[0].id, sam)).status_code == 200
-    assert host_texts(world) == []
+    assert host_texts(world) == [ALEX_BOOKED]
     assert host_texts(world, SAM_MOBILE) == [NOW_YOURS]
 
     world.texts.accept(JANE_MOBILE)
@@ -739,7 +850,7 @@ async def test_a_move_back_stops_the_old_hosts_waiting_no_longer_yours_text(worl
     assert (await move(world, showings[0].id, jane)).status_code == 200
     await run(world, at(15, 10))
 
-    assert host_texts(world) == [NOW_YOURS]  # Jane hosts it, and was told so last
+    assert host_texts(world) == [ALEX_BOOKED, NOW_YOURS]  # Jane hosts it, and was told so last
     assert host_texts(world, SAM_MOBILE) == [NOW_YOURS, MOVED_AWAY]
     assert sorted(await moved_texts()) == sorted(
         [
@@ -770,7 +881,7 @@ async def test_a_move_back_after_the_texts_went_leaves_each_host_told_the_truth_
     world.now = at(15, 1)
     assert (await move(world, showings[0].id, jane)).status_code == 200
 
-    assert host_texts(world) == [MOVED_AWAY, NOW_YOURS]
+    assert host_texts(world) == [ALEX_BOOKED, MOVED_AWAY, NOW_YOURS]
     assert host_texts(world, SAM_MOBILE) == [NOW_YOURS, MOVED_AWAY]
 
 
@@ -796,8 +907,9 @@ async def test_two_quick_moves_never_tell_a_host_something_untrue(world, monkeyp
     assert (await move(world, showings[0].id, lee)).status_code == 200
     await run(world, at(15, 10))
 
-    assert host_texts(world) == [MOVED_AWAY]
-    assert host_texts(world, SAM_MOBILE) == [MOVED_AWAY]
+    assert host_texts(world) == [ALEX_BOOKED, MOVED_AWAY]
+    # Sam's event and text never went: nothing told Sam of it, so nothing tells Sam it moved.
+    assert host_texts(world, SAM_MOBILE) == []
     assert host_texts(world, LEE_MOBILE) == [NOW_YOURS]
     stopped = [m for m in await moved_texts() if m[2] == "cancelled"]
     assert stopped == [
@@ -811,7 +923,7 @@ async def test_two_quick_moves_never_tell_a_host_something_untrue(world, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_after_a_change_of_host_a_late_cancel_texts_the_new_host(world):
+async def test_after_a_change_of_host_a_cancellation_texts_the_new_host(world):
     await live()
     sam = await add_sam()
     alex = await book(world)
@@ -819,26 +931,39 @@ async def test_after_a_change_of_host_a_late_cancel_texts_the_new_host(world):
     await run(world, NOW + timedelta(minutes=10))
     showings, _, _ = await rows()
     assert (await move(world, showings[0].id, sam)).status_code == 200
+    jane_before = host_texts(world)
+    assert jane_before[-1] == to_host(
+        f"The showing of {FOUR_PM} has moved to another host. You are no longer hosting it."
+    )
     world.now = at(15)
     await cancel(world, alex["cancel_token"])
-    assert len(host_texts(world, SAM_MOBILE)) == 1
-    assert host_texts(world) == []
+    assert host_texts(world, SAM_MOBILE) == [
+        to_host(
+            f"The showing of {FOUR_PM} is now yours to host.",
+            upcoming=(showing_at("4:00 PM", 2),),
+        ),
+        to_host(
+            f"Alex Parker cancelled your showing of {FOUR_PM}.",
+            upcoming=(showing_at("4:00 PM", 1),),
+        ),
+    ]
+    assert host_texts(world) == jane_before
 
 
 @pytest.mark.asyncio
-async def test_an_off_market_date_inside_2_hours_queues_the_host_text_for_the_job(world):
+async def test_an_off_market_date_queues_the_host_text_for_the_job(world):
     await live()
     await book(world)
     await run(world, NOW + timedelta(minutes=10))
-    world.now = at(15)
+    world.now = at(11)
     async with AsyncSessionFactory() as session, session.begin():
         await cancelling.cancel_off_market(session, UNIT, WEDNESDAY, now=world.now)
     (notice,) = await of_kind(delivery_checks.HOST_SHOWING_CANCELLED_KIND)
     assert notice.status == "pending"
-    await run(world, at(15, 1))
+    await run(world, at(11, 1))
     assert host_texts(world) == [
-        "Sernia Capital: your showing of 320 Example St (unit 320-03) on Wed, Apr 14 at "
-        "4:00 PM is cancelled. The unit went off the market."
+        ALEX_BOOKED,
+        to_host(f"Your showing of {FOUR_PM} is cancelled. The unit went off the market."),
     ]
 
 
@@ -860,13 +985,14 @@ async def test_a_failed_send_alerts_the_team_once(world):
     await run(world, NOW + timedelta(minutes=10), alerter)
     world.texts.refuse(ALEX_MOBILE, "opted_out")
 
-    report = await run(world, EVENING, alerter)
+    report = await run(world, MORNING, alerter)
     assert report.alerts == 1
     (alert,) = alerter.alerts
     assert alert.title == "Showing message failed"
     assert alert.body == (
-        "Prospect's reminder for unit 320-03, showing Wed, Apr 14 at 4:00 PM. It failed and "
-        "will not be tried again. Check it under Messages on the Booking settings tab."
+        "Prospect's reminder: 8 AM on the day for unit 320-03, showing Wed, Apr 14 at "
+        "4:00 PM. It failed and will not be tried again. Check it under Messages on the "
+        "Booking settings tab."
     )
     assert alert.url == "/team/leads/bookings"
     for number in (ALEX_MOBILE, JANE_MOBILE, "555"):
@@ -875,11 +1001,11 @@ async def test_a_failed_send_alerts_the_team_once(world):
     assert (notice.kind, notice.alert_reason, notice.alerted_at) == (
         PROSPECT_REMINDER,
         "failed",
-        EVENING,
+        MORNING,
     )
 
     for minutes in (1, 10, 60):
-        assert (await run(world, EVENING + timedelta(minutes=minutes), alerter)).alerts == 0
+        assert (await run(world, MORNING + timedelta(minutes=minutes), alerter)).alerts == 0
     assert len(alerter.alerts) == 1
 
 
@@ -891,7 +1017,7 @@ async def test_a_send_that_may_have_gone_out_alerts_the_team(world):
     await run(world, NOW + timedelta(minutes=10), alerter)
     world.texts.lose_answer(ALEX_MOBILE)
 
-    await run(world, EVENING, alerter)
+    await run(world, MORNING, alerter)
     (alert,) = alerter.alerts
     assert alert.title == "Showing message failed"
     (notice,) = await notices_with_alerts()
@@ -961,15 +1087,17 @@ async def test_captured_notices_are_never_alerted_about(world, monkeypatch):
     alerter = RecordingAlerter()
     lives_here(world)
     await book(world)
-    await run(world, EVENING, alerter)
-    await run(world, EVENING + timedelta(hours=2), alerter)
+    # The announcement is captured by itself, not in the same text as the reminder.
+    await run(world, NOW + timedelta(minutes=1), alerter)
+    await run(world, MORNING, alerter)
+    await run(world, MORNING + timedelta(hours=2), alerter)
     _, _, notices = await rows()
     assert {n.status for n in notices} == {"captured"}
 
     await store_settings(send_mode="test")
     monkeypatch.setenv("SHOWING_TEST_PHONES", "")
     await book(world, robin(at(17, day=WEDNESDAY + timedelta(days=1))))
-    await run(world, EVENING + timedelta(hours=3), alerter)
+    await run(world, MORNING + timedelta(hours=3), alerter)
     assert alerter.alerts == []
     assert await notices_with_alerts() == []
 
@@ -994,9 +1122,9 @@ async def test_an_alert_that_fails_is_kept_and_never_repeated(world):
     await book(world)
     await run(world, NOW + timedelta(minutes=10), alerter)
     world.texts.refuse(ALEX_MOBILE, "opted_out")
-    await run(world, EVENING, alerter)
+    await run(world, MORNING, alerter)
     alerter.failing = False
-    await run(world, EVENING + timedelta(minutes=1), alerter)
+    await run(world, MORNING + timedelta(minutes=1), alerter)
     assert alerter.alerts == []
     assert len(await notices_with_alerts()) == 1
 
@@ -1008,7 +1136,7 @@ async def test_outside_production_an_alert_is_kept_and_never_pushed(world):
     await run(world, NOW + timedelta(minutes=10))
     world.texts.refuse(ALEX_MOBILE, "opted_out")
     # No stand-in: the fixture fails the test if the live channel is reached.
-    report = await run(world, EVENING)
+    report = await run(world, MORNING)
     assert report.alerts == 1
     assert len(await notices_with_alerts()) == 1
 
@@ -1056,13 +1184,13 @@ async def test_the_messages_list_names_each_kind_and_marks_what_needs_the_team(w
     await book(world)
     await run(world, NOW + timedelta(minutes=10))
     world.texts.refuse(ALEX_MOBILE, "opted_out")
-    await run(world, EVENING)
+    await run(world, MORNING)
 
     async with world.client(world.team_app()) as client:
         listed = (await client.get(f"{TEAM}/notices")).json()
     by_kind = {n["kind"]: n for n in listed}
-    assert by_kind[PROSPECT_REMINDER]["kind_label"] == "Prospect's reminder"
-    assert by_kind[RESIDENT_REMINDER]["kind_label"] == "Residents' reminder"
+    assert by_kind[PROSPECT_REMINDER]["kind_label"] == "Prospect's reminder: 8 AM on the day"
+    assert by_kind[RESIDENT_REMINDER]["kind_label"] == "Residents' reminder: 8 AM on the day"
     assert by_kind[PROSPECT_REMINDER]["attention"] == "failed"
     assert by_kind[PROSPECT_REMINDER]["alerted_at"] is not None
     assert by_kind[RESIDENT_REMINDER]["attention"] is None
@@ -1074,7 +1202,7 @@ async def test_no_public_answer_changes_or_mentions_reminders_or_hosts(world):
     await live()
     lives_here(world)
     alex = await book(world)
-    await run(world, EVENING)
+    await run(world, MORNING)
     async with world.client() as client:
         looked = await client.post(
             f"{PUBLIC}/bookings/lookup", json={"cancel_token": alex["cancel_token"]}
@@ -1110,16 +1238,18 @@ async def test_the_job_has_work_when_a_showing_is_coming_up(world):
 
 
 @pytest.mark.asyncio
-async def test_due_at_is_6_pm_local_the_day_before_across_a_clock_change():
+async def test_due_at_is_8_am_local_on_the_day_across_a_clock_change():
     zone = "America/New_York"
-    from datetime import datetime
+    from datetime import UTC, datetime
     from zoneinfo import ZoneInfo
 
-    # The clocks go forward on Sunday Mar 14, 2027.
-    start = datetime(2027, 3, 15, 10, tzinfo=ZoneInfo(zone))
-    assert reminders.due_at(start, zone) == datetime(2027, 3, 14, 18, tzinfo=ZoneInfo(zone))
-    assert reminders.due_at(at(9), zone) == EVENING
-    assert reminders.due_at(at(18), zone) == EVENING
+    # The clocks go forward at 2 AM on Sunday Mar 14, 2027: 8 AM that day is 12:00 UTC.
+    start = datetime(2027, 3, 14, 10, tzinfo=ZoneInfo(zone))
+    due = reminders.due_at(start, zone)
+    assert due == datetime(2027, 3, 14, 8, tzinfo=ZoneInfo(zone))
+    assert due.astimezone(UTC) == datetime(2027, 3, 14, 12, tzinfo=UTC)
+    assert reminders.due_at(at(9), zone) == MORNING
+    assert reminders.due_at(at(18), zone) == MORNING
 
 
 @pytest.mark.asyncio
@@ -1134,7 +1264,7 @@ async def test_the_resident_lookup_is_the_announcements_own(world, monkeypatch):
         return await real(unit, day, **kwargs)
 
     monkeypatch.setattr(residents, "find", find)
-    await run(world, EVENING)
+    await run(world, MORNING)
     assert seen == [(UNIT, WEDNESDAY)]
     async with AsyncSessionFactory() as session:
         showing = await session.scalar(select(Showing))

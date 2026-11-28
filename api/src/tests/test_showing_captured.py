@@ -22,6 +22,7 @@ from api.src.showing_bookings import (
     alerts,
     captured,
     delivery_checks,
+    digests,
     holds,
     host_event,
     open_times,
@@ -70,6 +71,8 @@ EVENT = host_event.CREATE_KIND
 EVENT_UPDATE = host_event.UPDATE_KIND
 INVITE = host_event.INVITE_KIND
 NEW = residents.NEW_SHOWING_KIND
+# Every booking texts the host (Jane, 412-555-0101) from the AI line.
+HOST_TEXT = delivery_checks.HOST_JOIN_KIND
 PERSON = SimpleNamespace(
     id="user_pat",
     email_addresses=[
@@ -240,7 +243,7 @@ async def test_the_list_says_what_each_is_to_whom_and_what_it_says(world, produc
 
     found = {notice["kind"]: notice for notice in await listed(world)}
 
-    assert set(found) == {CONFIRMATION, EVENT, INVITE, NEW}
+    assert set(found) == {CONFIRMATION, EVENT, INVITE, NEW, HOST_TEXT}
     assert all(n["state"] == "ready" and n["reason"] is None for n in found.values())
     assert all(n["goes_out"] for n in found.values())
     assert {kind: n["to"] for kind, n in found.items()} == {
@@ -248,7 +251,13 @@ async def test_the_list_says_what_each_is_to_whom_and_what_it_says(world, produc
         EVENT: f"Jane Doe, {JANE}",
         INVITE: f"Alex Parker, {ALEX_EMAIL}",
         NEW: "Residents, 412-555-0142",
+        HOST_TEXT: "Jane Doe, 412-555-0101",
     }
+    assert found[HOST_TEXT]["kind_label"] == "Host's text: someone booked"
+    assert found[HOST_TEXT]["wording"].startswith(
+        "Sernia Capital: Alex Parker booked your showing of 320 Example St (unit 320-03) "
+        "on Wed, Apr 14 at 4:00 PM.\n\nYour upcoming showings:\n"
+    )
     assert found[CONFIRMATION]["kind_label"] == "Prospect's confirmation"
     assert (
         "your in-person showing is booked for Wed, Apr 14 at 4:00 PM"
@@ -259,6 +268,7 @@ async def test_the_list_says_what_each_is_to_whom_and_what_it_says(world, produc
     # They wait for the confirmation when it is sent with them, and only then.
     confirmation = found[CONFIRMATION]["id"]
     assert found[CONFIRMATION]["waits_for_notice_id"] is None
+    assert found[HOST_TEXT]["waits_for_notice_id"] is None
     assert {found[kind]["waits_for_notice_id"] for kind in (EVENT, INVITE, NEW)} == {confirmation}
     assert not any(n["confirmation_on_its_way"] for n in found.values())
     # Listing them changes nothing.
@@ -304,6 +314,7 @@ async def test_outside_production_only_what_is_to_the_test_list_would_leave(worl
         CONFIRMATION: True,
         EVENT: False,
         INVITE: False,
+        HOST_TEXT: False,
     }
     assert {n["state"] for n in found.values()} == {"ready"}
 
@@ -318,7 +329,7 @@ async def test_only_captured_messages_are_listed(world, monkeypatch):
 
     # The confirmation was sent and delivered; the others were captured.
     assert (await one(CONFIRMATION)).status == "sent"
-    assert CONFIRMATION not in found and set(found) == {EVENT, INVITE}
+    assert CONFIRMATION not in found and set(found) == {EVENT, INVITE, HOST_TEXT}
 
 
 # Too late
@@ -397,7 +408,7 @@ async def test_the_residents_reminder_lasts_until_the_last_showing_it_lists(worl
     lives_here(world)
     await book(world)
     await book(world, robin(at(17)))
-    await job(world, at(18, day=TUESDAY))
+    await job(world, at(8))
     production()
     world.now = at(16, 30)
 
@@ -476,6 +487,12 @@ async def test_a_cancelled_bookings_messages_no_longer_apply(world, production):
             "no_longer_applies",
             "The residents' text about this showing never went out, so there is nothing to cancel.",
         ),
+        HOST_TEXT: ("no_longer_applies", "The booking was cancelled."),
+        delivery_checks.HOST_LEFT_KIND: (
+            "no_longer_applies",
+            "The host's messages about this showing were captured and never sent, so there is "
+            "nothing to change.",
+        ),
     }
     sent = await outcomes(world)
     assert sent.pop("prospect_cancelled") == "sent"
@@ -546,13 +563,22 @@ async def test_sending_them_all_sends_the_text_and_then_what_waits_for_it(world,
 
     sent = await outcomes(world)
 
-    assert sent == {CONFIRMATION: "sent", EVENT: "waiting", INVITE: "waiting", NEW: "waiting"}
-    assert [text.to for text in world.texts.sent] == [ALEX_MOBILE]
+    assert sent == {
+        CONFIRMATION: "sent",
+        EVENT: "waiting",
+        INVITE: "waiting",
+        NEW: "waiting",
+        HOST_TEXT: "sent",
+    }
+    assert [(text.to, text.line) for text in world.texts.sent] == [
+        (ALEX_MOBILE, "team"),
+        (JANE_MOBILE, "ai"),
+    ]
     _, _, notices = await rows()
     assert {(n.send_approved_by, n.send_approved_at) for n in notices} == {(APPROVER, NOW)}
     confirmation = await one(CONFIRMATION)
     assert (confirmation.guard_reason, confirmation.mode) == ("approved", "capture")
-    assert {n.status for n in notices if n.kind != CONFIRMATION} == {"held"}
+    assert {n.status for n in notices if n.kind not in (CONFIRMATION, HOST_TEXT)} == {"held"}
     # While they wait, they are not on the list any more.
     assert await listed(world) == []
 
@@ -588,7 +614,12 @@ async def test_what_waits_goes_at_once_when_the_report_is_already_in(world, prod
     await book(world)
     production()
 
-    assert await outcomes(world) == {CONFIRMATION: "sent", EVENT: "sent", INVITE: "sent"}
+    assert await outcomes(world) == {
+        CONFIRMATION: "sent",
+        EVENT: "sent",
+        INVITE: "sent",
+        HOST_TEXT: "sent",
+    }
     assert len(world.calendar.events) == 2
 
 
@@ -665,10 +696,16 @@ async def test_outside_production_only_the_test_list_is_reached(world, monkeypat
         sent = await outcomes(world)
         await job(world, NOW + timedelta(minutes=10))
 
-        assert sent == {CONFIRMATION: "sent", EVENT: "kept", INVITE: "kept", NEW: "kept"}, mode
+        assert sent == {
+            CONFIRMATION: "sent",
+            EVENT: "kept",
+            INVITE: "kept",
+            NEW: "kept",
+            HOST_TEXT: "kept",
+        }, mode
         assert {text.to for text in world.texts.sent} == {ALEX_MOBILE}
         assert world.calendar.log == []
-        for kind in (EVENT, INVITE, NEW):
+        for kind in (EVENT, INVITE, NEW, HOST_TEXT):
             kept = await one(kind)
             assert (kept.status, kept.guard_reason) == ("captured", "not_production")
 
@@ -688,7 +725,7 @@ async def test_a_preview_with_rows_production_had_approved_sends_nobody_else_any
 
     report = await job(world, NOW + timedelta(minutes=1))
 
-    assert (report.sent, report.captured) == (0, 4)
+    assert (report.sent, report.captured) == (0, 5)
     assert world.texts.sent == [] and world.calendar.log == []
 
 
@@ -706,7 +743,7 @@ async def test_a_message_already_handled_is_reported_and_not_sent_again(world, p
     second = await send(world, picked=picked)
 
     assert {result["outcome"] for result in second.values()} == {"handled"}
-    assert len(world.texts.sent) == 1 and len(world.calendar.log) == 2
+    assert len(world.texts.sent) == 2 and len(world.calendar.log) == 2
 
 
 @pytest.mark.asyncio
@@ -719,7 +756,7 @@ async def test_two_people_pressing_at_once_send_each_once(world, production):
     results = await asyncio.gather(*(send(world, picked=picked) for _ in range(3)))
     await job(world, NOW + timedelta(minutes=6))
 
-    assert [text.to for text in world.texts.sent] == [ALEX_MOBILE, RESIDENT]
+    assert [text.to for text in world.texts.sent] == [ALEX_MOBILE, JANE_MOBILE, RESIDENT]
     assert [entry[0] for entry in world.calendar.log] == ["create", "create"]
     assert set((await statuses_by_kind()).values()) == {"sent"}
     for notice_id in picked:
@@ -740,7 +777,9 @@ async def test_a_person_and_the_job_at_once_send_each_once(world, production):
     await asyncio.gather(send(world, picked=picked), world.send_pending(), world.send_pending())
     await job(world, NOW + timedelta(minutes=6))
 
-    assert sorted(text.to for text in world.texts.sent) == sorted([ALEX_MOBILE, RESIDENT])
+    assert sorted(text.to for text in world.texts.sent) == sorted(
+        [ALEX_MOBILE, JANE_MOBILE, RESIDENT]
+    )
     assert [entry[0] for entry in world.calendar.log] == ["create", "create"]
 
 
@@ -849,10 +888,12 @@ async def test_a_text_that_does_not_reach_the_number_stops_what_waits(world, pro
         EVENT: "cancelled",
         INVITE: "cancelled",
         NEW: "cancelled",
+        HOST_TEXT: "sent",
     }
     _, (alex,), _ = await rows()
     assert alex.attention_reason == "confirmation_undelivered"
-    assert [text.to for text in world.texts.sent] == [ALEX_MOBILE]
+    # The booking stands, so the host's text, which waits for nothing, went.
+    assert [text.to for text in world.texts.sent] == [ALEX_MOBILE, JANE_MOBILE]
     assert world.calendar.log == []
 
 
@@ -935,7 +976,7 @@ async def test_a_refused_number_is_marked_with_nothing_waiting_for_the_text(worl
     _, (alex,), _ = await rows()
     assert alex.attention_reason == "confirmation_refused"
     # Nothing more is texted to it: the reminder is not queued.
-    await job(world, at(18, day=TUESDAY))
+    await job(world, at(8))
     assert delivery_checks.PROSPECT_REMINDER_KIND not in await statuses_by_kind()
 
 
@@ -959,7 +1000,7 @@ async def test_a_corrected_mobile_does_not_send_what_was_stopped(world, producti
     for minutes in (1, 10):
         await job(world, NOW + timedelta(minutes=minutes))
 
-    assert [text.to for text in world.texts.sent] == [ALEX_MOBILE]
+    assert [text.to for text in world.texts.sent] == [ALEX_MOBILE, JANE_MOBILE]
     assert world.calendar.log == []
     for kind in (EVENT, INVITE, NEW):
         stopped = await one(kind)
@@ -986,7 +1027,7 @@ async def test_a_correction_while_they_wait_leaves_them_to_the_mode(world, produ
         )
     await job(world, NOW + timedelta(minutes=6))
 
-    assert [text.to for text in world.texts.sent] == [ALEX_MOBILE]
+    assert [text.to for text in world.texts.sent] == [ALEX_MOBILE, JANE_MOBILE]
     assert world.calendar.log == []
     assert (await one(EVENT)).status == (await one(INVITE)).status == "captured"
 
@@ -1074,7 +1115,7 @@ async def test_one_that_becomes_too_late_before_it_goes_is_not_sent(world, produ
 @pytest.mark.asyncio
 async def test_the_reminder_goes_to_the_mobile_on_the_booking_then(world, production):
     booked = await book(world)
-    await job(world, at(18, day=TUESDAY))
+    await job(world, at(8))
     async with world.client() as client:
         await client.post(
             f"{PUBLIC}/bookings/mobile",
@@ -1193,7 +1234,9 @@ async def test_several_captured_for_one_showing_end_as_one_correct_event(world, 
         ("cancelled", host_event.ALREADY_SAYS),
         ("sent", None),
     ]
-    assert len(sent) == 6
+    assert len(sent) == 8
+    (host_text,) = world.texts.to(JANE_MOBILE)
+    assert "Alex Parker booked" in host_text and "Robin Lee booked" in host_text
     showings, _, _ = await rows()
     assert showings[0].host_event_id == host_events[0].event_id
 
@@ -1339,19 +1382,20 @@ async def test_a_host_changed_before_it_goes_stops_the_old_hosts_event(world, pr
 async def test_the_hosts_text_goes_to_the_host_it_is_now(world, production):
     await book(world)
     sam = await add_sam()
-    # Someone joins two hours before the start: the host is owed a text.
+    # Someone joins two hours before the start: the host is owed a text for each.
     world.now = at(14)
     await book(world, robin())
     async with AsyncSessionFactory() as session, session.begin():
         await session.execute(update(Showing).values(agent_id=sam))
     production()
 
-    (joined,) = [n for n in await listed(world) if n["kind"] == delivery_checks.HOST_JOIN_KIND]
-    assert joined["to"] == "Sam Roe, 412-555-0102"
-    assert await outcomes(world, delivery_checks.HOST_JOIN_KIND) == {
-        delivery_checks.HOST_JOIN_KIND: "sent"
-    }
-    assert len(world.texts.to("+14125550102")) == 1 and world.texts.to(JANE_MOBILE) == []
+    joined = [n for n in await listed(world) if n["kind"] == HOST_TEXT]
+    assert [n["to"] for n in joined] == ["Sam Roe, 412-555-0102"] * 2
+    sent = await send(world, HOST_TEXT)
+    assert [result["outcome"] for result in sent.values()] == ["sent", "not_sent"]
+    (text,) = world.texts.to("+14125550102")
+    assert "Alex Parker booked" in text and "Robin Lee booked" in text
+    assert world.texts.to(JANE_MOBILE) == []
 
 
 @pytest.mark.asyncio
@@ -1381,7 +1425,7 @@ async def test_an_event_captured_before_a_calendar_was_connected_goes_to_the_cal
 async def test_switching_modes_never_sends_what_is_already_captured(world, production, monkeypatch):
     lives_here(world)
     await book(world)
-    await job(world, at(18, day=TUESDAY))
+    await job(world, at(8))
     monkeypatch.setenv("SHOWING_TEST_PHONES", f"{ALEX_MOBILE},{RESIDENT},{JANE_MOBILE}")
     monkeypatch.setenv("SHOWING_TEST_EMAILS", f"{ALEX_EMAIL},{JANE}")
     production()
@@ -1398,7 +1442,7 @@ async def test_switching_modes_never_sends_what_is_already_captured(world, produ
         ]
     ):
         await store_settings(**settings)
-        await job(world, at(19, minute, TUESDAY))
+        await job(world, at(9, minute))
 
     assert await statuses_by_kind() == before
     assert world.texts.sent == [] and world.calendar.log == []
@@ -1489,7 +1533,7 @@ async def test_a_send_is_logged_with_the_person_the_ids_and_counts_only(
         name: attributes[name]
         for name in ("sent", "waiting", "unknown", "not_sent", "kept", "handled")
     }
-    assert counts == {"sent": 4, "waiting": 0, "unknown": 0, "not_sent": 0, "kept": 0, "handled": 0}
+    assert counts == {"sent": 5, "waiting": 0, "unknown": 0, "not_sent": 0, "kept": 0, "handled": 0}
     for private in ("Alex", "Parker", "0117", "0142", "example.com", "serniacapital"):
         assert private not in str(attributes), private
 
@@ -1530,7 +1574,7 @@ async def test_details_are_removed_after_12_months_whoever_sent_it(world, produc
 
     report = await retention.remove_old_details()
 
-    assert (report.showings, report.notices) == (1, 5)
+    assert (report.showings, report.notices) == (1, 6)
     _, _, notices = await rows()
     for notice in notices:
         assert notice.recipient == retention.REMOVED_RECIPIENT
@@ -1583,6 +1627,10 @@ async def capture(session, showing_id: int, kind: str, *, key: str, **fields) ->
 async def test_every_kind_is_too_late_by_the_one_rule(world, production):
     """Each kind's boundary, in the list and in the send alike."""
     await book(world)
+    # Booked as if within 75 minutes of the start: no text 1 hour before, which
+    # would stand in for the reminder, is owed.
+    async with AsyncSessionFactory() as session, session.begin():
+        await session.execute(update(ShowingAttendee).values(created_at=at(15)))
     showings, (alex,), _ = await rows()
     showing = showings[0]
     zone = "America/New_York"
@@ -1655,20 +1703,26 @@ async def test_every_kind_is_too_late_by_the_one_rule(world, production):
 
 @pytest.mark.asyncio
 async def test_what_the_list_calls_ready_is_what_a_send_sends(world, production):
-    """Everything on the list at once: a ready one goes or waits, any other is not sent."""
+    """Everything on the list at once: a ready one goes or waits, any other is not sent.
+    A ready one due with another text to the same host goes in that text."""
     lives_here(world)
     booked = await book(world)
     await book(world, robin(at(17)))
     await cancel(world, booked)
-    await job(world, at(18, day=TUESDAY))
+    await job(world, at(8))
     production()
     found = {notice["id"]: notice for notice in await listed(world)}
     assert {n["state"] for n in found.values()} == {"ready", "no_longer_applies"}
 
     sent = await send(world, picked=sorted(found))
 
+    merged = {digests.merged_note(other): other for other in sent}
     for notice_id, notice in found.items():
         expected = {"sent", "waiting"} if notice["state"] == "ready" else {"not_sent"}
+        went_with = merged.get(sent[notice_id]["detail"])
+        if went_with is not None:
+            assert notice["state"] == "ready"
+            notice_id, notice = went_with, found[went_with]
         assert sent[notice_id]["outcome"] in expected, (notice, sent[notice_id])
     async with AsyncSessionFactory() as session:
         left = await session.scalar(
