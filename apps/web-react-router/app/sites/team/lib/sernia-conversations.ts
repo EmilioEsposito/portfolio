@@ -8,6 +8,8 @@ export interface ConversationSummary {
   trigger_source: string | null;
   trigger_contact_name: string | null;
   participant?: string;
+  /** A Zillow lead's run: its page is the place to decide it. */
+  lead_thread_id?: string | null;
   created_at: string | null;
   updated_at: string | null;
   run?: ChatRunStatus | null;

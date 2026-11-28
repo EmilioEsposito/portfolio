@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   STATUS_LABELS,
   bookedThrough,
+  changeLine,
+  dayAt,
   factLabel,
   fullTime,
   isLeadsPath,
@@ -100,4 +102,23 @@ test("a refusal reads as a sentence", () => {
   assert.equal(refusal(403, null, "Could not load"), "Sign in again with your Sernia account.");
   assert.equal(refusal(502, null, "Could not load"), "Could not load (502).");
   assert.equal(refusal(0, null, "Could not load"), "Could not load. Check your connection.");
+});
+
+test("a change after a draft was written says who, which unit and when", () => {
+  assert.equal(dayAt("2026-11-29T18:30:00Z"), "Sun, Nov 29 at 1:30 PM");
+  assert.equal(
+    changeLine({ kind: "booked", unit: "12-3", starts_at: "2026-11-29T18:30:00Z", booked_by: "Jordan", at: "2026-11-28T02:48:00Z" }),
+    "Jordan booked 12-3 for Sun, Nov 29 at 1:30 PM after this draft was written.",
+  );
+  assert.equal(
+    changeLine({
+      kind: "cancelled",
+      unit: "12-3",
+      starts_at: "2026-11-29T18:30:00Z",
+      booked_by: "Jordan",
+      at: "2026-11-28T03:00:00Z",
+      cancelled_by: "prospect",
+    }),
+    "The showing of 12-3 on Sun, Nov 29 at 1:30 PM was cancelled by the lead after this draft was written.",
+  );
 });

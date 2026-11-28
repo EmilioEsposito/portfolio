@@ -157,6 +157,9 @@ test("the team home lists the conversations with something to approve, most rece
   assert.equal(approvalsText(0), "Nothing to approve");
   assert.equal(approvalsText(2), "2 to approve");
   assert.equal(conversationHref("ai_sms_from_+14125550123"), "/team/chat?id=ai_sms_from_%2B14125550123");
+  // A Zillow lead's run is decided on the lead's page.
+  assert.equal(conversationHref("zillow-1a2b-40", "1a2b3c4d5e6f7a8b"), "/team/leads/threads/1a2b3c4d5e6f7a8b");
+  assert.equal(conversationHref("zillow-1a2b-40", null), "/team/chat?id=zillow-1a2b-40");
 });
 
 function task(id: string, due: string | null, completed = false): TeamTask {

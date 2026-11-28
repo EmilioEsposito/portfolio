@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/react-router";
 import { Link, useNavigate } from "react-router";
 import {
-  AlertCircle,
   ArrowLeft,
   Bot,
   CalendarDays,
@@ -19,7 +18,8 @@ import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Textarea } from "~/components/ui/textarea";
 import { cn } from "~/lib/utils";
-import { ShowingBadge, StatusBadge } from "~/sites/team/components/lead-badges";
+import { ToolApprovalCard, type PendingApproval } from "~/sites/team/components/chat/tool-cards";
+import { OutdatedBadge, ShowingBadge, StatusBadge } from "~/sites/team/components/lead-badges";
 import {
   type AgentRun,
   type BookingLink,
@@ -30,6 +30,7 @@ import {
   type LeadThreadPage,
   type WaitingCard,
   bookedThrough,
+  changeLine,
   factLabel,
   fullTime,
   orderedFacts,
@@ -245,38 +246,55 @@ function Notes({ notes }: { notes: unknown }) {
   );
 }
 
-function WaitingItem({ card, now }: { card: WaitingCard; now: Date }) {
-  const draft = card.kind === "draft";
+/**
+ * A card waiting on the team, decided here with the chat's own approval card
+ * (Approve, Edit in the full-screen editor, Reject; or Mark handled). When the
+ * thread's showings changed after the draft was written, that comes first.
+ */
+function WaitingItem({
+  card,
+  now,
+  onDecided,
+}: {
+  card: WaitingCard;
+  now: Date;
+  onDecided: (result: { output?: string; status?: string }) => void;
+}) {
+  const { getToken } = useAuth();
+  const changes = card.showing_changes ?? [];
+  const pending: PendingApproval = { toolCallId: card.tool_call_id, toolName: card.tool_name, args: card.args };
   return (
-    <div className="space-y-3 rounded-xl border-2 border-amber-500 bg-amber-50 p-4 dark:bg-amber-950/20">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center gap-2 font-medium">
-          <AlertCircle className="size-4 text-amber-600" aria-hidden="true" />
-          {draft ? "Draft waiting for approval" : "Lead needs a person"}
-        </p>
-        <span className="text-xs text-muted-foreground">
-          Written {fullTime(card.since)} · waiting {waitedFor(card.since, now)}
-        </span>
-      </div>
-      {draft ? (
-        <div className="rounded-lg border bg-background p-3 text-sm">
-          <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
-            To {card.args.to} · {card.args.subject}
-          </p>
-          <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere]">{card.args.body}</p>
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        {card.kind === "draft" ? "Drafted" : "Asked"} {fullTime(card.since)} · waiting {waitedFor(card.since, now)} ·{" "}
+        <Link to={card.chat_path} className="underline underline-offset-4">
+          Raw conversation
+        </Link>
+      </p>
+      {changes.length > 0 && (
+        <div
+          role="alert"
+          className="space-y-1 rounded-lg border-2 border-red-400 bg-red-50 p-3 text-sm text-red-950 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100"
+        >
+          {changes.map((change, index) => (
+            <p key={index} className="font-medium">
+              {changeLine(change)}
+            </p>
+          ))}
+          <p>Check the draft still fits before you approve it: edit it, or reject it.</p>
         </div>
-      ) : (
-        card.args.question && (
-          <p className="whitespace-pre-wrap rounded-lg border bg-background p-3 text-sm [overflow-wrap:anywhere]">
-            {card.args.question}
-          </p>
-        )
       )}
       {card.args.why && <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">Why: {card.args.why}</p>}
       <Notes notes={card.args.team_notes} />
-      <Button asChild size="sm">
-        <Link to={card.chat_path}>{draft ? "Approve, edit or reject in Sernia AI" : "Open the card in Sernia AI"}</Link>
-      </Button>
+      <ToolApprovalCard
+        pending={pending}
+        allPending={[pending]}
+        conversationId={card.conversation_id}
+        apiBase="/api/sernia-ai"
+        getToken={getToken}
+        isProcessing={false}
+        onApprovalComplete={onDecided}
+      />
     </div>
   );
 }
@@ -431,6 +449,16 @@ export default function LeadThread({ params }: Route.ComponentProps) {
     return () => document.removeEventListener("visibilitychange", again);
   }, [load]);
 
+  // What the last decision here did, from the API's answer: sent, rejected, or held with why.
+  const [decision, setDecision] = useState<string | null>(null);
+  const decided = useCallback(
+    (result: { output?: string; status?: string }) => {
+      setDecision(result.output || (result.status === "pending_approval" ? "Not sent: see the card." : "Done."));
+      void load();
+    },
+    [load],
+  );
+
   const back = (
     <Link to={LEADS_PATH} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
       <ArrowLeft className="size-3.5" aria-hidden="true" />
@@ -474,6 +502,7 @@ export default function LeadThread({ params }: Route.ComponentProps) {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h2 className="text-2xl font-semibold">{thread.name}</h2>
           <StatusBadge status={thread.status} waitingSince={thread.waiting_since} now={now} />
+          {thread.draft_outdated && <OutdatedBadge />}
           {thread.showing && <ShowingBadge showing={thread.showing} />}
         </div>
         <p className="text-sm">
@@ -513,11 +542,23 @@ export default function LeadThread({ params }: Route.ComponentProps) {
         />
       </header>
 
+      {decision && (
+        <p role="status" className="rounded-lg border bg-muted/40 p-3 text-sm [overflow-wrap:anywhere]">
+          {decision}
+        </p>
+      )}
+
       {page.waiting.length > 0 && (
         <Section title="Waiting for the team">
-          <div className="space-y-3">
+          <div className="space-y-6">
             {page.waiting.map((card) => (
-              <WaitingItem key={card.tool_call_id} card={card} now={now} />
+              // Keyed by what the card says: a reload that changes nothing keeps an edit in progress.
+              <WaitingItem
+                key={`${card.tool_call_id}-${JSON.stringify(card.args).length}`}
+                card={card}
+                now={now}
+                onDecided={decided}
+              />
             ))}
           </div>
         </Section>
@@ -542,7 +583,11 @@ export default function LeadThread({ params }: Route.ComponentProps) {
         title="Emails"
         aside={
           page.emails_read_at && (
-            <p className="text-xs text-muted-foreground">Read from Gmail {fullTime(page.emails_read_at)}</p>
+            <p className="text-xs text-muted-foreground">
+              {page.emails_live
+                ? "Read from Gmail just now"
+                : `As the lead agent read them, ${fullTime(page.emails_read_at)}`}
+            </p>
           )
         }
       >
@@ -552,9 +597,11 @@ export default function LeadThread({ params }: Route.ComponentProps) {
           ))}
         </ol>
         <p className="text-xs text-muted-foreground">
-          A reply written in Gmail or in a Sernia AI chat shows here after the lead&rsquo;s next email.{" "}
+          {page.emails_checked
+            ? "Checked against Gmail just now. "
+            : "Gmail could not be checked just now, so a reply written there may be missing. "}
           <a href={page.gmail_url} target="_blank" rel="noreferrer" className="underline underline-offset-4">
-            Gmail has the whole thread
+            Open the thread in Gmail
           </a>
           .
         </p>

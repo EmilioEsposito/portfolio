@@ -72,8 +72,9 @@ from api.src.google.gmail.service import send_email as _send_email
 from api.src.google.gmail.threading import GMAIL_SCOPES, _get_threading_headers
 from api.src.showing_bookings import lead_bookings
 from api.src.showing_bookings.lead_tours import lead_booking_for, tour_source_for_lead_agent
+from api.src.utils import team_links
 from api.src.utils.background_tasks import create_logged_task
-from api.src.zillow_leads import listing_data
+from api.src.zillow_leads import listing_data, reply_links
 from api.src.zillow_leads.agent import (
     LEAD_AGENT_MODEL,
     Escalate,
@@ -99,6 +100,10 @@ SEND_REPLY = "send_lead_reply"
 ASK_TEAM = "lead_needs_a_person"
 # A phone shows about this much of a push before cutting it off.
 PUSH_BODY_LIMIT = 180
+# Added to an approval's result when its booking links were given this thread's token.
+LINKS_FIXED = (
+    "The booking link was given this lead's own token, so a booking through it shows on their page."
+)
 
 
 @dataclass(frozen=True)
@@ -333,6 +338,9 @@ async def handle_thread(
                 conversation_id=conversation_id,
                 tool_name=first["tool_name"],
                 tool_args=first.get("args"),
+                # The lead's page, where the card is decided beside the lead's
+                # emails and showings.
+                url=team_links.lead_thread_path(thread_id),
                 **push_text(first),
             ),
             name="notify_pending_approval",
@@ -537,18 +545,25 @@ async def apply_approval(
         args = call["args"] or {}
         edited = False
         body = None
+        links_fixed = 0
         if call["tool_name"] == SEND_REPLY and decision.approved:
             # Only the words can be changed by an approver; any other key in an
             # override is ignored, and the recipient comes from the stored route.
-            body = (decision.override_args or {}).get("body") or args.get("body", "")
-            edited = body != args.get("body", "")
+            written = (decision.override_args or {}).get("body") or args.get("body", "")
+            edited = written != args.get("body", "")
+            # Every link to a unit's booking page goes out with this thread's own
+            # token, so a booking through it is tied to this lead (``reply_links``).
+            # Whether the words were edited is decided on what the person wrote.
+            body, links_fixed = await reply_links.with_thread_token(
+                written, metadata.get("lead_thread_id")
+            )
             if not route or not body.strip():
                 outcome = "Not sent: this conversation has no stored route or no text."
-            elif body.strip() != (args.get("body") or "").strip():
+            elif written.strip() != (args.get("body") or "").strip():
                 # Edited words: the booking the draft would make may no longer be
                 # what the reply says, so no booking change is applied at all.
                 plan = await _plan_booking(conversation_id, metadata)
-                outcome = await send_reply(route, body)
+                outcome = _with_links_note(await send_reply(route, body), links_fixed)
                 skipped = await _not_applied(conversation_id, plan)
                 if skipped is not None:
                     line, booking = skipped
@@ -582,7 +597,7 @@ async def apply_approval(
                     booking = prepared.record()
                     continue
                 try:
-                    outcome = await send_reply(route, body)
+                    outcome = _with_links_note(await send_reply(route, body), links_fixed)
                 except Exception as error:
                     if prepared is not None:
                         # Gmail refused it: the booking goes. Unknown: it stays, marked.
@@ -623,6 +638,7 @@ async def apply_approval(
                 "sent_body": body
                 if call["tool_name"] == SEND_REPLY and decision.approved
                 else None,
+                **({"booking_links_fixed": links_fixed} if links_fixed else {}),
                 "by": approver,
                 "at": datetime.now(UTC).isoformat(),
             }
@@ -673,6 +689,10 @@ async def apply_approval(
             if d.tool_call_id in results
         ],
     }
+
+
+def _with_links_note(outcome: str, links_fixed: int) -> str:
+    return f"{outcome} {LINKS_FIXED}" if links_fixed else outcome
 
 
 def _timezone(metadata: dict[str, Any]) -> str:

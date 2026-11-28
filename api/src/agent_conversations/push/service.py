@@ -428,11 +428,14 @@ async def notify_pending_approval(
     tool_args: dict | None = None,
     title: str | None = None,
     body: str | None = None,
+    url: str | None = None,
 ) -> None:
     """Send a push notification for a pending HITL approval.
 
     ``title`` and ``body`` replace the default wording, for a card that waits
-    for a person without being an approval (a lead escalation).
+    for a person without being an approval (a lead escalation). ``url`` is the
+    page the notification opens, the conversation in the chat by default; a
+    Zillow lead's opens the lead's page (``team_links.lead_thread_path``).
     """
     if title is None:
         friendly_name = tool_name.replace("_", " ").title()
@@ -448,7 +451,7 @@ async def notify_pending_approval(
         body = ", ".join(body_parts) if body_parts else "Action requires your approval"
 
     data = {
-        "url": team_links.chat_path(conversation_id),
+        "url": url or team_links.chat_path(conversation_id),
         "conversation_id": conversation_id,
         "tool_name": tool_name,
         "type": "approval",

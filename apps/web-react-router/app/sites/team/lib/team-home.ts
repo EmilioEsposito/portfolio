@@ -1,3 +1,4 @@
+import { leadThreadPath } from "~/sites/team/lib/lead-inbox";
 import type { ConversationSummary } from "~/sites/team/lib/sernia-conversations";
 import { dueLabel, type TasksView, type TaskSource } from "~/sites/team/lib/team-tasks";
 
@@ -72,8 +73,9 @@ export function tasksText(counts: TaskCounts): string {
   return counts.overdue ? `${openText(counts)}, ${counts.overdue} overdue` : openText(counts);
 }
 
-/** The chat page for one conversation. */
-export function conversationHref(conversationId: string): string {
+/** Where to decide one conversation: a Zillow lead's page, or the chat. */
+export function conversationHref(conversationId: string, leadThreadId?: string | null): string {
+  if (leadThreadId) return leadThreadPath(leadThreadId);
   return `/team/chat?id=${encodeURIComponent(conversationId)}`;
 }
 

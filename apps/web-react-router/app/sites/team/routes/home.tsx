@@ -80,7 +80,7 @@ function ApprovalsList({ approvals }: { approvals: Approvals }) {
           return (
             <li key={conversation.conversation_id}>
               <Link
-                to={conversationHref(conversation.conversation_id)}
+                to={conversationHref(conversation.conversation_id, conversation.lead_thread_id)}
                 className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 <span className="min-w-0 flex-1">

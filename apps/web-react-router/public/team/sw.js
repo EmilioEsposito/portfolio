@@ -171,12 +171,15 @@ self.addEventListener("notificationclick", (event) => {
         // Focus an existing chat tab if one exists.
         for (const client of windowClients) {
           if (isChat(client.url) && "focus" in client) {
-            // Tell the page to refresh conversation data before navigating.
-            client.postMessage({
-              type: "notification-click",
-              url,
-              data: event.notification.data,
-            });
+            // Tell the page to refresh conversation data before navigating, when it
+            // is a conversation that opens. A Zillow lead's opens the lead's page.
+            if (isChat(new URL(url, client.url).href)) {
+              client.postMessage({
+                type: "notification-click",
+                url,
+                data: event.notification.data,
+              });
+            }
             client.navigate(url);
             return client.focus();
           }
