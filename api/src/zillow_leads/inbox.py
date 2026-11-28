@@ -89,6 +89,12 @@ _INQUIRY = re.compile(
     re.I,
 )
 _FACT = re.compile(r"^-\s*(?P<label>[^:]+):\s*(?P<value>.*)$")
+# Zillow ends a relayed message with its own tracking id, which is not the lead's words.
+_RELAY_ID = re.compile(
+    r"\s*\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\s*$", re.I
+)
+# Form facts the header already shows another way: the name, and the listing's address.
+HEADER_SHOWS = {"name", "listing"}
 SNIPPET_LENGTH = 160
 DEFAULT_LIMIT = 100
 
@@ -509,14 +515,15 @@ def thread_status(runs: list[Run]) -> Status:
 def split_form(body: str) -> tuple[str, list[FormFact]]:
     """An email's own words, and the facts Zillow's form added under its heading."""
     words, heading, form = body.partition(FORM_HEADING)
+    words = _RELAY_ID.sub("", words.strip())
     if not heading:
-        return body.strip(), []
+        return words, []
     facts = []
     for line in form.splitlines():
         match = _FACT.match(line.strip())
         if match and match["value"].strip():
             facts.append(FormFact(label=match["label"].strip(), value=match["value"].strip()))
-    return words.strip(), facts
+    return words, facts
 
 
 def emails(runs: list[Run], live: list[dict[str, Any]] | None = None) -> list[LeadEmail]:
@@ -930,7 +937,7 @@ def with_gmail(row: LeadThreadRow, summary: ThreadSummary | None) -> LeadThreadR
             "email_count": summary.count,
             "latest_at": summary.latest_at,
             "latest_from_sernia": summary.latest_from_sernia,
-            "snippet": snippet(summary.latest_snippet),
+            "snippet": snippet(_RELAY_ID.sub("", summary.latest_snippet)),
             "activity_at": max(row.activity_at, summary.latest_at),
         }
     )
@@ -1012,7 +1019,7 @@ async def read_thread(thread_id: str = Path(pattern=THREAD_ID)) -> LeadThreadPag
         thread=row,
         gmail_url=gmail_url(thread_id),
         phone=lead.get("phone") or None,
-        facts=[fact for fact in facts if fact.label.casefold() != "name"],
+        facts=[fact for fact in facts if fact.label.casefold() not in HEADER_SHOWS],
         emails=found,
         emails_read_at=now if live is not None else runs[-1].case.get("now") or runs[-1].created_at,
         emails_live=live is not None,

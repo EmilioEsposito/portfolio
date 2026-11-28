@@ -460,6 +460,16 @@ def test_the_form_is_split_from_the_leads_words():
         ("Number of Occupants", "2"),
     ]
     assert inbox.split_form("Just a question.") == ("Just a question.", [])
+    # Zillow's tracking id at the end of a relayed message is not the lead's words.
+    relayed = (
+        "We have cats!  0f0e0d0c-1b2a-11f1-9a43-000000000000\n\n"
+        + FORM_HEADING
+        + "\n- Listing: 12 Example St"
+    )
+    assert inbox.split_form(relayed) == (
+        "We have cats!",
+        [inbox.FormFact(label="Listing", value="12 Example St")],
+    )
 
 
 @pytest.mark.parametrize(
