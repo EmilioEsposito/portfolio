@@ -574,7 +574,12 @@ async def test_a_corrected_mobile_gets_the_confirmation_and_the_held_notices(wor
     await world.send_pending(NOW + timedelta(minutes=1))
     _, (alex,), notices = await rows()
     assert alex.attention_reason == "confirmation_undelivered"
-    assert [n.status for n in notices[1:]] == ["cancelled", "cancelled"]
+    # The event and the invite are stopped; the host's text that Alex booked went at once.
+    assert [(n.kind, n.status) for n in notices[1:]] == [
+        ("host_event", "cancelled"),
+        ("prospect_invite", "cancelled"),
+        ("host_late_join", "captured"),
+    ]
 
     fixed = await post(
         world, f"{PUBLIC}/bookings/mobile", {"cancel_token": token, "mobile": "(412) 555-0118"}

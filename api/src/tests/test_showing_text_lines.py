@@ -61,14 +61,14 @@ async def test_the_host_hears_from_the_ai_line_and_prospects_from_the_team_line(
     await live()
     short_notice(world)
     world.now = at(11)
-    await book(world)  # 5 hours ahead: the host is not texted
+    await book(world)
     world.now = at(14, 30)
     await book(world, robin())
 
     assert world.texts.lines(ALEX_MOBILE) == ["team"]
     assert world.texts.lines(ROBIN_MOBILE) == ["team"]
-    # Robin booked inside 2 hours: the host's text.
-    assert world.texts.lines(JANE_MOBILE) == ["ai"]
+    # Each booking texts the host.
+    assert world.texts.lines(JANE_MOBILE) == ["ai", "ai"]
 
 
 @pytest.mark.asyncio
@@ -77,7 +77,8 @@ async def test_the_messages_list_says_which_line_each_text_went_from(world):
     await book(world)
     await run(world, at(8))
     await run(world, at(8) + timedelta(minutes=1))
-    assert world.texts.lines(JANE_MOBILE) == ["ai"]
+    # The text that Alex booked, then the morning text.
+    assert world.texts.lines(JANE_MOBILE) == ["ai", "ai"]
     from api.src.tests.test_showing_team_actions import team_app
 
     async with world.client(team_app(world)) as client:

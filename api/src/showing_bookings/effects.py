@@ -37,7 +37,7 @@ from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service as listings_service
 from api.src.rental_listings.checks import RentalDataInvalid
 from api.src.rental_listings.schema import RentalListing, ShowingRules
-from api.src.showing_bookings import bookings, delivery_checks, host_texts, open_times, wording
+from api.src.showing_bookings import bookings, delivery_checks, open_times, residents, wording
 from api.src.showing_bookings.bookings import Refused
 from api.src.showing_bookings.models import Showing, ShowingAgentRecord, ShowingAttendee
 from api.src.showing_bookings.settings import (
@@ -78,6 +78,11 @@ def when_text(start: datetime, timezone: str) -> str:
     return wording.when(
         wording.Visit(unit="", address="", starts_at=start, ends_at=start, timezone=timezone)
     )
+
+
+def host_text_when(now: datetime, timezone: str) -> str:
+    """When the host is texted about a change: "now" from 8 AM to 9 PM, else "at 8 AM"."""
+    return "now" if residents.next_daytime(now, timezone) is None else "at 8 AM"
 
 
 def _place(unit: str, address: str) -> str:
@@ -184,8 +189,7 @@ def booking_sentence(
     else:
         lines = [f"Books {name} into a new showing of {where} on {when}, hosted by {host}."]
         host_told = f"{host} gets a calendar event"
-    if now < start <= now + host_texts.LATE:
-        host_told += " and a text now, as it starts within 2 hours"
+    host_told += f" and a text {host_text_when(now, rules.timezone)}"
     told = [host_told]
     if kind != "join":
         told.append("the unit's residents get a text about the showing, if anyone lives there")
@@ -312,8 +316,8 @@ def cancellation_sentence(
     removed, or None for the whole showing."""
     where = _place(showing.unit, showing.address)
     when = when_text(showing.starts_at, rules.timezone)
-    late = host_texts.is_late(showing, now)
-    residents = "the unit's residents are texted that it is off, if they were told of it"
+    host_texted = f" and they are texted {host_text_when(now, rules.timezone)}"
+    residents_told = "the unit's residents are texted that it is off, if they were told of it"
     if target is None or len(booked) == 1:
         names = [person.name for person in booked]
         if target is None:
@@ -332,11 +336,9 @@ def cancellation_sentence(
             if texted
             else "No one is texted: none of them takes texts, or their numbers are known to be wrong."
         )
-        host_told = f"{host}'s calendar event is cancelled" + (
-            " and they are texted now, as it starts within 2 hours" if late else ""
-        )
+        host_told = f"{host}'s calendar event is cancelled{host_texted}"
         lines.append(
-            f"Any calendar invites they were sent are withdrawn; {host_told}; {residents}."
+            f"Any calendar invites they were sent are withdrawn; {host_told}; {residents_told}."
         )
     else:
         others = [person.name for person in booked if person.id != target.id]
@@ -346,9 +348,7 @@ def cancellation_sentence(
             if delivery_checks.can_text(target)
             else f"{target.name} is not texted: they take no texts, or their number is known to be wrong."
         )
-        host_told = f"{host}'s calendar event is updated" + (
-            " and they are texted now, as it starts within 2 hours" if late else ""
-        )
+        host_told = f"{host}'s calendar event is updated{host_texted}"
         lines.append(
             f"Any calendar invite they were sent is withdrawn; {host_told}; "
             f"{_names(others)} {'stays' if len(others) == 1 else 'stay'} booked."

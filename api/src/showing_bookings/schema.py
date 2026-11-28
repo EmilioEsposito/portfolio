@@ -142,9 +142,9 @@ class ShowingAgent(BaseModel):
 class TextPayload(BaseModel):
     """A text. With ``also_to`` it is one group text to the notice's recipient and
     these numbers, who share one thread. With ``daytime_timezone`` it goes out only
-    from 8 AM to 9 PM there, waiting for 8 AM otherwise (a resident's text or a
-    reminder). ``showing_ids`` are the showings a residents' reminder lists; at
-    delivery it lists only those still ahead."""
+    from 8 AM to 9 PM there, waiting for 8 AM otherwise (a host's or a resident's
+    text, or a reminder). ``showing_ids`` are the showings a host's or residents'
+    text tells of, so each counts as told once it went (``told.py``)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -152,6 +152,11 @@ class TextPayload(BaseModel):
     also_to: list[Mobile] = Field(default_factory=list, max_length=9)
     daytime_timezone: str | None = None
     showing_ids: list[int] = Field(default_factory=list)
+    # A host's text: its own sentence about the change, which ``body`` opens with
+    # and which other texts due with it take into theirs (``digests.py``).
+    line: str | None = None
+    # The notices that went in this one text instead of by themselves.
+    merged_ids: list[int] = Field(default_factory=list)
 
 
 class EmailPayload(BaseModel):

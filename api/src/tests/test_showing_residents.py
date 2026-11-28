@@ -577,9 +577,8 @@ async def told_of_the_cancellation(world: PublicWorld) -> None:
     await world.send_pending()
     first, second = world.texts.to(RESIDENT)
     assert second == (
-        "Hi, this is Sernia Capital. The showing of your home at 320 Example St (unit "
-        "320-03) on Wed, Apr 14 at 4:00 PM is cancelled, so no one will come by for it. "
-        "Questions? Reply to this number."
+        "Automated showing alert: The in-person showing of your unit on Wed, Apr 14 at "
+        "4:00 PM is cancelled."
     )
     assert (await one(CANCELLED)).status == "sent"
 

@@ -314,9 +314,10 @@ async def test_an_approved_confirmation_books_a_provisional_place(lead):
     # The thread's number is saved for the host and never texted.
     assert jordan.mobile == JORDAN_MOBILE and not jordan.texts_accepted
     assert jordan.email is None and jordan.texts_consent_at is None
-    # The host's event and the residents' text, due now; nothing to the lead.
+    # The host's event and text, and the residents' text, due now; nothing to the lead.
     assert sorted((n.kind, n.status) for n in notices) == [
         ("host_event", "pending"),
+        ("host_late_join", "pending"),
         ("resident_new_showing", "pending"),
     ]
     assert all(n.not_before <= lead.world.now for n in notices)
@@ -336,6 +337,7 @@ async def test_the_residents_and_host_notices_go_out_with_the_job_and_nothing_to
     _, _, notices = await rows()
     assert sorted((n.kind, n.status) for n in notices) == [
         ("host_event", "captured"),
+        ("host_late_join", "captured"),
         ("resident_new_showing", "captured"),
     ]
     assert lead.world.texts.sent == []
@@ -1407,7 +1409,11 @@ async def test_approving_a_held_automatic_reply_books_and_sends(lead):
     handle.send_reply.assert_awaited_once()
     _, attendees, notices = await rows()
     assert [(a.source, a.status) for a in attendees] == [("lead_agent", "booked")]
-    assert sorted(n.kind for n in notices) == ["host_event", "resident_new_showing"]
+    assert sorted(n.kind for n in notices) == [
+        "host_event",
+        "host_late_join",
+        "resident_new_showing",
+    ]
     row, _ = await stored(conversation_id)
     assert row.metadata_["showing_booking"]["action"] == "booked"
 
@@ -1470,7 +1476,11 @@ async def test_a_ticked_new_booking_is_booked_and_sent_with_no_person(lead):
     assert (jordan.source, jordan.status, jordan.texts_accepted) == ("lead_agent", "booked", False)
     assert jordan.lead_reply_sent_at == lead.world.now
     # The host's event and the residents' text no longer wait for the send.
-    assert sorted(n.kind for n in notices) == ["host_event", "resident_new_showing"]
+    assert sorted(n.kind for n in notices) == [
+        "host_event",
+        "host_late_join",
+        "resident_new_showing",
+    ]
     assert all(n.not_before <= lead.world.now for n in notices)
     row, messages = await stored(conversation_id)
     assert row.metadata_["auto_delivery"]["status"] == "sent"

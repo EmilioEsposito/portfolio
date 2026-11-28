@@ -282,6 +282,7 @@ async def test_a_captured_confirmation_books_as_capture_mode_does(lead, monkeypa
     _, _, notices = await rows()
     assert sorted((n.kind, n.status) for n in notices) == [
         ("host_event", "captured"),
+        ("host_late_join", "captured"),
         ("resident_new_showing", "captured"),
     ]
     assert lead.world.texts.sent == []

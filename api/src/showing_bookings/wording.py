@@ -47,13 +47,13 @@ TEXTS_CONSENT_VERSION = "v1"
 NOTICES_VERSION = "v2"
 MOVED_VERSION = "v1"
 CANCELLATION_VERSION = "v1"
-RESIDENT_VERSION = "v2"
-REMINDER_VERSION = "v1"
+RESIDENT_VERSION = "v3"
+REMINDER_VERSION = "v2"
 HOUR_REMINDER_VERSION = "v1"
 INVITE_VERSION = "v2"
 LEAD_EMAIL_VERSION = "v1"
-HOST_TEXT_VERSION = "v1"
-HOST_MORNING_VERSION = "v1"
+HOST_TEXT_VERSION = "v2"
+HOST_MORNING_VERSION = "v2"
 APPLY_VERSION = "v1"
 ALERT_VERSION = "v1"
 
@@ -346,10 +346,6 @@ def invite_cancelled_description(visit: Visit, team_phone: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _minutes(visit: Visit) -> int:
-    return round((visit.ends_at - visit.starts_at).total_seconds() / 60)
-
-
 def resident_new_showing_text(visit: Visit) -> str:
     """To the residents of a unit, once, when a new showing of it is booked."""
     return (
@@ -359,13 +355,85 @@ def resident_new_showing_text(visit: Visit) -> str:
     )
 
 
-def resident_cancelled_text(visit: Visit) -> str:
-    """To the residents who were told of a showing that is now cancelled."""
-    return (
-        f"Hi, this is Sernia Capital. The showing of your home at {place(visit)} on "
-        f"{when(visit)} is cancelled, so no one will come by for it. "
-        "Questions? Reply to this number."
-    )
+RESIDENT_ALERT = "Automated showing alert:"
+RESIDENT_CLOSING = (
+    "A Sernia agent will be there the whole time. You may be present or we can let "
+    "ourselves in if you are not home."
+)
+
+
+@dataclass(frozen=True)
+class Upcoming:
+    """One of a unit's upcoming showings a residents' text lists; ``new`` when this
+    text is the first to tell them of it."""
+
+    visit: Visit
+    new: bool = False
+
+
+def resident_text(
+    *,
+    upcoming: Sequence[Upcoming],
+    cancelled: Sequence[Visit] = (),
+    today: Sequence[Visit] = (),
+) -> str:
+    """Everything a unit's residents are told at once (``RESIDENT_VERSION``).
+
+    ``upcoming``: the unit's upcoming showings they have been told of, with the
+    ones this text tells them of first (``new``). ``cancelled``: the showings
+    this text says are cancelled. ``today``: the day's showings, for the
+    reminder at 8 AM.
+
+    - One new showing and nothing else to say: the announcement as it has
+      always read (``resident_new_showing_text``).
+    - New showings among others: "We've scheduled another in-person showing of
+      your unit. Upcoming showings:" and the dated list, marking "(new)" only
+      when the list mixes new and earlier ones.
+    - Cancellations come first; with no new showing they end with "Still
+      scheduled:" and the list, or with nothing when none remain.
+    - The 8 AM reminder names the day's times.
+    """
+    upcoming = sorted(upcoming, key=lambda item: item.visit.starts_at)
+    new = [item for item in upcoming if item.new]
+    if len(new) == 1 and len(upcoming) == 1 and not cancelled and not today:
+        return resident_new_showing_text(new[0].visit)
+    sentences = [
+        f"The in-person showing of your unit on {when(visit)} is cancelled."
+        for visit in sorted(cancelled, key=lambda visit: visit.starts_at)
+    ]
+    if today:
+        today = sorted(today, key=lambda visit: visit.starts_at)
+        sentences.append(
+            f"Reminder: an in-person showing of your unit is scheduled today at {_times(today)}."
+            if len(today) == 1
+            else f"Reminder: in-person showings of your unit are scheduled today at {_times(today)}."
+        )
+    if new:
+        earlier = len(new) < len(upcoming)
+        if earlier:
+            sentences.append(
+                "We've scheduled another in-person showing of your unit."
+                if len(new) == 1
+                else "We've scheduled more in-person showings of your unit."
+            )
+        else:
+            sentences.append(
+                "We've scheduled an in-person showing of your unit."
+                if len(new) == 1
+                else "We've scheduled in-person showings of your unit."
+            )
+        items = [
+            f"- {when(item.visit)}{' (new)' if item.new and earlier else ''}" for item in upcoming
+        ]
+        return "\n".join(
+            [f"{RESIDENT_ALERT} {' '.join(sentences)} Upcoming showings:", *items, RESIDENT_CLOSING]
+        )
+    if today:
+        return f"{RESIDENT_ALERT} {' '.join(sentences)} {RESIDENT_CLOSING}"
+    if upcoming:
+        items = [f"- {when(item.visit)}" for item in upcoming]
+        return "\n".join([f"{RESIDENT_ALERT} {' '.join(sentences)} Still scheduled:", *items])
+    return f"{RESIDENT_ALERT} {' '.join(sentences)}"
 
 
 # ---------------------------------------------------------------------------
@@ -383,14 +451,15 @@ def host_event_moved_description() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Reminders the evening before (REMINDER_VERSION)
+# Reminders on the day (REMINDER_VERSION)
 # ---------------------------------------------------------------------------
 
 
 def prospect_reminder_text(visit: Visit, cancel_url: str) -> str:
-    """To a prospect still booked, the evening before: when, where, and the cancel link."""
+    """To a prospect still booked, at 8 AM on the day: when, where, and the cancel link."""
+    start = _clock(_local(visit.starts_at, visit.timezone))
     return (
-        f"Sernia Capital: a reminder of your in-person showing on {when(visit)} "
+        f"Sernia Capital: a reminder of your in-person showing today at {start} "
         f"at {place(visit)}.\nTo cancel: {cancel_url}\nReply STOP to opt out."
     )
 
@@ -429,87 +498,55 @@ def _times(visits: Sequence[Visit]) -> str:
     return f"{', '.join(clocks[:-1])} and {clocks[-1]}"
 
 
-def resident_reminder_text(visits: Sequence[Visit]) -> str:
-    """To a unit's residents, the evening before: the next day's showings there, in order."""
-    visits = sorted(visits, key=lambda visit: visit.starts_at)
-    first = visits[0]
-    start = _local(first.starts_at, first.timezone)
-    day = f"{start:%a}, {start:%b} {start.day}"
-    if len(visits) == 1:
-        booked = f"an in-person showing of your home at {place(first)} is booked for {day} at"
-        length = f"It will take about {_minutes(first)} minutes"
-    else:
-        booked = f"in-person showings of your home at {place(first)} are booked for {day} at"
-        length = f"Each will take about {_minutes(first)} minutes"
-    return (
-        f"Hi, this is Sernia Capital. A reminder: {booked} {_times(visits)}. {length}, and a "
-        "Sernia agent will be there the whole time. Questions? Reply to this number."
-    )
-
-
 # ---------------------------------------------------------------------------
-# The host's texts when something changes inside 2 hours (HOST_TEXT_VERSION)
+# The host's texts (HOST_TEXT_VERSION) and morning text (HOST_MORNING_VERSION)
 # ---------------------------------------------------------------------------
+#
+# A host is texted on every change to their showings: one sentence per change
+# (``host_*_line``), then their upcoming showings in order (``host_text``).
+# Changes due together (after hours, or at 8 AM) go as one text, and at 8 AM
+# they open the morning text, which lists the day's showings instead
+# (``host_morning_text``).
 
 
-def _booked(count: int) -> str:
-    return "1 person is booked" if count == 1 else f"{count} people are booked"
+def host_joined_line(visit: Visit, name: str) -> str:
+    """Someone booked the host's showing, a new one or a join."""
+    return f"{name} booked your showing of {place(visit)} on {when(visit)}."
 
 
-def host_joined_text(visit: Visit, name: str, booked: int) -> str:
-    """To the host, when someone books their showing less than 2 hours ahead."""
-    return (
-        f"Sernia Capital: {name} just booked your showing of {place(visit)} on {when(visit)}. "
-        f"{_booked(booked)} now."
-    )
-
-
-def host_left_text(visit: Visit, name: str, *, by_team: bool, booked: int) -> str:
-    """To the host, when someone cancels (or the team removes them) less than 2 hours ahead."""
+def host_left_line(visit: Visit, name: str, *, by_team: bool, booked: int) -> str:
+    """Someone cancelled, or the team removed them; ``booked`` is how many are left."""
     showing = f"your showing of {place(visit)} on {when(visit)}"
-    if by_team:
-        opening = f"Sernia Capital: the team removed {name} from {showing}."
-    else:
-        opening = f"Sernia Capital: {name} cancelled {showing}."
+    opening = (
+        f"The team removed {name} from {showing}." if by_team else f"{name} cancelled {showing}."
+    )
     if booked == 0:
         return f"{opening} No one is booked now, so the showing is cancelled."
-    return f"{opening} {_booked(booked)} still."
+    return opening
 
 
-def host_moved_to_text(visit: Visit, booked: int) -> str:
-    """To the new host, when the team gives them a showing less than 2 hours ahead."""
+def host_moved_to_line(visit: Visit) -> str:
+    """The team gave the host a showing."""
+    return f"The showing of {place(visit)} on {when(visit)} is now yours to host."
+
+
+def host_moved_from_line(visit: Visit) -> str:
+    """The team gave the host's showing to someone else."""
     return (
-        f"Sernia Capital: the showing of {place(visit)} on {when(visit)} is now yours to host. "
-        f"{_booked(booked)}."
+        f"The showing of {place(visit)} on {when(visit)} has moved to another host. "
+        "You are no longer hosting it."
     )
 
 
-def host_moved_from_text(visit: Visit) -> str:
-    """To the old host, when the team gives their showing to someone else less than
-    2 hours ahead."""
-    return (
-        f"Sernia Capital: the showing of {place(visit)} on {when(visit)} has moved to "
-        "another host. You are no longer hosting it."
-    )
-
-
-def host_showing_cancelled_text(visit: Visit, reason: str | None) -> str:
-    """To the host, when the team cancels the showing (or the unit goes off the market)
-    less than 2 hours ahead."""
-    return (
-        f"Sernia Capital: your showing of {place(visit)} on {when(visit)} is cancelled. "
-        f"{_REASONS.get(reason or '', '')}"
-    ).strip()
-
-
-# ---------------------------------------------------------------------------
-# The host's morning text (HOST_MORNING_VERSION)
-# ---------------------------------------------------------------------------
+def host_showing_cancelled_line(visit: Visit, reason: str | None) -> str:
+    """The team cancelled the showing, or its unit went off the market."""
+    why = _REASONS.get(reason or "", "")
+    return f"Your showing of {place(visit)} on {when(visit)} is cancelled. {why}".strip()
 
 
 @dataclass(frozen=True)
 class DayShowing:
-    """One of the host's showings on the day, as the morning text lists it."""
+    """One of the host's showings, as their texts list it."""
 
     visit: Visit
     booked: int
@@ -523,13 +560,59 @@ def _people(count: int) -> str:
 TEXT_LIMIT = 1600
 
 
-def _more(count: int) -> str:
-    return f"…and {count} more showing{'' if count == 1 else 's'} today."
+def _more(count: int, *, today: bool) -> str:
+    showings = f"showing{'' if count == 1 else 's'}"
+    return f"…and {count} more {showings}{' today' if today else ''}."
 
 
-def host_morning_text(showings: Sequence[DayShowing], *, limit: int = TEXT_LIMIT) -> str:
-    """To a host at 8 AM: the day's showings in order, each with its time, place and
-    how many people are booked. Names no one booked and no phone number.
+def _fit(head: list[str], full: list[str], short: list[str], *, today: bool, limit: int) -> str:
+    """``head`` then the list, never longer than ``limit``: the full lines, else the
+    short ones, else as many short ones as fit and how many more there are."""
+    for items in (full, short):
+        text = "\n".join([*head, *items])
+        if len(text) <= limit:
+            return text
+    kept: list[str] = []
+    for index, line in enumerate(short):
+        left = len(short) - index - 1
+        candidate = "\n".join([*head, *kept, line] + ([_more(left, today=today)] if left else []))
+        if len(candidate) > limit:
+            break
+        kept.append(line)
+    return "\n".join([*head, *kept, _more(len(short) - len(kept), today=today)])[:limit]
+
+
+def _changes(lines: Sequence[str]) -> list[str]:
+    """What changed, as a text's opening: "Sernia Capital: " and one change per line."""
+    return [f"Sernia Capital: {lines[0]}", *lines[1:]] if lines else []
+
+
+def host_text(
+    lines: Sequence[str], upcoming: Sequence[DayShowing], *, limit: int = TEXT_LIMIT
+) -> str:
+    """To a host when their showings change: what changed, then their upcoming
+    showings in order with how many people are booked. The list names no one
+    and no phone number."""
+    upcoming = sorted(upcoming, key=lambda item: item.visit.starts_at)
+    head = [*_changes(lines), ""]
+    if not upcoming:
+        return "\n".join([*head, "You have no upcoming showings."])
+    head.append("Your upcoming showings:")
+    full = [
+        f"- {when(item.visit)} at {place(item.visit)}, {_people(item.booked)}" for item in upcoming
+    ]
+    short = [
+        f"- {when(item.visit)}, unit {item.visit.unit}, {_people(item.booked)}" for item in upcoming
+    ]
+    return _fit(head, full, short, today=False, limit=limit)
+
+
+def host_morning_text(
+    showings: Sequence[DayShowing], *, lines: Sequence[str] = (), limit: int = TEXT_LIMIT
+) -> str:
+    """To a host at 8 AM: any changes due then, then the day's showings in order,
+    each with its time, place and how many people are booked. The list names no
+    one and no phone number.
 
     Never longer than ``limit``: when the full list is too long, the lines are
     compacted (the address once when every showing shares it, then time, unit
@@ -542,33 +625,21 @@ def host_morning_text(showings: Sequence[DayShowing], *, limit: int = TEXT_LIMIT
     def clock(item: DayShowing) -> str:
         return _clock(_local(item.visit.starts_at, item.visit.timezone))
 
-    full = [f"Sernia Capital: your showings today, {day}:"] + [
-        f"- {clock(item)} at {place(item.visit)}, {_people(item.booked)}" for item in showings
-    ]
-    text = "\n".join(full)
+    opening = [*_changes(lines), ""] if lines else []
+    title = "Your showings today" if lines else "Sernia Capital: your showings today"
+    full = [f"- {clock(item)} at {place(item.visit)}, {_people(item.booked)}" for item in showings]
+    text = "\n".join([*opening, f"{title}, {day}:", *full])
     if len(text) <= limit:
         return text
-
     addresses = {item.visit.address for item in showings}
     if len(addresses) == 1 and showings[0].visit.address:
-        header = f"Sernia Capital: your showings today, {day}, at {showings[0].visit.address}:"
+        header = f"{title}, {day}, at {showings[0].visit.address}:"
     else:
-        header = f"Sernia Capital: your showings today, {day}:"
-    lines = [
+        header = f"{title}, {day}:"
+    short = [
         f"- {clock(item)}, unit {item.visit.unit}, {_people(item.booked)}" for item in showings
     ]
-    text = "\n".join([header, *lines])
-    if len(text) <= limit:
-        return text
-
-    kept: list[str] = []
-    for index, line in enumerate(lines):
-        left = len(lines) - index - 1
-        candidate = "\n".join([header, *kept, line] + ([_more(left)] if left else []))
-        if len(candidate) > limit:
-            break
-        kept.append(line)
-    return "\n".join([header, *kept, _more(len(lines) - len(kept))])[:limit]
+    return _fit([*opening, header], short, short, today=True, limit=limit)
 
 
 # ---------------------------------------------------------------------------
@@ -591,7 +662,7 @@ def apply_text(visit: Visit, apply_url: str) -> str:
 NOTICE_LABELS = {
     "prospect_confirmation": "Prospect's confirmation",
     "prospect_invite": "Prospect's invite",
-    "prospect_reminder": "Prospect's reminder",
+    "prospect_reminder": "Prospect's reminder: 8 AM on the day",
     "prospect_hour_reminder": "Prospect's text: 1 hour before",
     "lead_email_reminder": "Lead's reminder by email, in their Zillow thread",
     "prospect_cancelled": "Prospect's cancellation",
@@ -605,7 +676,7 @@ NOTICE_LABELS = {
     "host_showing_cancelled": "Host's text: showing cancelled",
     "resident_new_showing": "Residents' text: new showing",
     "resident_cancelled": "Residents' text: showing cancelled",
-    "resident_reminder": "Residents' reminder",
+    "resident_reminder": "Residents' reminder: 8 AM on the day",
     "host_event_moved": "Old host's event cancelled",
     "host_moved_to": "Host's text: showing now theirs",
     "host_moved_from": "Host's text: showing moved away",

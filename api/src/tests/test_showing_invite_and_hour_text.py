@@ -261,12 +261,12 @@ async def test_too_late_to_send_by_hand_45_minutes_before(world):
 
 
 @pytest.mark.asyncio
-async def test_the_evening_reminder_and_the_hosts_event_are_unchanged(world):
+async def test_the_days_reminder_and_the_hosts_event_still_go(world):
     await live()
     await book(world, booking())
     await run(world, world.now)
 
-    await run(world, at(18, 0, day=world.now.date()))
+    await run(world, at(8))
 
     reminders = [body for body in world.texts.to(ALEX_MOBILE) if "a reminder of" in body]
     assert len(reminders) == 1

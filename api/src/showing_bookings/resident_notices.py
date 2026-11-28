@@ -8,16 +8,18 @@
   the host's event, and stopped with it. A unit with no resident on a current
   lease gets nothing. A lookup that went wrong queues nothing and marks the
   showing for the team (``showings.resident_attention``); the booking stands.
-- ``queue_cancellation``: when a showing is cancelled, if the residents' text
-  went out (sent or captured), may have (unknown), or is being sent now. One
-  that never went out was stopped with the showing's other notices, and the
-  residents hear nothing.
+- ``queue_cancellation``: when a showing is cancelled, if a residents' text that
+  told them of it (its announcement, or one that listed it) went out (sent or
+  captured), may have (unknown), or is being sent now. One that never went out
+  was stopped with the showing's other notices, and the residents hear nothing.
 - ``hand_over``: the residents' text held behind a confirmation that will not
   be delivered waits instead for another booked person's confirmation, so a
   showing that still goes ahead is still announced.
 
 Both texts carry the showing rules' time zone, and the outbox sends them only
-from 8 AM to 9 PM there.
+from 8 AM to 9 PM there. Each is written when it goes, together with every other
+residents' text due for the unit then (``digests.py``): the unit's upcoming
+showings they have been told of, with the new ones and the cancelled ones.
 """
 
 from datetime import datetime
@@ -28,7 +30,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.rental_listings.schema import ShowingRules
-from api.src.showing_bookings import host_event, outbox, residents
+from api.src.showing_bookings import host_event, outbox, resident_texts, residents
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.schema import TextPayload
 
@@ -83,13 +85,6 @@ async def queue_new_showing(
     )
 
 
-def _went_out():
-    """A notice that went out, may have, or is being sent now."""
-    return ShowingNotice.status.in_(["sent", "captured", "unknown"]) | (
-        (ShowingNotice.status == "pending") & ShowingNotice.sending_started_at.is_not(None)
-    )
-
-
 async def queue_cancellation(
     session: AsyncSession, showing: Showing, *, now: datetime
 ) -> ShowingNotice | None:
@@ -98,15 +93,8 @@ async def queue_cancellation(
     Called after the showing's unsent notices were stopped. Goes to the same
     numbers as the first text, due now and sent in the daytime.
     """
-    told = await session.scalar(
-        select(ShowingNotice)
-        .where(
-            ShowingNotice.showing_id == showing.id,
-            ShowingNotice.kind == residents.NEW_SHOWING_KIND,
-            _went_out(),
-        )
-        .limit(1)
-    )
+    # The text that told them: its announcement, or one that listed it.
+    told = await resident_texts.telling_notice(session, showing.id)
     if told is None:
         return None
     first = TextPayload.model_validate(told.payload)

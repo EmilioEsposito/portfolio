@@ -290,7 +290,8 @@ async def test_the_first_call_books_nothing_and_states_the_effect(world):
     assert answer.startswith("Not booked yet. Books Casey Morgan")
     assert effect_in(answer) == (
         f"Books Casey Morgan into a new showing of {PLACE} on {WHEN}, hosted by Jane Doe. "
-        "Jane Doe gets a calendar event; the unit's residents get a text about the showing, "
+        "Jane Doe gets a calendar event and a text now; the unit's residents get a text about "
+        "the showing, "
         "if anyone lives there; Casey Morgan gets a confirmation text at 412-555-0119 and a "
         f"calendar invite at {CASEY_EMAIL}. {TEST_MODE}"
     )
@@ -322,6 +323,7 @@ async def test_a_booking_waits_for_approval_then_books_as_the_tab_does(world):
         ("prospect_confirmation", "sent"),
         ("host_event", "held"),
         ("prospect_invite", "held"),
+        ("host_late_join", "captured"),
     ]
     assert len(world.texts.to(CASEY_MOBILE)) == 1
 
@@ -336,7 +338,11 @@ async def test_texts_are_off_unless_set_and_then_nothing_is_texted(world):
 
     _, (casey,), notices = await rows()
     assert (casey.texts_accepted, casey.texts_consent_at) == (False, None)
-    assert statuses(notices) == [("host_event", "pending"), ("prospect_invite", "pending")]
+    assert statuses(notices) == [
+        ("host_event", "pending"),
+        ("prospect_invite", "pending"),
+        ("host_late_join", "captured"),
+    ]
     assert world.texts.sent == []
 
 
@@ -398,7 +404,8 @@ async def test_cancelling_a_showing_states_the_effect_then_cancels_it(world):
     assert effect_in(answer) == (
         f"Cancels the showing of {PLACE} on {WHEN}, hosted by Jane Doe, and everyone booked in "
         "it: Alex Parker. Texted that the team cancelled: Alex Parker. Any calendar invites "
-        "they were sent are withdrawn; Jane Doe's calendar event is cancelled; the unit's "
+        "they were sent are withdrawn; Jane Doe's calendar event is cancelled and they are "
+        "texted now; the unit's "
         f"residents are texted that it is off, if they were told of it. {TEST_MODE}"
     )
     said = await cancel_approved(showing_id=showing["showing_id"])
@@ -426,7 +433,10 @@ async def test_removing_one_person_leaves_the_others(world):
         f"Removes Robin Lee from the showing of {PLACE} on {WHEN}, hosted by Jane Doe. "
         "Robin Lee is texted that the team cancelled their place."
     )
-    assert "Jane Doe's calendar event is updated; Alex Parker stays booked." in effect
+    assert (
+        "Jane Doe's calendar event is updated and they are texted now; Alex Parker stays booked."
+        in effect
+    )
 
     said = await cancel_approved(**args)
 

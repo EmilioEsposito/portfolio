@@ -211,6 +211,7 @@ async def test_a_caller_who_takes_texts_is_booked_like_a_page_booking(world):
         ("prospect_confirmation", "sent", False),
         ("host_event", "held", True),
         ("prospect_invite", "held", True),
+        ("host_late_join", "captured", False),
     ]
     showings, attendees, notices = await rows()
     (casey,) = attendees
@@ -241,6 +242,7 @@ async def test_a_caller_who_takes_texts_is_booked_like_a_page_booking(world):
         ("prospect_confirmation", "sent"),
         ("host_event", "sent"),
         ("prospect_invite", "sent"),
+        ("host_late_join", "captured"),
     ]
     guests = sorted(event.draft.attendees[0] for event in world.calendar.events.values())
     assert guests == [CASEY_EMAIL, JANE]
@@ -258,6 +260,7 @@ async def test_a_caller_who_declines_texts_gets_none_and_nothing_is_held(world):
     assert [(n["kind"], n["status"]) for n in result["notices"]] == [
         ("host_event", "pending"),
         ("prospect_invite", "pending"),
+        ("host_late_join", "captured"),
     ]
     _, (casey,), notices = await rows()
     assert (casey.texts_accepted, casey.texts_consent_at, casey.texts_consent_page) == (
@@ -271,7 +274,11 @@ async def test_a_caller_who_declines_texts_gets_none_and_nothing_is_held(world):
     await world.send_pending(NOW + timedelta(minutes=1))
 
     _, _, notices = await rows()
-    assert statuses(notices) == [("host_event", "sent"), ("prospect_invite", "sent")]
+    assert statuses(notices) == [
+        ("host_event", "sent"),
+        ("prospect_invite", "sent"),
+        ("host_late_join", "captured"),
+    ]
     assert world.texts.sent == []
     # A cancellation later texts them nothing either, and still withdraws the invite.
     async with world.client(team_app(world)) as client:
@@ -290,18 +297,19 @@ async def test_texts_without_a_mobile_are_saved_as_no_texts(world):
     assert (answer.json()["texts_accepted"], answer.json()["confirmation"]) == (False, None)
     _, (casey,), notices = await rows()
     assert (casey.mobile, casey.texts_accepted, casey.texts_consent_at) == (None, False, None)
-    assert [n.kind for n in notices] == ["host_event", "prospect_invite"]
+    assert [n.kind for n in notices] == ["host_event", "prospect_invite", "host_late_join"]
 
 
 @pytest.mark.asyncio
-async def test_a_caller_with_only_a_name_gives_the_host_an_event_and_nothing_else(world):
+async def test_a_caller_with_only_a_name_gives_the_host_an_event_and_a_text_only(world):
     await live()
 
     answer = await team_book(world, caller(name="  Casey   Morgan "))
 
     assert answer.status_code == 201, answer.text
     assert [(n["kind"], n["status"]) for n in answer.json()["notices"]] == [
-        ("host_event", "pending")
+        ("host_event", "pending"),
+        ("host_late_join", "captured"),
     ]
     _, (casey,), _ = await rows()
     assert (casey.name, casey.mobile, casey.email) == ("Casey Morgan", None, None)
@@ -329,6 +337,7 @@ async def test_the_team_adds_a_caller_to_a_showing_booked_on_the_page(world):
     assert [(n["kind"], n["status"]) for n in result["notices"]] == [
         ("host_event_update", "pending"),
         ("prospect_invite", "pending"),
+        ("host_late_join", "captured"),
     ]
     showings, attendees, _ = await rows()
     assert len(showings) == 1
@@ -365,6 +374,7 @@ async def test_a_number_quo_refuses_withdraws_the_team_booking(world):
         ("prospect_confirmation", "failed"),
         ("host_event", "cancelled"),
         ("prospect_invite", "cancelled"),
+        ("host_late_join", "pending"),  # stopped at delivery by the next run
     ]
     await world.send_pending(NOW + timedelta(minutes=10))
     assert world.calendar.events == {}
@@ -472,8 +482,12 @@ async def test_a_showing_moves_to_a_free_agent_after_the_event_went_out(world):
     assert answer.status_code == 200, answer.text
     result = answer.json()
     assert (result["host_name"], result["previous_host_name"]) == ("Sam Roe", "Jane Doe")
+    # Each host is texted: Sam that it is theirs, Jane that it is not (both captured:
+    # neither is on the test list).
     assert [(n["kind"], n["status"]) for n in result["notices"]] == [
         ("host_event_moved", "pending"),
+        ("host_moved_to", "captured"),
+        ("host_moved_from", "captured"),
         ("host_event", "pending"),
     ]
     showings, _, notices = await rows()
@@ -515,7 +529,12 @@ async def test_a_showing_moves_while_its_event_is_held(world):
 
     assert answer.status_code == 200, answer.text
     # Nothing went out, so nothing is cancelled at Google: the held event is Sam's now.
-    assert [(n["kind"], n["status"]) for n in answer.json()["notices"]] == [("host_event", "held")]
+    # Jane's text that Alex booked was captured, so she is told it moved away.
+    assert [(n["kind"], n["status"]) for n in answer.json()["notices"]] == [
+        ("host_moved_to", "captured"),
+        ("host_moved_from", "captured"),
+        ("host_event", "held"),
+    ]
     _, _, notices = await rows()
     old, new = by_kind(notices)["host_event"]
     assert (old.status, old.last_error, old.waits_for_notice_id) == (
@@ -552,6 +571,8 @@ async def test_a_move_after_the_event_with_a_join_still_held(world):
 
     assert [(n["kind"], n["status"]) for n in answer.json()["notices"]] == [
         ("host_event_moved", "pending"),
+        ("host_moved_to", "captured"),
+        ("host_moved_from", "captured"),
         ("host_event_update", "held"),
         ("host_event", "pending"),
     ]
@@ -675,8 +696,11 @@ async def test_a_move_after_the_old_hosts_event_failed_gives_the_new_host_one(wo
 
     answer = await move(world, showings[0].id, sam)
 
+    # Jane heard of it by text (captured), so both hosts are texted.
     assert [(n["kind"], n["status"]) for n in answer.json()["notices"]] == [
-        ("host_event", "pending")
+        ("host_moved_to", "captured"),
+        ("host_moved_from", "captured"),
+        ("host_event", "pending"),
     ]
     await world.send_pending(NOW + timedelta(minutes=2))
     (event,) = world.calendar.events_in(SAM_CALENDAR)
@@ -693,7 +717,9 @@ async def test_a_move_before_a_due_event_goes_out_keeps_it_due_for_the_new_host(
     answer = await move(world, showing_id, sam)
 
     assert [(n["kind"], n["status"]) for n in answer.json()["notices"]] == [
-        ("host_event", "pending")
+        ("host_moved_to", "captured"),
+        ("host_moved_from", "captured"),
+        ("host_event", "pending"),
     ]
     await world.send_pending(NOW + timedelta(minutes=1))
     (event,) = world.calendar.events.values()
@@ -954,6 +980,7 @@ async def test_a_team_booking_with_texts_holds_the_residents_text_behind_its_con
         ("prospect_confirmation", "sent"),
         ("host_event", "held"),
         (NEW, "held"),
+        ("host_late_join", "captured"),
     ]
     _, _, notices = await rows()
     confirmation = by_kind(notices)["prospect_confirmation"][0]
@@ -977,6 +1004,7 @@ async def test_a_team_booking_without_texts_tells_the_residents_at_once(world):
     assert [(n["kind"], n["status"]) for n in answer.json()["notices"]] == [
         ("host_event", "pending"),
         (NEW, "pending"),
+        ("host_late_join", "captured"),
     ]
     (text,) = await resident_texts()
     assert text.waits_for_notice_id is None
