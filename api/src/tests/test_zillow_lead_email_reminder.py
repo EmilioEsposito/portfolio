@@ -582,9 +582,10 @@ async def test_another_email_the_guard_would_send_still_cannot_go(lead, monkeypa
 
 
 def outside_pytest(monkeypatch) -> None:
-    """Lets the live sender run its own logic, inside one test whose every Gmail
-    call is mocked. Pytest sets the variable again for the next test."""
+    """Lets the live sender run its own logic, as in production, inside one test
+    whose every Gmail call is mocked. Pytest sets the variable again for the next test."""
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
 
 
 @pytest.mark.asyncio
@@ -625,6 +626,26 @@ async def test_the_live_sender_never_sends_outside_the_thread(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_the_live_sender_sends_nothing_outside_production(monkeypatch):
+    """The guard sends here outside production only to the test list; should the two
+    ever disagree, the sender refuses on its own, reading and sending nothing."""
+    outside_pytest(monkeypatch)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "portfolio-pr-123")
+    headers, send = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(handle, "_get_threading_headers", headers)
+    monkeypatch.setattr(handle, "send_thread_email", send)
+
+    with pytest.raises(NotSent) as refused:
+        await gmail_thread.GmailThreadSender().send_in_thread(
+            ThreadRoute(to=RELAY, subject=SUBJECT, reply_to_message_id=MESSAGE_ID), "Body"
+        )
+
+    assert refused.value.reason == "not_production" and not refused.value.retryable
+    headers.assert_not_awaited()
+    send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_the_live_sender_sorts_gmails_errors_as_the_lead_agent_does(monkeypatch):
     from api.src.tests.test_zillow_lead_bookings import gmail_refused
 
@@ -644,7 +665,9 @@ async def test_the_live_sender_sorts_gmails_errors_as_the_lead_agent_does(monkey
 
 @pytest.mark.asyncio
 async def test_a_reply_still_goes_through_the_same_gmail_call(monkeypatch):
-    """``send_reply`` is unchanged for replies: the stored route, the thread's headers."""
+    """``send_reply`` is unchanged for replies in production: the stored route, the
+    thread's headers."""
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
     send_email = AsyncMock(return_value={"id": "abc"})
     monkeypatch.setattr(handle, "_send_email", send_email)
     monkeypatch.setattr(handle, "get_delegated_credentials", lambda **kwargs: "credentials")
@@ -652,7 +675,7 @@ async def test_a_reply_still_goes_through_the_same_gmail_call(monkeypatch):
 
     result = await handle.send_reply(route, "Body", threading={"thread_id": "T"})
 
-    assert result == f"Email sent to {RELAY} (message ID: abc)."
+    assert result == handle.Delivery(f"Email sent to {RELAY} (message ID: abc).")
     kwargs = send_email.await_args.kwargs
     assert (kwargs["to"], kwargs["subject"], kwargs["message_text"], kwargs["thread_id"]) == (
         RELAY,

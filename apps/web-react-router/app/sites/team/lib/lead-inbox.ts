@@ -84,7 +84,7 @@ export interface LeadEmail {
   subject: string;
   text: string;
   form: FormFact[];
-  sent_by: "inbox" | "automatic" | null;
+  sent_by: "inbox" | "automatic" | "captured" | null;
 }
 
 export interface LeadShowing {
@@ -123,6 +123,7 @@ export type RunResult =
   | "sent"
   | "sent_edited"
   | "sent_automatically"
+  | "captured"
   | "rejected"
   | "handled"
   | "no_reply"
@@ -327,6 +328,8 @@ export function runResult(run: Pick<AgentRun, "result" | "decided_by" | "decided
       return `Edited${by} and sent${at}`;
     case "sent_automatically":
       return `Sent automatically${at}`;
+    case "captured":
+      return `Approved${by}, captured, not sent${at}`;
     case "rejected":
       return `Rejected${by}${at}`;
     case "handled":

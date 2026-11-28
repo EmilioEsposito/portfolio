@@ -170,7 +170,7 @@ async def test_reservation_is_committed_and_no_send_card_exists_before_gmail(rea
             card["tool_name"] == handle.ASK_TEAM
             for card in extract_pending_approval_from_messages(messages)
         )
-        return "Email sent."
+        return handle.Delivery("Email sent.")
 
     monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=inspect_before_send))
     await run(ready)
@@ -226,7 +226,7 @@ async def test_a_concurrent_approval_cannot_send_during_auto_delivery(ready, mon
                 decisions=[ApprovalDecision(card["tool_call_id"], approved=True)],
                 approver="Test",
             )
-        return "Email sent."
+        return handle.Delivery("Email sent.")
 
     monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=try_approval))
     assert not (await run(ready)).pending

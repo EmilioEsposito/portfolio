@@ -43,7 +43,9 @@ async def conversation_id(monkeypatch):
     cid = f"test-lead-{uuid4().hex}"
     monkeypatch.setattr(listing_data, "load", AsyncMock(return_value=listing_data.Loaded()))
     monkeypatch.setattr(handle, "notify_pending_approval", AsyncMock())
-    monkeypatch.setattr(handle, "send_reply", AsyncMock(return_value="Email sent."))
+    monkeypatch.setattr(
+        handle, "send_reply", AsyncMock(return_value=handle.Delivery("Email sent."))
+    )
     yield cid
     async with AsyncSessionFactory() as session:
         await session.execute(delete(AgentConversation).where(AgentConversation.id == cid))
