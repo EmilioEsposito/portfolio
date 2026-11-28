@@ -269,6 +269,8 @@ def test_the_block_names_the_policy_the_route_and_the_lead_conversation():
     assert lines[0] == lead_hand_off.START and lines[-1] == lead_hand_off.END
     assert f"`{SKILL_NAME}`" in block and "`google_send_email`" in block
     assert "Pat's request is the text above this block" in block
+    # A team note is told to the person in the chat, never texted to staff.
+    assert "tell Pat here in this chat" in block and "Do not text or email" in block
     assert "/team/chat?id=zillow-T-1" in block
     assert block.count("Gmail thread ID: T") == 1
 

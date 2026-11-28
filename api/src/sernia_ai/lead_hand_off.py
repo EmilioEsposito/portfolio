@@ -58,6 +58,9 @@ approval. Do not write to this lead at any other address.
 - A reply you send does not book, move or cancel a showing. To get a lead booked, give \
 them the unit's booking link from the case. When a showing has to change by hand, tell \
 {by} to do it on the Booking settings tab.
+- When the policy asks for a team note, tell {by} here in this chat. Do not text or email \
+anyone on the team for it, and do not ask staff when they are free for a tour: the \
+booking service holds that, and {by} can see it on the Booking settings tab.
 - When {by} tells you something that is true of the unit for every lead (a pet rule, a \
 fee, parking) and the listing in the case does not say it, save it with \
 `rental_listing_update` as well as answering, so the lead agent can answer the next lead \
