@@ -64,6 +64,9 @@ async def test_expected_tools_exposed():
         "quo_create_contact",
         "quo_send_sms",
         "google_send_email",
+        "showings_read",
+        "showing_book",
+        "showing_cancel",
     }
     missing = expected_visible - names
     assert not missing, f"Missing tools from /tools/list: {missing}"
@@ -72,6 +75,8 @@ async def test_expected_tools_exposed():
     assert "_confirm_delete_quo_task" not in names
     assert "_confirm_send_sms" not in names
     assert "_confirm_send_email" not in names
+    assert "_confirm_showing_book" not in names
+    assert "_confirm_showing_cancel" not in names
 
 
 @pytest.mark.asyncio

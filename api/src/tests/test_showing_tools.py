@@ -34,6 +34,7 @@ from api.src.showing_bookings import (
     lead_tours,
     open_times,
     team_actions,
+    team_view,
 )
 from api.src.showing_bookings.models import ShowingAgentRecord
 from api.src.showing_bookings.team_actions import TeamBookingRequest
@@ -201,7 +202,7 @@ async def test_the_read_lists_each_units_link_open_times_and_who_is_booked(world
         "places_left": 3,
         "host": "Jane Doe",
     }
-    assert len(unit["open_times"]) == tools.TIMES_FOR_EACH_UNIT
+    assert len(unit["open_times"]) == team_view.TIMES_FOR_EACH_UNIT
     assert unit["more_open_times"] > 0
     (showing,) = document["booked"]
     assert (showing["unit"], showing["when"], showing["host"]) == (UNIT, WHEN, "Jane Doe")
@@ -222,7 +223,7 @@ async def test_naming_one_unit_lists_more_of_its_times(world):
     document = await read(unit="320-03")
 
     (unit,) = document["units"]
-    assert len(unit["open_times"]) > tools.TIMES_FOR_EACH_UNIT
+    assert len(unit["open_times"]) > team_view.TIMES_FOR_EACH_UNIT
 
 
 @pytest.mark.asyncio

@@ -10,5 +10,6 @@ from sernia_mcp.tools import (  # noqa: F401
     google,
     quo,
     rental_listings,
+    showing_bookings,
     templated_messages,
 )

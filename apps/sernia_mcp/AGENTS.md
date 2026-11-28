@@ -66,7 +66,7 @@ names that FastMCP's ordinary lookup does not resolve. Hashed action calls still
 require the email-domain identity check. Preserve the tests in `test_auth.py`.
 
 Which writes need a card: an action that reaches people outside the team or
-cannot be undone (an SMS, an email, a deletion). A change that stays inside
+cannot be undone (an SMS, an email, a deletion, a showing booked or cancelled). A change that stays inside
 the team and can be put back (a rental listing, a task) is saved at once, and
 whether the person is asked first is the client's setting, not this service's
 (Claude asks before a tool set to "Always ask", and in its default Auto mode may
