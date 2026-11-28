@@ -698,12 +698,12 @@ class FailingOnceTexts(RecordingTextSender):
         super().__init__()
         self.number, self.hook = number, hook
 
-    async def send_text(self, to, body):
+    async def send_text(self, to, body, *, line="team"):
         if self.hook is not None and to == self.number:
             hook, self.hook = self.hook, None
             await hook()
             raise NotSent("quo_unavailable", "Quo could not be reached.", retryable=True)
-        return await super().send_text(to, body)
+        return await super().send_text(to, body, line=line)
 
 
 @pytest.mark.asyncio

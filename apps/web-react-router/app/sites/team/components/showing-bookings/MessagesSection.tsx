@@ -7,6 +7,7 @@ import {
   type Notice,
   ATTENTION_BADGES,
   CHANNEL_LABELS,
+  LINE_LABELS,
   MODE_LABELS,
   STATUS_LABELS,
   describeDrain,
@@ -57,6 +58,7 @@ function NoticeItem({ notice }: { notice: Notice }) {
           </p>
           <p className="mt-0.5 break-words text-sm text-muted-foreground">
             Unit {notice.unit} · showing {formatWhen(notice.showing_starts_at)} · to {noticeRecipients(notice)}
+            {notice.from_line && ` · from ${LINE_LABELS[notice.from_line]}`}
             {conversation && (
               <>
                 {" · in the lead's Zillow thread ("}

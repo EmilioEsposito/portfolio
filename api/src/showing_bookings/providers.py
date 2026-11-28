@@ -1,7 +1,8 @@
 """What the booking code needs from the outside world, as four small interfaces.
 
-- ``TextSender``: send a text or a group text, and read a sent text's status. Quo in
-  production (``quo.py``); ``fakes.RecordingTextSender`` in tests.
+- ``TextSender``: send a text or a group text from one of the team's two lines
+  (``lines.py`` picks it), and read a sent text's status. Quo in production
+  (``quo.py``); ``fakes.RecordingTextSender`` in tests.
 - ``CalendarSource``: busy times for a set of calendars, and events with
   invited guests. Google later; ``fakes.InMemoryCalendar`` in tests.
 - ``EmailSender``: an email in a Zillow lead's thread, to the relay address
@@ -54,18 +55,27 @@ class SentText:
     provider_status: str | None = None
 
 
+# The team's two Quo lines: "team" is the shared team line, "ai" the Sernia AI
+# line. ``lines.line_for`` decides which one sends each kind of text.
+Line = Literal["team", "ai"]
+
+
 class TextSender(Protocol):
-    async def send_text(self, to: str, body: str) -> SentText:
-        """Send ``body`` to one number in E.164. Raises ``NotSent`` when nothing went out."""
+    async def send_text(self, to: str, body: str, *, line: Line = "team") -> SentText:
+        """Send ``body`` from ``line`` to one number in E.164. Raises ``NotSent`` when
+        nothing went out."""
         ...
 
-    async def send_group_text(self, to: Sequence[str], body: str) -> SentText:
-        """Send ``body`` to 2 to 10 numbers in E.164 as one group text, so they share
-        one thread. Raises ``NotSent`` when nothing went out."""
+    async def send_group_text(
+        self, to: Sequence[str], body: str, *, line: Line = "team"
+    ) -> SentText:
+        """Send ``body`` from ``line`` to 2 to 10 numbers in E.164 as one group text, so
+        they share one thread. Raises ``NotSent`` when nothing went out."""
         ...
 
     async def text_status(self, provider_id: str) -> str:
-        """The provider's current status for a sent text, such as "delivered" or "undelivered"."""
+        """The provider's current status for a sent text, such as "delivered" or
+        "undelivered", whichever line sent it."""
         ...
 
 
