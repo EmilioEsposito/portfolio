@@ -17,5 +17,7 @@ echo ">>> Migrations completed successfully"
 # Uses the PORT environment variable if set by the platform (e.g., Railway), otherwise defaults to 8000.
 # Binds to IPv6 ([::]) as required for Railway Private Networking.
 echo ">>> Starting FastAPI with Hypercorn server..."
+# Only a Railway replica running this service may select its hosted inference key.
+export PORTFOLIO_HOSTED_API="${RAILWAY_REPLICA_ID:+1}"
 exec hypercorn api.index:app --bind [::]:${PORT:-8000} --keep-alive 120
 

@@ -31,6 +31,7 @@ from api.src.open_phone.typesafe_openrouter import (
     OpenRouterDecisionResponse,
     create_jev_client,
 )
+from api.src.utils.llm import operational_openrouter_provider
 from api.src.utils.openrouter_models import SerniaOpenRouterModel, build_openrouter_settings
 
 LUNA_MODEL = "openai/gpt-5.6-luna"
@@ -94,7 +95,7 @@ def luna_agent() -> Agent:
     settings = build_openrouter_settings("low")
     settings["timeout"] = ESCALATION_TIMEOUT_SECONDS
     return Agent(
-        EscalationLunaModel(LUNA_MODEL),
+        EscalationLunaModel(LUNA_MODEL, provider=operational_openrouter_provider()),
         output_type=ShouldEscalate,
         instructions=escalation_instructions,
         model_settings=settings,

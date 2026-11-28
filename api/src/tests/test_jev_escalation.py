@@ -36,7 +36,7 @@ def event(message: str = "Water is pouring through the ceiling!") -> dict:
 
 
 def wire_client(monkeypatch: pytest.MonkeyPatch, handler) -> None:
-    monkeypatch.setenv("PORTFOLIO_OPENROUTER_API_KEY", "test-operations-key")
+    monkeypatch.setenv("LOCAL_PORTFOLIO_OPENROUTER_API_KEY", "test-operations-key")
     monkeypatch.setenv("TYPESAFE_BASE_URL", "https://should-not-be-used.invalid")
     monkeypatch.setattr(
         assessment,
@@ -112,10 +112,10 @@ async def test_retry_can_recover(monkeypatch):
 
 
 def test_no_fallback_to_other_credentials(monkeypatch):
-    monkeypatch.delenv("PORTFOLIO_OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("LOCAL_PORTFOLIO_OPENROUTER_API_KEY", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "unrelated")
     monkeypatch.setenv("TYPESAFE_API_KEY", "unrelated")
-    with pytest.raises(ValueError, match="PORTFOLIO_OPENROUTER_API_KEY"):
+    with pytest.raises(ValueError, match="LOCAL_PORTFOLIO_OPENROUTER_API_KEY"):
         create_jev_client()
 
 

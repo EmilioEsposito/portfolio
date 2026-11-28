@@ -130,13 +130,19 @@ def env_settings(path: Path) -> dict[str, str]:
         return {}
     result = {}
     for line in path.read_text().splitlines():
-        match = re.match(r"^(?:export\s+)?([A-Z_]+)\s*=\s*(.*)$", line)
+        match = re.match(r"""^\s*(?:export\s+)?['"]?([A-Z_]+)['"]?\s*=\s*(.*)$""", line)
         if match:
-            result[match[1]] = match[2].strip().strip("\"'")
+            result[match[1]] = re.split(r"\s+#", match[2], maxsplit=1)[0].strip().strip("\"'")
     return result
 
 
-def update_env(source: Path, destination: Path, values: dict[str, str]) -> None:
+def update_env(
+    source: Path,
+    destination: Path,
+    values: dict[str, str],
+    *,
+    omit_on_copy: tuple[str, ...] = (),
+) -> None:
     if destination.is_symlink():
         raise WorktreeError(f"Refusing to rewrite a symlinked environment file: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -145,11 +151,22 @@ def update_env(source: Path, destination: Path, values: dict[str, str]) -> None:
         if destination.exists()
         else (source.read_text() if source.exists() else "")
     )
-    keys = "|".join(re.escape(key) for key in values)
+    managed = set(values)
+    if not destination.exists():
+        managed.update(omit_on_copy)
+        # Refuse to propagate a hosted value renamed as the development key.
+        if omit_on_copy:
+            settings = env_settings(source)
+            candidate = settings.get("LOCAL_PORTFOLIO_OPENROUTER_API_KEY")
+            if candidate and any(candidate == settings.get(name) for name in omit_on_copy):
+                raise WorktreeError(
+                    "LOCAL_PORTFOLIO_OPENROUTER_API_KEY must be a separate development credential"
+                )
+    keys = "|".join(re.escape(key) for key in managed)
     content = "\n".join(
         line
         for line in content.splitlines()
-        if not re.match(rf"^(?:export\s+)?(?:{keys})\s*=", line)
+        if not re.match(rf"^\s*(?:export\s+)?['\"]?(?:{keys})['\"]?\s*=", line)
     )
     with tempfile.NamedTemporaryFile(mode="w", dir=destination.parent, delete=False) as file:
         file.write(content.rstrip() + "\n\n")
@@ -294,7 +311,7 @@ def runtime_env(state: dict, *, testing: bool = False) -> dict[str, str]:
             PYTHON_DOTENV_DISABLED="1",
             OPENAI_API_KEY="test-openai-key",
             SERNIA_ANTHROPIC_API_KEY="test-anthropic-key",
-            OPENROUTER_API_KEY="test-openrouter-key",
+            LOCAL_PORTFOLIO_OPENROUTER_API_KEY="test-openrouter-key",
             LOGFIRE_SEND_TO_LOGFIRE="false",
         )
     return env
@@ -436,6 +453,7 @@ def provision(path: Path, *, once: bool = False) -> None:
                 "DATABASE_REQUIRE_SSL": "false",
                 "RAILWAY_ENVIRONMENT_NAME": "",
             },
+            omit_on_copy=("PORTFOLIO_OPENROUTER_API_KEY", "OPENROUTER_API_KEY"),
         )
         update_env(
             checkout.main / WEB_DIR / ".env",
