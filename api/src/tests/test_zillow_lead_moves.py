@@ -237,9 +237,10 @@ async def test_the_host_sees_the_kept_details(lead):
     _, new = await places()
     (event,) = (await notices_of(new.id))["host_event"]
     assert (
-        f"- Jordan Lee, 412-555-0117, {ALEX_EMAIL} (booked by email with the lead agent)"
-        in event.payload["description"]
-    )
+        f"- Jordan Lee, 412-555-0117, {ALEX_EMAIL}\n"
+        "  Booked by email from their Zillow inquiry\n"
+        f"  Inquiry: http://localhost:5173/team/leads/threads/{THREAD}\n"
+    ) in event.payload["description"]
     assert "  Confirmed: No pet dogs will live in the apartment." in event.payload["description"]
 
 

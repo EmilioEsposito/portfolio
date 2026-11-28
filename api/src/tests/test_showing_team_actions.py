@@ -1129,22 +1129,57 @@ async def test_a_change_of_host_and_attendance_tell_the_residents_nothing(world)
 
 
 def test_the_host_event_description_is_true_for_every_source():
+    inquiry = "https://serniacapital.com/team/leads/threads/thread-sam-0101"
     guests = [
         wording.Guest("Alex Parker", ALEX_MOBILE, ALEX_EMAIL, ["No pet dogs."], source="page"),
         wording.Guest("Casey Morgan", None, None, [], source="team", texts=False),
         wording.Guest("Robin Lee", ROBIN_MOBILE, None, [], source="team"),
-        wording.Guest("Lee Park", None, None, [], source="lead_agent", texts=False),
+        wording.Guest(
+            "Lee Park", None, None, [], source="lead_agent", texts=False, inquiry_url=inquiry
+        ),
     ]
 
-    assert wording.host_event_description(guests) == (
-        "Booked for this Sernia Capital showing:\n"
-        "- Alex Parker, 412-555-0117, alex@example.com (booked on the booking page)\n"
+    assert wording.host_event_description(
+        guests, showing_url="https://serniacapital.com/team/leads/bookings#showing-7"
+    ) == (
+        "Booked for this showing:\n"
+        "- Alex Parker, 412-555-0117, alex@example.com\n"
+        "  Booked online\n"
         "  Confirmed: No pet dogs.\n"
-        "- Casey Morgan, no mobile, no email (booked by the team, no texts)\n"
-        "- Robin Lee, 412-555-0118, no email (booked by the team)\n"
-        "- Lee Park, no mobile, no email (booked by email with the lead agent, no texts)"
+        "- Casey Morgan, no mobile, no email\n"
+        "  Booked by the team, gets no texts\n"
+        "- Robin Lee, 412-555-0118, no email\n"
+        "  Booked by the team\n"
+        "- Lee Park, no mobile, no email\n"
+        "  Booked by email from a Zillow inquiry, gets no texts\n"
+        f"  Inquiry: {inquiry}\n"
+        "\n"
+        "Manage this showing: https://serniacapital.com/team/leads/bookings#showing-7"
     )
-    assert "booking page" not in wording.host_event_description(guests[1:])
+    assert "online" not in wording.host_event_description(guests[1:])
+
+
+@pytest.mark.parametrize(
+    "name, lead_name, line",
+    [
+        # Someone else booked through the lead's link: the lead is named.
+        ("Jordan Lee", "Sam Rivera", "Booked online from Sam Rivera's Zillow inquiry"),
+        # The lead themself, however much of the name each side has.
+        ("Sam Rivera", "Sam", "Booked online from their Zillow inquiry"),
+        ("sam", "Sam Rivera", "Booked online from their Zillow inquiry"),
+        # The lead agent recorded no name.
+        ("Sam Rivera", None, "Booked online from a Zillow inquiry"),
+    ],
+)
+def test_the_host_event_names_the_lead_when_someone_else_booked(name, lead_name, line):
+    guest = wording.Guest(
+        name, ALEX_MOBILE, ALEX_EMAIL, [], inquiry_url="https://x.test/l", lead_name=lead_name
+    )
+
+    assert wording.host_event_description([guest]).splitlines()[2:] == [
+        f"  {line}",
+        "  Inquiry: https://x.test/l",
+    ]
 
 
 @pytest.mark.asyncio
@@ -1157,5 +1192,8 @@ async def test_the_host_event_says_a_caller_was_booked_by_the_team(world):
 
     showings, _, _ = await rows()
     description = world.calendar.events[showings[0].host_event_id].draft.description
-    assert "Alex Parker, 412-555-0117, alex@example.com (booked on the booking page)" in description
-    assert "Casey Morgan, no mobile, no email (booked by the team, no texts)" in description
+    assert "- Alex Parker, 412-555-0117, alex@example.com\n  Booked online\n" in description
+    assert "- Casey Morgan, no mobile, no email\n  Booked by the team, gets no texts" in description
+    assert description.endswith(
+        f"Manage this showing: http://localhost:5173/team/leads/bookings#showing-{showings[0].id}"
+    )

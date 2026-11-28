@@ -766,6 +766,15 @@ export function leadAgentLine(person: Pick<BookedPerson, "source" | "details_pen
   return `Booked by email with the lead agent · ${person.details_pending ? "details not added yet" : "details added"}`;
 }
 
+/**
+ * The showing a link opened the tab on, from the address's hash: `#showing-12` is 12.
+ * The host's calendar event links each showing this way. Null for any other hash.
+ */
+export function linkedShowingId(hash: string): number | null {
+  const match = /^#showing-([1-9]\d{0,9})$/.exec(hash);
+  return match ? Number(match[1]) : null;
+}
+
 /** Why a booking needs the team, in words; any reason not listed is shown humanized. */
 export function describeAttention(reason: string): string {
   return ATTENTION_LABELS[reason] ?? `${humanize(reason)}: call them`;

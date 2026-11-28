@@ -42,6 +42,7 @@ def test_every_team_page_is_under_team():
         "LEAD_LISTINGS_PATH": "/team/leads/listings",
         "LEAD_SETTINGS_PATH": "/team/leads/settings",
         "LEAD_BOOKINGS_PATH": "/team/leads/bookings",
+        "LEAD_THREADS_PATH": "/team/leads/threads",
     }
 
 
@@ -49,6 +50,23 @@ def test_a_conversation_link_carries_its_id():
     assert team_links.chat_path("conv-abc-123") == "/team/chat?id=conv-abc-123"
     # An id is encoded, so it cannot add to the query.
     assert team_links.chat_path("a&b=c") == "/team/chat?id=a%26b%3Dc"
+
+
+def test_a_lead_link_carries_its_thread_id():
+    assert team_links.lead_thread_path("19a2b3c4d5e6f708") == "/team/leads/threads/19a2b3c4d5e6f708"
+    # An id is encoded whole, so it stays one segment of the path.
+    assert team_links.lead_thread_path("a/b?c#d") == "/team/leads/threads/a%2Fb%3Fc%23d"
+
+
+def test_a_lead_link_is_absolute_on_the_production_site(monkeypatch):
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
+    assert team_links.team_url(team_links.lead_thread_path("19a2b3c4d5e6f708")) == (
+        "https://serniacapital.com/team/leads/threads/19a2b3c4d5e6f708"
+    )
+
+
+def test_a_showing_link_opens_it_on_the_booking_settings_tab():
+    assert team_links.showing_path(42) == "/team/leads/bookings#showing-42"
 
 
 def test_the_sms_review_link_is_absolute_on_the_production_site(monkeypatch):
