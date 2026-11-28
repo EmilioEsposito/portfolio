@@ -29,10 +29,12 @@ from api.src.showing_bookings import (
     bookings,
     cancelling,
     delivery_checks,
+    effects,
     lead_bookings,
     lead_tours,
     open_times,
 )
+from api.src.showing_bookings.team_actions import TeamBookingRequest
 from api.src.tests.showing_helpers import clear_showing_data, store_settings
 from api.src.tests.showing_public import (
     ALEX_EMAIL,
@@ -499,6 +501,34 @@ async def test_an_unknown_thread_books_nothing(world):
     said = await tools.showing_book(ctx(), **CASEY, zillow_thread_id=UNKNOWN_THREAD)
 
     assert said.startswith("Not booked. No Zillow lead thread")
+    assert await rows() == ([], [], [])
+
+
+@pytest.mark.asyncio
+async def test_the_previews_other_callers_use_answer_codes_and_change_nothing(world):
+    """``effects`` is shared with other approval cards (the Sernia MCP service)."""
+    body = {"unit": UNIT, "start": at(16).isoformat(), "name": "Casey Morgan"}
+
+    preview = await effects.preview_booking(TeamBookingRequest(**body), now=world.now)
+    assert (preview.unit, preview.start, preview.name) == (UNIT, at(16), "Casey Morgan")
+    assert preview.sentence == effect_in(await tools.showing_book(ctx(), **body))
+
+    async def code(call) -> str:
+        with pytest.raises(bookings.Refused) as raised:
+            await call
+        return raised.value.code
+
+    late = TeamBookingRequest(**{**body, "start": at(3).isoformat()})
+    assert await code(effects.preview_booking(late, now=world.now)) == effects.NOT_OPEN
+    assert (
+        await code(
+            effects.preview_booking(
+                TeamBookingRequest(**body), now=world.now, zillow_thread_id=UNKNOWN_THREAD
+            )
+        )
+        == "unknown_thread"
+    )
+    assert await code(effects.preview_cancellation(999999, now=world.now)) == "unknown_showing"
     assert await rows() == ([], [], [])
 
 

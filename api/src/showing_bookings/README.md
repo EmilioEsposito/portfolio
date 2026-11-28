@@ -1425,6 +1425,22 @@ Each booking and cancellation waits for a person's approval, on a card that
 states what it does and who is told. The agent has no move, host change or
 attendance tool.
 
+That statement comes from `effects.py`, so every place that asks a person to
+approve a team action from a chat says the same thing. `preview_booking(body,
+now=, zillow_thread_id=)` returns a `BookingPreview` (the paragraph, unit,
+start, name, time zone). `preview_cancellation(showing_id, attendee_id, now=)`
+returns the paragraph. Neither changes anything. Each runs the checks the real
+action makes before it saves, and raises `Refused` with a plain message:
+`invalid`, `unknown_unit`, `unknown_thread`, `not_open` (a time the unit cannot
+be booked for now, with the reason), `unknown_showing`, `unknown_attendee`,
+`already_cancelled` or `started`. The paragraph names who is booked or
+cancelled, the unit, the time in local words and the host. It says who is
+told: the host's calendar event (and a text inside 2 hours), the residents'
+text, the prospect's confirmation text and invite, or cancellation texts. It
+ends with what the send mode does with those messages (`sending_sentence`).
+The real action checks everything again under its locks; a caller works the
+preview out again just before acting and asks again if it changed.
+
 Changing the host refuses: 404 `unknown_showing` or `unknown_agent`; 409
 `not_scheduled`, `started`, `same_host`, `event_being_sent`, and the agent's
 problem by the open-times rules (`open_times.host_problem`, with calendars

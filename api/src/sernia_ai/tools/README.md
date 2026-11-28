@@ -212,7 +212,9 @@ as `effect`, which the approval card shows in the call's arguments, and the
 call raises `ApprovalRequired`. On approval the text is worked out again; if it
 differs (someone else booked the time, a person left), nothing is done and the
 new text is returned. This is `rental_listing_update`'s `off_market_effect`
-pattern.
+pattern. The text comes from `showing_bookings/effects.py` (`preview_booking`,
+`preview_cancellation`), so another caller asking a person to approve the same
+action, such as the Sernia MCP service, says the same thing.
 
 **Texts.** `texts_accepted` defaults to false. The docstring and guide allow it
 only when the person in the chat says the prospect agreed to texts about the
