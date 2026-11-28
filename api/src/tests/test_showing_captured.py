@@ -749,7 +749,7 @@ class ProcessDied(BaseException):
 
 
 class DiesSending(RecordingTextSender):
-    async def send_text(self, to: str, body: str):
+    async def send_text(self, to: str, body: str, *, line: str = "team"):
         raise ProcessDied()
 
 

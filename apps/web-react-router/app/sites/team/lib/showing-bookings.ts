@@ -55,6 +55,12 @@ export type NoticeStatus =
   | "skipped"
   | "cancelled";
 export type Channel = "sms" | "calendar_event" | "calendar_invite" | "email";
+export type TextLine = "team" | "ai";
+
+export const LINE_LABELS: Record<TextLine, string> = {
+  team: "the team line",
+  ai: "the AI line",
+};
 
 // Why a notice needs the team (alerts.py): it failed and will not be tried
 // again, or it has not gone out ten minutes after it was due.
@@ -66,6 +72,9 @@ export interface Notice {
   // What the notice is, in words, such as "Prospect's reminder".
   kind_label: string;
   channel: Channel;
+  // The team's Quo line a text goes from: "ai" for a showing agent, "team" for
+  // everyone else. Null for anything that is not a text.
+  from_line?: TextLine | null;
   showing_id: number;
   attendee_id: number | null;
   unit: string;

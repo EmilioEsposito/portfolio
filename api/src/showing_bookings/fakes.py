@@ -45,6 +45,8 @@ class RecordedText:
     provider_id: str
     # Every number of a group text, the first being ``to``; empty for a 1:1 text.
     group: tuple[str, ...] = ()
+    # The team's line it went from: "team" or "ai" (``providers.Line``).
+    line: str = "team"
 
     @property
     def numbers(self) -> tuple[str, ...]:
@@ -86,13 +88,19 @@ class RecordingTextSender:
         """The group texts, in order."""
         return [text for text in self.sent if text.group]
 
-    async def send_text(self, to: str, body: str) -> SentText:
-        return await self._record([to], body, group=False)
+    def lines(self, number: str) -> list[str]:
+        """The line each text that reached ``number`` went from, in order."""
+        return [text.line for text in self.sent if number in text.numbers]
 
-    async def send_group_text(self, to: Sequence[str], body: str) -> SentText:
-        return await self._record(list(to), body, group=True)
+    async def send_text(self, to: str, body: str, *, line: str = "team") -> SentText:
+        return await self._record([to], body, group=False, line=line)
 
-    async def _record(self, numbers: list[str], body: str, *, group: bool) -> SentText:
+    async def send_group_text(
+        self, to: Sequence[str], body: str, *, line: str = "team"
+    ) -> SentText:
+        return await self._record(list(to), body, group=True, line=line)
+
+    async def _record(self, numbers: list[str], body: str, *, group: bool, line: str) -> SentText:
         # Let other tasks run first, so concurrent deliveries really interleave.
         await asyncio.sleep(0)
         for number in numbers:
@@ -106,6 +114,7 @@ class RecordingTextSender:
                 body=body,
                 provider_id=provider_id,
                 group=tuple(numbers) if group else (),
+                line=line,
             )
         )
         if any(number in self._lost_answers for number in numbers):

@@ -741,7 +741,7 @@ class GatedTexts(RecordingTextSender):
         self.go = asyncio.Event()
         self.refuse_resident = False
 
-    async def send_text(self, to: str, body: str):
+    async def send_text(self, to: str, body: str, *, line: str = "team"):
         if to == RESIDENT:
             if self.inside.is_set() and not self.go.is_set():
                 # Recorded, so the test sees the order a resident would have.
@@ -751,7 +751,7 @@ class GatedTexts(RecordingTextSender):
             await self.go.wait()
             if self.refuse_resident:
                 raise NotSent("opted_out", "User Opted Out")
-        return await super().send_text(to, body)
+        return await super().send_text(to, body, line=line)
 
 
 @pytest.mark.asyncio

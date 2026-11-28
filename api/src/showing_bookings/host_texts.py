@@ -1,7 +1,7 @@
 """A text to the host when their showing changes less than 2 hours before it starts.
 
 The host's calendar event follows every change, but inside 2 hours they may
-not look at it again, so a change then also texts them, from the team number,
+not look at it again, so a change then also texts them, from the AI line,
 at their own mobile (``showing_agents.mobile``):
 
 | When, inside 2 hours | Kind | The text |

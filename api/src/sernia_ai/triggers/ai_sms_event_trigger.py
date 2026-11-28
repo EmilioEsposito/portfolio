@@ -200,6 +200,46 @@ async def _verify_internal_contact(phone: str) -> dict | None:
         return None
 
 
+SHOWING_AGENT_ALERT_TITLE = "A showing agent replied to the AI line"
+SHOWING_AGENT_ALERT_BODY = (
+    "A showing agent answered a showing text, but Quo does not list their mobile as a "
+    f"{QUO_INTERNAL_COMPANY} contact, so Sernia AI did not reply. Read it in Quo, "
+    "on the AI line, and add them to Quo as internal."
+)
+
+
+async def _alert_if_showing_agent(phone: str) -> None:
+    """Showing agents' texts come from the AI line (``showing_bookings/lines.py``), so
+    their replies land here. One from an agent Quo does not list as internal is not
+    answered by the agent above; push the team instead of dropping it unseen.
+    Production only; never raises."""
+    if os.getenv("RAILWAY_ENVIRONMENT_NAME") != "production":
+        return
+    try:
+        from sqlalchemy import select
+
+        from api.src.agent_conversations.push.service import notify_all_sernia_users
+        from api.src.showing_bookings.models import ShowingAgentRecord
+        from api.src.utils import team_links
+
+        async with AsyncSessionFactory() as session:
+            agent_id = await session.scalar(
+                select(ShowingAgentRecord.id)
+                .where(ShowingAgentRecord.mobile == phone, ShowingAgentRecord.active.is_(True))
+                .limit(1)
+            )
+        if agent_id is None:
+            return
+        logfire.warn("ai_sms_event: showing agent not internal in Quo", agent_id=agent_id)
+        await notify_all_sernia_users(
+            title=SHOWING_AGENT_ALERT_TITLE,
+            body=SHOWING_AGENT_ALERT_BODY,
+            data={"url": team_links.LEAD_BOOKINGS_PATH, "type": "showing_alert"},
+        )
+    except Exception:
+        logfire.exception("ai_sms_event: showing agent alert failed")
+
+
 def _contact_display_name(contact: dict) -> str:
     """Extract a display name from a Quo contact dict."""
     fields = contact.get("defaultFields", {})
@@ -652,6 +692,7 @@ async def _handle_ai_sms_event(event_data: dict) -> None:
             "ai_sms_event: ignoring external/unknown sender",
             from_number=from_number,
         )
+        await _alert_if_showing_agent(from_number)
         return
 
     contact_name = _contact_display_name(contact)

@@ -246,9 +246,15 @@ joins live a showing that was booked in capture mode.
 `providers.py` defines what the module needs from outside:
 
 - `TextSender`: send a text, send one group text to 2 to 10 numbers, and read
-  a text's status. `quo.QuoTextSender` sends from the shared team line through
+  a text's status. Each send names one of the team's two Quo lines, and the
+  notice kind alone decides which (`lines.line_for`): texts to a showing agent
+  go from the Sernia AI line (`QUO_SERNIA_AI_PHONE_ID`), every other text from
+  the shared team line (`QUO_SHARED_EXTERNAL_PHONE_ID`).
+  `test_showing_text_lines.py` fails when a new `host_` text kind is not on the
+  AI line. `quo.QuoTextSender` sends through
   the shared OpenPhone client; a group text is the same call with several
-  numbers in `to`. Quo's refusals
+  numbers in `to`. Both lines answer alike, and a status read needs only the
+  message id. Quo's refusals
   (opted out `0201400`, invalid number `0202400`, unreachable `0203400`) and
   other 4xx answers become `NotSent`; a 408, a 5xx or a timeout propagates and
   is saved as `unknown`. A 202 means Quo accepted the text and nothing more: on
@@ -1177,7 +1183,7 @@ The lead's reminder by email (`lead_email.py`, queued by the same step):
 ### The host's texts inside 2 hours
 
 `host_texts.py`. The host's calendar event follows every change, but inside 2
-hours of the start a change also texts the host, from the team number, at
+hours of the start a change also texts the host, from the AI line, at
 their own mobile:
 
 | When, less than 2 hours before the start | Kind | Paths |
@@ -1200,12 +1206,19 @@ their own mobile:
 - Wording: `wording.host_joined_text`, `host_left_text`,
   `host_showing_cancelled_text`, `host_moved_to_text`, `host_moved_from_text`,
   version `HOST_TEXT_VERSION`.
+- A host's reply, to these or to the morning text, reaches Sernia AI's SMS
+  conversation (`sernia_ai/triggers/ai_sms_event_trigger.py`). When Quo lists
+  the host's mobile as a Sernia Capital LLC contact, Sernia AI answers with the
+  showing text in its thread and its showing tools at hand; its approvals take
+  only a Y or Yes sent straight after their own prompt, so a reply to a showing
+  text approves nothing. When Quo does not list them as internal, Sernia AI does
+  not answer, and in production the team is pushed to read it in Quo.
 
 ### The host's morning text
 
 `daily_texts.py`. From 8 AM in the showing rules' time zone, each agent
 hosting at least one scheduled showing that day that has not started gets one
-text (`host_morning`) at their own mobile from the team number: the day's
+text (`host_morning`) at their own mobile from the AI line: the day's
 showings in order, each with its time, place and how many people are booked.
 
 - One per agent per day: recipient key `agent:<id>:morning:<day>`, with every
@@ -1341,7 +1354,8 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
   The lead agent's and the public booking switches are kept as stored.
 - `PUT /settings/lead-agent`: `{lead_agent_uses_open_times}`, changing nothing else.
 - `GET /notices`: notices newest first, with their wording, status and mode,
-  what each is in words (`kind_label`), whether it failed or is stuck
+  what each is in words (`kind_label`), the line a text goes from (`from_line`:
+  `ai` or `team`), whether it failed or is stuck
   (`attention`), when the team was alerted (`alerted_at`) and who sent it by hand
   and when (`send_approved_by`, `send_approved_at`); a group text's
   other numbers are in `payload.also_to`.

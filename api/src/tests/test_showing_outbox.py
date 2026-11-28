@@ -408,7 +408,6 @@ async def test_quos_answers_land_on_the_row(showing, monkeypatch):
         )
 
     texts = QuoTextSender(
-        from_phone_id="PNexample",
         client_factory=lambda: httpx.AsyncClient(
             base_url="https://api.openphone.com", transport=httpx.MockTransport(quo)
         ),
@@ -525,7 +524,7 @@ class ProcessDied(BaseException):
 
 
 class DiesOnFirstSend(RecordingTextSender):
-    async def send_text(self, to: str, body: str):
+    async def send_text(self, to: str, body: str, *, line: str = "team"):
         raise ProcessDied()
 
 
