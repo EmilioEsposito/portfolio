@@ -92,9 +92,13 @@ from api.src.zillow_leads.tours import NoTours, TourSource, tours_for_case
 # Where open tour times and booked tours come from while the booking service's
 # switch is off (``showing_bookings/lead_tours.py``): nothing open, nothing booked.
 TOUR_SOURCE: TourSource = NoTours()
-# Names shown on the approval card. Neither is a tool the model can call.
+# Names of the two cards a person sees. Neither is a tool the model can call.
+# The send card is approved or rejected. The other is a task for the team: a
+# person marks it handled, or hands the thread on (``handoff.py``).
 SEND_REPLY = "send_lead_reply"
 ASK_TEAM = "lead_needs_a_person"
+# A phone shows about this much of a push before cutting it off.
+PUSH_BODY_LIMIT = 180
 
 
 @dataclass(frozen=True)
@@ -329,6 +333,7 @@ async def handle_thread(
                 conversation_id=conversation_id,
                 tool_name=first["tool_name"],
                 tool_args=first.get("args"),
+                **push_text(first),
             ),
             name="notify_pending_approval",
         )
@@ -340,6 +345,21 @@ async def handle_thread(
         pending=bool(pending),
     )
     return Handled(persisted=persisted, action=outcome.action, pending=bool(pending))
+
+
+def push_text(card: dict[str, Any]) -> dict[str, str]:
+    """The words of the push for a waiting card, where the default would mislead.
+
+    An escalation asks for a person, not for an approval: nothing on it can be
+    approved. Its push says so and carries the question. A drafted reply keeps
+    the default approval push, which names its recipient and subject.
+    """
+    if card["tool_name"] != ASK_TEAM:
+        return {}
+    question = " ".join(str((card.get("args") or {}).get("question") or "").split())
+    if len(question) > PUSH_BODY_LIMIT:
+        question = question[: PUSH_BODY_LIMIT - 1].rstrip() + "…"
+    return {"title": "Lead needs a person", "body": question or "Open it to see why."}
 
 
 def _when(start: datetime, timezone: str) -> str:
@@ -477,10 +497,12 @@ async def apply_approval(
     """Carry out a person's decisions on a lead conversation. No model runs.
 
     An approved reply is sent to the stored route with the approved words (the
-    draft, or the approver's edit). A rejected one is not sent. Acknowledging
-    an escalation sends nothing. Each decision is recorded in the conversation
-    so it is no longer pending, and so approvals can later be read as labels:
-    sent unchanged, edited, or rejected.
+    draft, or the approver's edit). A rejected one is not sent. Marking an
+    escalation handled sends nothing. Each decision is recorded in the
+    conversation so it is no longer pending, and so approvals can later be read
+    as labels: sent unchanged, edited, or rejected. A hand-off to the general
+    agent closes what is waiting through here too, as a rejection with its
+    reason (``handoff.close``).
 
     Two approvals of one reply send one email. The conversation's row is locked
     from here until the decisions are saved, so a second approval (two people
@@ -580,7 +602,13 @@ async def apply_approval(
             if await lead_bookings.cancel_unsent(conversation_id, now=datetime.now(UTC)):
                 booking = {"action": "cancelled_unsent", "at": datetime.now(UTC).isoformat()}
         else:
-            outcome = "Acknowledged." if decision.approved else "Dismissed."
+            # Nothing is sent either way. The card is the team's task: done when
+            # someone says so, or closed with the reason it was closed for.
+            outcome = (
+                f"Marked handled by {approver}."
+                if decision.approved
+                else decision.denial_reason or "Dismissed."
+            )
         returns.append(
             ToolReturnPart(
                 tool_name=call["tool_name"], content=outcome, tool_call_id=decision.tool_call_id

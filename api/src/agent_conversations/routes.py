@@ -195,6 +195,24 @@ async def get_conversation_messages_endpoint(
         "conversation_id": conversation_id,
         "pending": pending,
         "run": run,
+        **_lead_links(conversation.metadata_ if conversation else None),
+    }
+
+
+def _lead_links(metadata: dict | None) -> dict:
+    """Whether this is a Zillow lead conversation, and its hand-off links.
+
+    A lead conversation cannot be continued in chat: a message typed there
+    hands the lead to the general agent in a new conversation
+    (``sernia_ai/lead_hand_off.py``). Each side names the other so the page
+    can link them.
+    """
+    metadata = metadata or {}
+    lead = is_lead_conversation(metadata)
+    return {
+        "lead_conversation": lead,
+        "hand_off_to": (metadata.get("hand_off") or {}).get("to") if lead else None,
+        "hand_off_from": (metadata.get("hand_off_from") or {}).get("conversation_id"),
     }
 
 

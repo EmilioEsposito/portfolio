@@ -57,7 +57,7 @@ flowchart TD
 - **Shared-mailbox thread** — a job holds the Gmail IDs of the watched mailbox, but the lead agent works in the shared one, where the same email has different IDs. The worker looks up the shared copy by RFC `Message-ID` ([`thread.py`](thread.py)) and passes that thread on. An email with no shared copy yet, or a Gmail error during the lookup, fails the batch, which is retried.
 - **Instructions are in the repository** — the lead agent's prompt is [`prompts/policy.md`](prompts/policy.md) between a short `role.md` and `record.md`, versioned by commit so a change can be evaluated before it merges. The general agent reads the same `policy.md` as its `zillow-auto-reply` skill, which is now built in code ([`sernia_ai/lead_policy.py`](../sernia_ai/lead_policy.py)) and no longer kept in the workspace.
 - **One sender check** — `is_zillow_email()` parses the `From` header and matches the address's domain (`zillow.com` or a subdomain). The Pub/Sub route calls it rather than testing for a substring, which would also accept `"noreply@zillow.com" <someone@elsewhere.com>`.
-- **Pushes only when a person is needed** — a drafted reply or an escalation fires the approval push (`notify_pending_approval`). A lead that needs no reply is saved without one.
+- **Pushes only when a person is needed** — a drafted reply fires the approval push (`notify_pending_approval`), and an escalation fires the same push titled "Lead needs a person" with its question. A lead that needs no reply is saved without one.
 - **Coexists with scheduled check** — `run_scheduled_checks()` still runs as a safety net.
 
 ### Inspecting the queue
