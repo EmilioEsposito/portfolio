@@ -28,6 +28,7 @@ SERNIA_OPERATIONS = frozenset(
         "prefect",
         "rental_listings",
         "sernia_ai",
+        "sernia_mcp_host",  # TRIAL, not for merge
         "showing_bookings",
         "task_ai",
         "team_tasks",
