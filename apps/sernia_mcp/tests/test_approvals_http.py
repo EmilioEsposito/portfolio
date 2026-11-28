@@ -25,7 +25,13 @@ from sernia_mcp.tools import approvals
 PROTOCOL = "2026-07-28"
 UI = "io.modelcontextprotocol/ui"
 CARDS = {"extensions": {UI: {"mimeTypes": ["text/html;profile=mcp-app"]}}}
-CONFIRM_TOOLS = {"_confirm_send_sms", "_confirm_send_email", "_confirm_delete_quo_task"}
+CONFIRM_TOOLS = {
+    "_confirm_send_sms",
+    "_confirm_send_email",
+    "_confirm_delete_quo_task",
+    "_confirm_showing_book",
+    "_confirm_showing_cancel",
+}
 SMS = {"name": "quo_send_sms", "arguments": {"to_phone": "+15551230000", "message": "hello"}}
 
 

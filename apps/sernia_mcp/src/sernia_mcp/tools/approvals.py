@@ -189,6 +189,7 @@ def _decision_buttons(
     approve_variant: str = "success",
     reject: str = "Reject",
     reject_variant: str = "destructive",
+    rejected: str = "Cancelled",
 ) -> None:
     """The two buttons of a card. Call inside its ``CardFooter``.
 
@@ -196,7 +197,9 @@ def _decision_buttons(
     reports what came back: ``done`` only when the confirm tool returned, and
     ``failed`` with the reason under it when it raised or the call did not
     arrive. ``failed`` must hold whether or not anything went out, since a
-    long text can fail after its first part.
+    long text can fail after its first part. ``rejected`` is the toast for the
+    other button; a card that asks to cancel something says there what was
+    kept, since "Cancelled" would read as the opposite.
 
     The reason is a toast description of its own. Prefab fills ``$error`` only
     in a string that is nothing but that template; mixed into other words it
@@ -224,7 +227,7 @@ def _decision_buttons(
         Button(
             reject,
             variant=reject_variant,
-            on_click=click("reject", ShowToast("Cancelled", variant="warning")),
+            on_click=click("reject", ShowToast(rejected, variant="warning")),
             disabled=Rx("decided"),
         )
 

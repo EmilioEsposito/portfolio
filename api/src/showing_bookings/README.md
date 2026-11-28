@@ -1422,6 +1422,11 @@ documented in [its tool policies](../sernia_ai/tools/README.md#showings-showing_
 - `showing_cancel` calls `cancelling.cancel_showing` or
   `cancelling.remove_attendee`.
 
+The read's document is built in `team_view.py` (`read(now=, unit=,
+zillow_thread_id=)`), so the Sernia MCP service's read below is the same
+document. It raises `Refused`: 503 `unavailable` when the rental listing data
+fails its checks, 404 `unknown_unit`.
+
 Each booking and cancellation waits for a person's approval, on a card that
 states what it does and who is told. The agent has no move, host change or
 attendance tool.
@@ -1450,6 +1455,38 @@ anything is written or sent. Its `effect` holds the paragraph as it now reads,
 for the person to approve again, or is None when the action can no longer be
 done (the message says why). A join or calendar change between the approval
 and the action therefore changes nothing until a person approves again.
+
+### The Sernia MCP service
+
+`mcp_routes.py`, mounted at `/api/showing-bookings/mcp`, is what the Sernia
+MCP service (`apps/sernia_mcp`) calls for its `showings_read`, `showing_book`
+and `showing_cancel` tools, which match the general agent's. The MCP service
+has no database; it calls here with the signed-in person's Clerk OAuth token.
+
+Only that token is accepted (`mcp_user`): an OAuth access token issued to the
+client named by `SERNIA_MCP_CLERK_OAUTH_CLIENT_ID`, for a verified
+@serniacapital.com user, as on the rental listing routes. A browser session is
+refused here, and the MCP's token is refused on every Team API route above,
+so these five routes are all the MCP can reach in this module:
+
+| Route | Body | Does |
+| --- | --- | --- |
+| `GET /showings` | `?unit=&zillow_thread_id=` | `team_view.read`: the general agent's read document. |
+| `POST /showings/bookings/preview` | `{unit, start, name, mobile?, email?, texts_accepted?, zillow_thread_id?}` | `{effect}`: `preview_booking`'s paragraph. Books nothing. |
+| `POST /showings/bookings` | the same, plus `effect` | 201 `{result, booking}`. `book_for_caller` with `taken_by` "<email> (via Sernia MCP)". |
+| `POST /showings/cancellations/preview` | `{showing_id, attendee_id?}` | `{effect}`: `preview_cancellation`'s paragraph. Cancels nothing. |
+| `POST /showings/cancellations` | the same, plus `effect` | `{result, cancellation}`. `cancel_showing`, or `remove_attendee` with an attendee. |
+
+The MCP shows the preview's paragraph on its Approve card and sends it back
+on Approve. The booking and cancellation routes work the paragraph out again
+first; if it differs, nothing is done and the answer is 409 `effect_changed`
+with the paragraph as it now reads in `detail.effect`. They then pass it as
+`expected_effect`, so the action checks it once more under its own locks and
+refuses the same way (`EffectChanged`; `detail.effect` is null when the action
+can no longer be done, and the message says why). Refusals answer
+`{"detail": {"code", "message", "fields"}}` with the codes above. These
+routes do not check that a person clicked Approve; the card is the MCP's.
+There is no route for another host or attendance.
 
 Changing the host refuses: 404 `unknown_showing` or `unknown_agent`; 409
 `not_scheduled`, `started`, `same_host`, `event_being_sent`, and the agent's
