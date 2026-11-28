@@ -285,3 +285,45 @@ async def test_a_captured_confirmation_books_as_capture_mode_does(lead, monkeypa
         ("resident_new_showing", "captured"),
     ]
     assert lead.world.texts.sent == []
+
+
+@pytest.mark.asyncio
+async def test_outside_production_a_prospects_new_email_is_refused_too(monkeypatch):
+    """The showing booking's emails to a prospect use a second Gmail call; it refuses
+    by the same rule."""
+    environment(monkeypatch, PREVIEW)
+    send = gmail(monkeypatch, reachable=False)
+
+    with pytest.raises(handle.NotProduction):
+        await handle.send_new_email("alex@example.com", "Your showing", "Hello", "<p>Hello</p>")
+
+    send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_prospects_new_email_goes_to_the_test_list_and_in_production(monkeypatch):
+    for where, test_list in ((PREVIEW, "alex@example.com"), ("production", None)):
+        environment(monkeypatch, where)
+        if test_list:
+            monkeypatch.setenv("SHOWING_TEST_EMAILS", test_list)
+        send = gmail(monkeypatch, reachable=True)
+
+        assert await handle.send_new_email("alex@example.com", "S", "T", None) == {"id": "gmail-1"}
+        assert send.await_args.kwargs["sender"] == "Sernia Capital <all@serniacapital.com>"
+        assert send.await_args.kwargs["message_html"] is None
+
+
+@pytest.mark.asyncio
+async def test_outside_production_the_showing_sender_refuses_a_new_email(monkeypatch):
+    from api.src.showing_bookings.gmail_thread import GmailThreadSender
+    from api.src.showing_bookings.providers import NewEmail, NotSent
+
+    environment(monkeypatch, PREVIEW)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    send = gmail(monkeypatch, reachable=False)
+
+    with pytest.raises(NotSent) as refused:
+        await GmailThreadSender().send_new(NewEmail("alex@example.com", "S", "T", "<p>T</p>"))
+
+    assert refused.value.reason == "not_production"
+    send.assert_not_awaited()

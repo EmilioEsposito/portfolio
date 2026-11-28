@@ -9,7 +9,8 @@ It sends the way the lead agent's replies go (``zillow_leads.handle``). Only
   conversation just before.
 - A new email to a prospect (``send_new``): ``handle.send_new_email``, the
   same Gmail call and credentials with no thread, as plain text with an HTML
-  alternative.
+  alternative. Outside production, to an address off the test list, it is
+  ``NotSent`` too, and ``send_new_email`` refuses as well.
 
 - Outside production, to an address off the test list
   (``handle.captures_lead_email``): ``NotSent``, nothing read or sent.
@@ -74,6 +75,9 @@ class GmailThreadSender:
             )
         from api.src.zillow_leads import handle
 
+        if handle.captures_lead_email(email.to):
+            # The same rule as the guard's, so this answers only if the two disagree.
+            raise NotSent("not_production", "A prospect's email goes out only from production.")
         try:
             result = await handle.send_new_email(email.to, email.subject, email.text, email.html)
         except Exception as error:

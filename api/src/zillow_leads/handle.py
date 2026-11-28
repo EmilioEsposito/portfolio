@@ -31,8 +31,10 @@ is made here, in code, from facts the lead cannot influence:
   approved reply is captured, not sent (``captures_lead_email``, the booking
   guard's own rule): it is saved on the conversation as a sent one would be,
   marked ``captured``, and settles its booking as capture mode settles a
-  captured notice, as if it had gone out. ``send_thread_email``, the one Gmail
-  call, refuses outside production too.
+  captured notice, as if it had gone out. The two Gmail calls,
+  ``send_thread_email`` (replies and the showing reminder in a thread) and
+  ``send_new_email`` (the showing booking's emails to a prospect), refuse
+  outside production too.
 
 A conversation saved by this module is marked with ``HANDLER``. Approvals for
 it are applied here (``apply_approval``) and never resume a model: the reply
@@ -554,8 +556,13 @@ async def send_new_email(to: str, subject: str, text: str, html: str | None) -> 
     Gmail call and credentials as ``send_thread_email``, and answer Gmail's result.
 
     Used only by the showing booking's emails to a prospect
-    (``showing_bookings/gmail_thread.py``), after the outbox's guard.
+    (``showing_bookings/gmail_thread.py``), after the outbox's guard. Raises
+    ``NotProduction``, with nothing sent, for an address ``captures_lead_email``
+    captures (the guard's own rule): the caller checks first, so this is the
+    backstop.
     """
+    if captures_lead_email(to):
+        raise NotProduction("An email goes out only from production; nothing was sent.")
     return await _send_email(
         to=to,
         subject=subject,

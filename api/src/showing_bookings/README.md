@@ -271,7 +271,9 @@ joins live a showing that was booked in capture mode.
   `send_reply`, and never unthreaded (headers it cannot read are `NotSent`,
   tried again later); a new email goes with `handle.send_new_email`, the same
   call and credentials with no thread, from "Sernia Capital
-  <all@serniacapital.com>".
+  <all@serniacapital.com>". Outside production both refuse an address off the
+  test list before Gmail (`handle.captures_lead_email`, the guard's own rule),
+  behind the guard that already captures it.
   Gmail's refusals (by the lead agent's own `handle.send_result`) become
   `NotSent`; anything else may have gone out and is saved as `unknown`.
 - `TeamAlerter`: an alert on the team's phones. `push.PushTeamAlerter` uses
