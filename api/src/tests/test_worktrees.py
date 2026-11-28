@@ -96,6 +96,25 @@ class WorktreeTests(unittest.TestCase):
             wt.update_env(source, destination, {"PORT": "8050"})
         self.assertIn("PORT=8000", source.read_text())
 
+    def test_new_worktree_only_copies_dedicated_local_operations_key(self) -> None:
+        source, destination = self.root / "source", self.root / "destination"
+        hosted = ("PORTFOLIO_OPENROUTER_API_KEY", "OPENROUTER_API_KEY")
+        source.write_text(
+            "PORTFOLIO_OPENROUTER_API_KEY=hosted\n export OPENROUTER_API_KEY=generic\nLOCAL_PORTFOLIO_OPENROUTER_API_KEY=local\n"
+        )
+        wt.update_env(source, destination, {"PORT": "8050"}, omit_on_copy=hosted)
+        self.assertEqual(
+            wt.env_settings(destination),
+            {"PORT": "8050", "LOCAL_PORTFOLIO_OPENROUTER_API_KEY": "local"},
+        )
+        destination.unlink()
+        source.write_text(
+            "  export 'PORTFOLIO_OPENROUTER_API_KEY'='hosted' # legacy\nLOCAL_PORTFOLIO_OPENROUTER_API_KEY=hosted\n"
+        )
+        with self.assertRaisesRegex(wt.WorktreeError, "separate development credential"):
+            wt.update_env(source, destination, {"PORT": "8050"}, omit_on_copy=hosted)
+        self.assertFalse(destination.exists())
+
     def test_once_skips_main_non_git_and_completed_worktrees(self) -> None:
         wt.provision(self.root, once=True)
         wt.provision(self.main, once=True)

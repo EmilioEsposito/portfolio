@@ -65,11 +65,11 @@ unless explicitly stated otherwise.
 
 | Model | Gateway | Key | Model string |
 |-------|---------|-----|--------------|
-| GPT-6 Luna (default) / GPT-5.6 Luna | **OpenRouter** | `PORTFOLIO_OPENROUTER_API_KEY` → bridged to `OPENROUTER_API_KEY` in `api/__init__.py` | `openrouter:openai/gpt-6-luna` / `openrouter:openai/gpt-5.6-luna` |
+| GPT-6 Luna (default) / GPT-5.6 Luna | **OpenRouter** | `PORTFOLIO_OPENROUTER_API_KEY` on Railway, `LOCAL_PORTFOLIO_OPENROUTER_API_KEY` locally | `openrouter:openai/gpt-6-luna` / `openrouter:openai/gpt-5.6-luna` |
 | Claude Sonnet 4.6 / Opus 4.7 | **OpenRouter** | same | `openrouter:anthropic/claude-sonnet-4.6` / `openrouter:anthropic/claude-opus-4.7` |
 | Sub-agents (summarize / compact) | **OpenRouter** | same | `openrouter:anthropic/claude-haiku-4.5` |
-| Default escalation assessor (Luna, low) | **OpenRouter** | `PORTFOLIO_OPENROUTER_API_KEY` | `openai/gpt-5.6-luna` |
-| Optional Jev escalation classifier | **OpenRouter Decisions** | `PORTFOLIO_OPENROUTER_API_KEY` | `typesafe/jev-1.13` |
+| Default escalation assessor (Luna, low) | **OpenRouter** | Same operations key as above | `openai/gpt-5.6-luna` |
+| Optional Jev escalation classifier | **OpenRouter Decisions** | Same operations key as above | `typesafe/jev-1.13` |
 
 All runtime inference uses OpenRouter, including demo, email classification,
 and escalation calls. Claude selections keep their model identities; direct

@@ -1,10 +1,10 @@
 # Inference gateway and public AI budgets
 
-All runtime LLM calls use **OpenRouter**. Set `PORTFOLIO_OPENROUTER_API_KEY`
-from [OpenRouter keys](https://openrouter.ai/keys) in the deployment secret
-manager. `api/__init__.py` bridges it to `OPENROUTER_API_KEY` for PydanticAI;
-`llm.py` provides lazy operational SDK clients with the same key and explicit
-OpenRouter base URL. Public chat demos use only
+Local operational inference and evals require a separately issued
+`LOCAL_PORTFOLIO_OPENROUTER_API_KEY`. Give it its own credit limit in
+[OpenRouter keys](https://openrouter.ai/keys). The Railway API server uses
+`PORTFOLIO_OPENROUTER_API_KEY`. SDK clients receive the selected key explicitly.
+Public chat demos use only
 `PUBLIC_PORTFOLIO_OPENROUTER_API_KEY`, a separate capped key. Public model
 credentials are resolved at inference time; missing public configuration returns
 503 and cannot use the operations key or prevent application startup. There is no direct OpenAI/Anthropic fallback. Never place keys in

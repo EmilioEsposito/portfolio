@@ -21,10 +21,11 @@ from pydantic_ai.messages import (
 
 from api.src.sernia_ai.config import SUB_AGENT_MODEL, SUMMARIZATION_CHAR_THRESHOLD
 from api.src.sernia_ai.deps import SerniaDeps
+from api.src.utils.openrouter_models import resolve_model
 
 # Module-level summarizer agent (Claude Haiku, no tools)
 _summarizer = Agent(
-    SUB_AGENT_MODEL,
+    resolve_model(SUB_AGENT_MODEL),
     instructions=(
         "You are a concise summarizer. Given a tool result, produce a short summary "
         "that preserves all key facts, numbers, names, dates, and actionable details. "

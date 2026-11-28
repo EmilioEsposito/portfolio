@@ -21,10 +21,11 @@ from pydantic_ai.messages import (
 
 from api.src.sernia_ai.config import SUB_AGENT_MODEL, TOKEN_COMPACTION_THRESHOLD
 from api.src.sernia_ai.deps import SerniaDeps
+from api.src.utils.openrouter_models import resolve_model
 
 # Module-level compactor agent (Claude Haiku, no tools)
 _compactor = Agent(
-    SUB_AGENT_MODEL,
+    resolve_model(SUB_AGENT_MODEL),
     instructions=(
         "You are a conversation summarizer. Given a conversation transcript, "
         "produce a structured summary that preserves:\n"
