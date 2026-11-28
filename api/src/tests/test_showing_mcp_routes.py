@@ -7,13 +7,15 @@
 - The read is the same document the Sernia agent's ``showings_read`` gives.
 - A booking or cancellation happens only with the paragraph a preview gave,
   the same paragraph the agent's approval card shows; a stale paragraph
-  changes nothing and answers with the new one.
+  changes nothing and answers with the new one, whether the route's first
+  comparison catches it or the action's own check under its lock does.
 
 ``test_showing_tools.py`` and ``test_showing_team_actions.py`` cover what the
 shared functions do. Quo is a ``RecordingTextSender``, the calendars an
 ``InMemoryCalendar``. Nothing is sent anywhere. Names and numbers are made up.
 """
 
+import dataclasses
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -430,3 +432,65 @@ async def test_a_stale_cancellation_paragraph_cancels_nothing(world):
     assert showing.status == "scheduled"
     assert {a.id: a.status for a in attendees}[alex_id] == "booked"
     assert (unknown.status_code, unknown.json()["detail"]["code"]) == (404, "unknown_showing")
+
+
+# ---------------------------------------------------------------------------
+# The check under the action's own lock
+# ---------------------------------------------------------------------------
+
+
+def stale_once(monkeypatch, name: str, stale):
+    """``effects.<name>`` answers ``stale(real answer)`` on its next call, then as it really would.
+
+    Stands in for a change that lands after the route's first comparison and
+    before the action takes its lock: only the check under the lock can see it.
+    """
+    real = getattr(effects, name)
+    calls = {"n": 0}
+
+    async def first_stale(*args, **kwargs):
+        calls["n"] += 1
+        answer = await real(*args, **kwargs)
+        return stale(answer) if calls["n"] == 1 else answer
+
+    monkeypatch.setattr(effects, name, first_stale)
+
+
+@pytest.mark.asyncio
+async def test_a_booking_that_changed_after_the_first_comparison_is_refused_under_the_lock(
+    world, monkeypatch
+):
+    stale_once(
+        monkeypatch, "preview_booking", lambda real: dataclasses.replace(real, sentence="STALE")
+    )
+    async with world.client(mcp_app(world)) as client:
+        answer = await client.post(f"{MCP}/showings/bookings", json={**casey(), "effect": "STALE"})
+
+    assert answer.status_code == 409, answer.text
+    detail = answer.json()["detail"]
+    assert detail["code"] == mcp_routes.EFFECT_CHANGED
+    assert detail["effect"].startswith("Books Casey Morgan into a new showing")
+    assert (await rows())[1] == []
+    assert world.texts.sent == []
+
+
+@pytest.mark.asyncio
+async def test_a_cancellation_that_changed_after_the_first_comparison_is_refused_under_the_lock(
+    world, monkeypatch
+):
+    showing_id, _, _ = await two_booked(world)
+    sent_before = len(world.texts.sent)
+    stale_once(monkeypatch, "preview_cancellation", lambda real: "STALE")
+    async with world.client(mcp_app(world)) as client:
+        answer = await client.post(
+            f"{MCP}/showings/cancellations", json={"showing_id": showing_id, "effect": "STALE"}
+        )
+
+    assert answer.status_code == 409, answer.text
+    detail = answer.json()["detail"]
+    assert detail["code"] == mcp_routes.EFFECT_CHANGED
+    assert detail["effect"].startswith("Cancels the showing")
+    (showing,), attendees, _ = await rows()
+    assert showing.status == "scheduled"
+    assert {a.status for a in attendees} == {"booked"}
+    assert len(world.texts.sent) == sent_before

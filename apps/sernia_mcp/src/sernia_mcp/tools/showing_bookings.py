@@ -192,9 +192,10 @@ async def _confirm_showing_book(pending_id: str, decision: str) -> str:
     try:
         return await core.book(_caller(), request["booking"], request["effect"])
     except core.EffectChangedError as changed:
+        now = f"It would now: {changed.effect}" if changed.effect else str(changed)
         raise ToolError(
-            "Not booked. What it would do changed after this card was shown. It would now: "
-            f"{changed.effect} Ask for a new card."
+            f"Not booked. What it would do changed after this card was shown. {now} "
+            "Ask for a new card."
         ) from changed
     except CoreError as error:
         raise ToolError(f"Not booked. {error}") from error
@@ -254,9 +255,10 @@ async def _confirm_showing_cancel(pending_id: str, decision: str) -> str:
             _caller(), request["showing_id"], request["attendee_id"], request["effect"]
         )
     except core.EffectChangedError as changed:
+        now = f"It would now: {changed.effect}" if changed.effect else str(changed)
         raise ToolError(
-            "Not cancelled. What it would do changed after this card was shown. It would now: "
-            f"{changed.effect} Ask for a new card."
+            f"Not cancelled. What it would do changed after this card was shown. {now} "
+            "Ask for a new card."
         ) from changed
     except CoreError as error:
         raise ToolError(f"Not cancelled. {error}") from error

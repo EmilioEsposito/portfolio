@@ -30,6 +30,7 @@ from api.src.showing_bookings import (
     connections,
     google_http,
     google_oauth,
+    mcp_routes,
     outbox,
     routes,
     token_crypto,
@@ -851,6 +852,17 @@ def test_every_showing_bookings_route_needs_a_sernia_user_but_the_public_ones():
         "/api/showing-bookings/public/team-phone",
     }
     assert not any(found.pop(path) for path in public)
+    # The Sernia MCP's routes take its OAuth token instead (mcp_routes.mcp_user), never a
+    # browser session: test_showing_mcp_routes.py checks that door.
+    mcp = {
+        route.path: route
+        for route in real_app.routes
+        if isinstance(route, APIRoute) and route.path.startswith("/api/showing-bookings/mcp/")
+    }
+    assert len(mcp) == 5
+    for path, route in mcp.items():
+        assert found.pop(path) is False
+        assert depends_on(route.dependant, mcp_routes.mcp_user), path
     assert {
         "/api/showing-bookings/calendar/connections",
         "/api/showing-bookings/calendar/connect",

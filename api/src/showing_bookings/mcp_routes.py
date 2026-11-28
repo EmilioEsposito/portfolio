@@ -23,7 +23,10 @@ the whole of what the MCP can reach in this module:
   nothing is done and the answer is 409 ``effect_changed`` with the paragraph
   as it now reads. Then ``team_actions.book_for_caller``,
   ``cancelling.cancel_showing`` or ``cancelling.remove_attendee`` runs, as
-  from the Booking settings tab, checking everything again under its locks.
+  from the Booking settings tab, with ``effects.booking_still_as_approved`` or
+  ``cancellation_still_as_approved`` as its ``checks``: the paragraph is worked
+  out once more under the action's own locks, so a join or a calendar change
+  that lands after the first comparison still changes nothing.
 
 A refusal answers ``{"detail": {"code", "message", "fields"}}``. Another host
 and who came are not here: neither the agent nor the MCP has a tool for them,
@@ -49,7 +52,7 @@ from api.src.showing_bookings.providers import TextSender
 from api.src.utils.clerk import verify_serniacapital_oauth_user
 
 # The refusal when the paragraph a person approved no longer describes what would happen.
-EFFECT_CHANGED = "effect_changed"
+EFFECT_CHANGED = effects.EFFECT_CHANGED
 
 
 async def mcp_user(request: Request) -> User:
@@ -88,6 +91,17 @@ def _changed(effect: str) -> HTTPException:
             "effect": effect,
         },
     )
+
+
+async def _changed_under_lock(refused: Refused, preview) -> HTTPException:
+    """The action's own check refused: answer as the first comparison does, with the
+    paragraph as it reads now, or with why nothing can be done now."""
+    if refused.code != EFFECT_CHANGED:
+        return _refusal(refused)
+    try:
+        return _changed(await preview())
+    except HTTPException as now_refused:
+        return now_refused
 
 
 class Effect(BaseModel):
@@ -182,9 +196,16 @@ async def book(body: Booking, user: McpUser, now: Now, texts: Texts):
             now=now,
             texts=texts,
             zillow_thread_id=body.thread(),
+            checks=effects.booking_still_as_approved(
+                body.team_request(), body.effect, now=now, zillow_thread_id=body.thread()
+            ),
         )
     except Refused as refused:
-        raise _refusal(refused) from None
+
+        async def again() -> str:
+            return (await _booking_effect(body, now)).sentence
+
+        raise await _changed_under_lock(refused, again) from None
     logfire.info(
         "showing bookings: booking added through the Sernia MCP",
         user_id=user.id,
@@ -247,13 +268,20 @@ async def cancel(body: Cancellation, user: McpUser, now: Now, texts: Texts):
     sentence = await _cancellation_effect(body, now)
     if sentence != body.effect:
         raise _changed(sentence)
+    checks = effects.cancellation_still_as_approved(
+        body.showing_id, body.attendee_id, body.effect, now=now
+    )
     try:
         if body.attendee_id is None:
-            done = await cancelling.cancel_showing(body.showing_id, now=now, texts=texts)
+            done = await cancelling.cancel_showing(
+                body.showing_id, now=now, texts=texts, checks=checks
+            )
         else:
             done = await cancelling.remove_attendee(
-                body.showing_id, body.attendee_id, now=now, texts=texts
+                body.showing_id, body.attendee_id, now=now, texts=texts, checks=checks
             )
+    except Refused as refused:
+        raise await _changed_under_lock(refused, lambda: _cancellation_effect(body, now)) from None
     except cancelling.NotFound:
         raise _refusal(
             Refused(404, "unknown_showing", "That showing or person no longer exists.")
