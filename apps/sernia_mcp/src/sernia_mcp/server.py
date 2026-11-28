@@ -78,6 +78,37 @@ logfire.instrument_httpx()
 logging.getLogger().addHandler(LogfireLoggingHandler(level=logging.INFO))
 
 
+def _oauth_client_storage(client_secret: str) -> dict:
+    """TRIAL, not for merge: keep the OAuth proxy's state in Postgres.
+
+    Returns the extra provider arguments. Off unless
+    ``SERNIA_MCP_OAUTH_STORE=postgres``: with it unset this returns nothing
+    and FastMCP keeps its encrypted file store under ``FASTMCP_HOME``,
+    as the standalone service does on its Railway volume.
+
+    The store is py-key-value-aio's ``PostgreSQLStore`` (one table, created on
+    first use) wrapped in Fernet, the same wrapper FastMCP puts round its file
+    store. The key is derived from the Clerk client secret, as FastMCP's own
+    is. A real move would give the store its own key and signing key, a small
+    connection pool, and a migration for the table.
+    """
+    if os.environ.get("SERNIA_MCP_OAUTH_STORE", "").strip().lower() != "postgres":
+        return {}
+    from cryptography.fernet import Fernet
+    from fastmcp.server.auth.jwt_issuer import derive_jwt_key
+    from key_value.aio.stores.postgresql import PostgreSQLStore
+    from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
+
+    url = os.environ.get("DATABASE_URL_UNPOOLED") or os.environ["DATABASE_URL"]
+    key = derive_jwt_key(high_entropy_material=client_secret, salt="sernia-mcp-oauth-store")
+    store = FernetEncryptionWrapper(
+        key_value=PostgreSQLStore(url=url, table_name="sernia_mcp_oauth_state"),
+        fernet=Fernet(key=key),
+        raise_on_decryption_error=False,
+    )
+    return {"client_storage": store}
+
+
 def _build_auth_provider():
     """Build the auth provider for the configured combination of Clerk + bearer.
 
@@ -123,6 +154,7 @@ def _build_auth_provider():
             client_secret=client_secret,
             base_url=base_url,
             enable_cimd=True,
+            **_oauth_client_storage(client_secret),
         )
 
     # Clerk + bearer: subclass at runtime to keep all of ClerkProvider's
@@ -137,6 +169,7 @@ def _build_auth_provider():
         client_secret=client_secret,
         base_url=base_url,
         enable_cimd=True,
+        **_oauth_client_storage(client_secret),
     )
 
 

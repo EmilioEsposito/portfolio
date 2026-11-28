@@ -75,6 +75,7 @@ from api.src.sernia_ai.config import WORKSPACE_PATH
 from api.src.sernia_ai.memory import initialize_workspace
 from api.src.sernia_ai.tools.code_tools import shutdown_code_sandbox, warm_code_sandbox
 from api.src.sernia_ai.triggers.scheduled_triggers import register_scheduled_triggers
+from api.src.sernia_mcp_host.trial import McpHostDispatch, load_mcp_app, with_mcp_lifespan
 from api.src.showing_bookings.calendar_callback import (
     CALLBACK_URL_PATTERN as SHOWING_CALLBACK_URL_PATTERN,
 )
@@ -313,7 +314,15 @@ async def lifespan(app: FastAPI):
     #     os._exit(0)
 
 
-app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
+# TRIAL, not for merge: the Sernia MCP server in this process, on its own
+# hostname. None unless SERNIA_MCP_HOSTNAME is set. See sernia_mcp_host/trial.py.
+_sernia_mcp = load_mcp_app()
+
+app = FastAPI(
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+    lifespan=with_mcp_lifespan(lifespan, _sernia_mcp[0] if _sernia_mcp else None),
+)
 
 # Google's calendar callback carries a one-time code and a signed state in its
 # query string, which request spans would record in full (Logfire never scrubs
@@ -353,6 +362,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# TRIAL: added last, so it is the outermost middleware. A request for the MCP
+# hostname goes to the MCP app before CORS, sessions or any API route see it.
+if _sernia_mcp:
+    app.add_middleware(McpHostDispatch, mcp_app=_sernia_mcp[0], hostname=_sernia_mcp[1])
 
 # Include all routers
 app.include_router(portfolio_router, prefix="/api")
